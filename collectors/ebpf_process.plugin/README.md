@@ -1,10 +1,10 @@
-# ebpf_process.plugin
+# eBPF monitoring with Netdata
 
 This collector plugin uses eBPF to monitor system calls inside your operating system's kernel. For now, the main goal of
 this plugin is to monitor IO and process management on the host where it is running.
 
 <figure>
-  <img src="https://user-images.githubusercontent.com/1153921/74746434-ad6a1e00-5222-11ea-858a-a7882617ae02.png" alt="n example of VFS charts, made possible by the eBPF collector plugin">
+  <img src="https://user-images.githubusercontent.com/1153921/74746434-ad6a1e00-5222-11ea-858a-a7882617ae02.png" alt="An example of VFS charts, made possible by the eBPF collector plugin" />
   <figcaption>An example of VFS charts, made possible by the eBPF collector plugin</figcaption>
 </figure>
 
