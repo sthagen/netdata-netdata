@@ -258,7 +258,7 @@ while [ -n "${1}" ]; do
     "--disable-go") NETDATA_DISABLE_GO=1 ;;
     "--enable-ebpf") NETDATA_ENABLE_EBPF=1 ;;
     "--disable-cloud")
-      NETDATA_DISABLE_LIBMOSQUITTO=1
+      NETDATA_DISABLE_CLOUD=1
       NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-aclk/} --disable-aclk"
       ;;
     "--install")
@@ -435,10 +435,6 @@ trap build_error EXIT
 
 # -----------------------------------------------------------------------------
 
-fetch_libmosquitto() {
-  download_tarball "${1}" "${2}" "libmosquitto" "cloud"
-}
-
 build_libmosquitto() {
   run make -C "${1}/lib"
 }
@@ -453,7 +449,7 @@ copy_libmosquitto() {
 }
 
 bundle_libmosquitto() {
-  if [ -n "${NETDATA_DISABLE_LIBMOSQUITTO}" ]; then
+  if [ -n "${NETDATA_DISABLE_CLOUD}" ]; then
     return 0
   fi
 
@@ -470,32 +466,79 @@ bundle_libmosquitto() {
   tmp="$(mktemp -d -t netdata-mosquitto-XXXXXX)"
   MOSQUITTO_PACKAGE_BASENAME="${MOSQUITTO_PACKAGE_VERSION}.tar.gz"
 
-  if [ -z "${NETDATA_LOCAL_TARBALL_OVERRIDE_MOSQUITTO}" ]; then
-    fetch_libmosquitto "https://github.com/netdata/mosquitto/archive/${MOSQUITTO_PACKAGE_BASENAME}" "${tmp}/${MOSQUITTO_PACKAGE_BASENAME}"
+  if fetch_and_verify "mosquitto" \
+                     "https://github.com/netdata/mosquitto/archive/${MOSQUITTO_PACKAGE_BASENAME}" \
+                     "${MOSQUITTO_PACKAGE_BASENAME}" \
+                     "${tmp}" \
+                     "${NETDATA_LOCAL_TARBALL_OVERRIDE_MOSQUITTO}"
+  then
+    if run tar -xf "${tmp}/${MOSQUITTO_PACKAGE_BASENAME}" -C "${tmp}" && \
+       build_libmosquitto "${tmp}/mosquitto-${MOSQUITTO_PACKAGE_VERSION}" && \
+       copy_libmosquitto "${tmp}/mosquitto-${MOSQUITTO_PACKAGE_VERSION}" && \
+       rm -rf "${tmp}"
+    then
+      run_ok "libmosquitto built and prepared."
+    else
+      run_failed "Failed to build libmosquitto. The install process will continue, but you will not be able to connect this node to Netdata Cloud."
+    fi
   else
-    progress "Using provided mosquitto tarball ${NETDATA_LOCAL_TARBALL_OVERRIDE_MOSQUITTO}"
-    run cp "${NETDATA_LOCAL_TARBALL_OVERRIDE_MOSQUITTO}" "${tmp}/${MOSQUITTO_PACKAGE_BASENAME}"
+    run_failed "Unable to fetch sources for libmosquitto. The install process will continue, but you will not be able to connect this node to Netdata Cloud."
   fi
-
-  if [ ! -f "${tmp}/${MOSQUITTO_PACKAGE_BASENAME}" ] || [ ! -s "${tmp}/${MOSQUITTO_PACKAGE_BASENAME}" ]; then
-    run_failed "unable to find a usable libmosquitto source archive, Netdata Cloud will not be available"
-    return 0
-  fi
-
-  grep "${MOSQUITTO_PACKAGE_BASENAME}\$" "${INSTALLER_DIR}/packaging/mosquitto.checksums" > "${tmp}/sha256sums.txt" 2> /dev/null
-
-  # Checksum validation
-  if ! (cd "${tmp}" && safe_sha256sum -c "sha256sums.txt"); then
-    run_failed "mosquitto files checksum validation failed."
-    return 0
-  fi
-
-  run tar -xf "${tmp}/${MOSQUITTO_PACKAGE_BASENAME}" -C "${tmp}"
-
-  build_libmosquitto "${tmp}/mosquitto-${MOSQUITTO_PACKAGE_VERSION}" && copy_libmosquitto "${tmp}/mosquitto-${MOSQUITTO_PACKAGE_VERSION}" && rm "${tmp}"
 }
 
 bundle_libmosquitto
+
+# -----------------------------------------------------------------------------
+
+build_libwebsockets() {
+  pushd "${1}" > /dev/null || exit 1
+  cmake -D LWS_WITH_SOCKS5:bool=ON .
+  make
+  popd > /dev/null || exit 1
+}
+
+copy_libwebsockets() {
+  target_dir="${PWD}/externaldeps/libwebsockets"
+
+  run mkdir -p "${target_dir}" || return 1
+
+  run cp "${1}/lib/libwebsockets.a" "${target_dir}/libwebsockets.a" || return 1
+  run cp -r "${1}/include" "${target_dir}" || return 1
+}
+
+bundle_libwebsockets() {
+  if [ -n "${NETDATA_DISABLE_CLOUD}" ] ; then
+    return 0
+  fi
+
+  progress "Prepare libwebsockets"
+
+  LIBWEBSOCKETS_PACKAGE_VERSION="$(cat packaging/libwebsockets.version)"
+
+  tmp="$(mktemp -d -t netdata-libwebsockets-XXXXXX)"
+  LIBWEBSOCKETS_PACKAGE_BASENAME="v${LIBWEBSOCKETS_PACKAGE_VERSION}.tar.gz"
+
+  if fetch_and_verify "libwebsockets" \
+                      "https://github.com/warmcat/libwebsockets/archive/${LIBWEBSOCKETS_PACKAGE_BASENAME}" \
+                      "${LIBWEBSOCKETS_PACKAGE_BASENAME}" \
+                      "${tmp}" \
+                      "${NETDATA_LOCAL_TARBALL_OVERRIDE_LIBWEBSOCKETS}"
+  then
+    if run tar -xf "${tmp}/${LIBWEBSOCKETS_PACKAGE_BASENAME}" -C "${tmp}" && \
+       build_libwebsockets "${tmp}/libwebsockets-${LIBWEBSOCKETS_PACKAGE_VERSION}" && \
+       copy_libwebsockets "${tmp}/libwebsockets-${LIBWEBSOCKETS_PACKAGE_VERSION}" && \
+       rm -rf "${tmp}"
+    then
+      run_ok "libwebsockets built and prepared."
+    else
+      run_failed "Failed to build libwebsockets. The install process will continue, but you may not be able to connect this node to Netdata Cloud."
+    fi
+  else
+    run_failed "Unable to fetch sources for libwebsockets. The install process will continue, but you may not be able to connect this node to Netdata Cloud."
+  fi
+}
+
+bundle_libwebsockets
 
 # -----------------------------------------------------------------------------
 echo >&2
@@ -1068,20 +1111,29 @@ get_compatible_kernel_for_ebpf() {
 
   # XXX: Logic taken from Slack discussion in #ebpf
   # everything that has a version <= 4.14 can use the code built to 4.14
-  # Continue the logic, everything that has a version <= 4.19 and >= 4.15 can use the code built to 4.19
+  # also all distributions that has a version <= 4.15.256 can use the code built to 4.15
+  # Continue the logic, everything that has a version < 4.19.102 and >= 4.15 can use the code built to 4.19
+  # Kernel 4.19 had a feature added in the version 4.19.102 that force us to break it in two, so version >= 4.19.102
+  # and smaller than < 5.0 runs with code built to 4.19.102
   # Finally,  everybody that is using 5.X can use what is compiled with 5.4
 
   kpkg=
 
   if [ "${kver}" -ge 005000000 ]; then
-    echo >&2 " Using eBPF Kernel Package built against Linux 5.4"
-    kpkg="5_4"
-  elif [ "${kver}" -ge 004015000 ] && [ "${kver}" -le 004020017 ]; then
-    echo >&2 " Using eBPF Kernel Package built against Linux 4.19"
-    kpkg="4_19"
+    echo >&2 " Using eBPF Kernel Package built against Linux 5.4.20"
+    kpkg="5_4_20"
+  elif [ "${kver}" -ge 004019102 ] && [ "${kver}" -le 004020017 ]; then
+    echo >&2 " Using eBPF Kernel Package built against Linux 4.19.104"
+    kpkg="4_19_104"
+  elif [ "${kver}" -ge 004016000 ] && [ "${kver}" -le 004020017 ]; then
+    echo >&2 " Using eBPF Kernel Package built against Linux 4.19.98"
+    kpkg="4_19_98"
+  elif [ "${kver}" -ge 004015000 ] && [ "${kver}" -le 004015256 ]; then
+    echo >&2 " Using eBPF Kernel Package built against Linux 4.15.18"
+    kpkg="4_15_18"
   elif [ "${kver}" -le 004014999 ]; then
-    echo >&2 " Using eBPF Kernel Package built against Linux 4.14"
-    kpkg="4_14"
+    echo >&2 " Using eBPF Kernel Package built against Linux 4.14.171"
+    kpkg="4_14_171"
   else
     echo >&2 " ERROR: Cannot detect a supported kernel on your system!"
     return 1
@@ -1198,7 +1250,7 @@ install_ebpf() {
   run cp -a -v "${tmp}/libnetdata_ebpf.so" "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d"
   run cp -a -v "${tmp}"/pnetdata_ebpf_process.o "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d"
   run cp -a -v "${tmp}"/rnetdata_ebpf_process.o "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d"
-  run ln -v -f -s "${libdir}"/libbpf_kernel.so "${libdir}"libbpf_kernel.so.0
+  run ln -v -f -s "${libdir}"/libbpf_kernel.so "${libdir}"/libbpf_kernel.so.0
   run ldconfig
 
   echo >&2 "ePBF installation all done!"
