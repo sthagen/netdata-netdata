@@ -169,19 +169,14 @@ AC_ARG_ENABLE(
     [cloud],
     [AS_HELP_STRING([--disable-cloud],
                     [Disables all cloud functionality])],
-    [],
-    [enable_cloud="no"]
+    [ enable_cloud="$enableval" ],
+    [ enable_cloud="detect" ]
 )
 
-AC_MSG_CHECKING([if cloud functionality should be enabled])
-if test "${enable_cloud}" != "no"; then
-    AC_DEFINE([ENABLE_CLOUD], [1], [netdata cloud functionality])
-    aclk_required="detect"
-else
-    aclk_required="no"
+aclk_required="${enable_cloud}"
+if test "${enable_cloud}" = "no"; then
+    AC_DEFINE([DISABLE_CLOUD], [1], [disable netdata cloud functionality])
 fi
-AC_MSG_RESULT([${enable_cloud}])
-AM_CONDITIONAL([ENABLE_CLOUD], [test "${enable_cloud}" = "yes"])
 
 # -----------------------------------------------------------------------------
 # netdata required checks
@@ -556,35 +551,57 @@ AM_CONDITIONAL([ENABLE_CAPABILITY], [test "${with_libcap}" = "yes"])
 # -----------------------------------------------------------------------------
 # ACLK
 
-if test "$enable_cloud" = "yes"; then
-    AC_MSG_CHECKING([if libmosquitto static lib is present])
+AC_MSG_CHECKING([if cloud functionality should be enabled])
+AC_MSG_RESULT([${enable_cloud}])
+if test "$enable_cloud" != "no"; then
+    # just to have all messages that can fail ACLK build in one place
+    # so it is easier to see why it can't be built
+    if test -n "${SSL_LIBS}"; then
+        OPTIONAL_SSL_CFLAGS="${SSL_CFLAGS}"
+        OPTIONAL_SSL_LIBS="${SSL_LIBS}"
+    else
+        AC_MSG_WARN([OpenSSL required for agent-cloud-link but not found. Try installing 'libssl-dev' or 'openssl-devel'.])
+    fi
+
+    AC_MSG_CHECKING([if libmosquitto static lib is present (and builds)])
     if test -f "externaldeps/mosquitto/libmosquitto.a"; then
-        HAVE_libmosquitto_a="yes"
+        LIBS_BKP="${LIBS}"
+        LIBS="externaldeps/mosquitto/libmosquitto.a ${OPTIONAL_SSL_LIBS}"
+        AC_LINK_IFELSE([AC_LANG_SOURCE([[#include "externaldeps/mosquitto/mosquitto.h"
+                                         int main (int argc, char **argv) {
+                                             int m,mm,r;
+                                             mosquitto_lib_version(&m, &mm, &r);
+                                         }]])],
+                                        [HAVE_libmosquitto_a="yes"],
+                                        [HAVE_libmosquitto_a="no"])
+        LIBS="${LIBS_BKP}"
     else
         HAVE_libmosquitto_a="no"
+        AC_DEFINE([ACLK_NO_LIBMOSQ], [1], [Libmosquitto.a was not found during build.])
     fi
     AC_MSG_RESULT([${HAVE_libmosquitto_a}])
 
     AC_MSG_CHECKING([if libwebsockets static lib is present])
     if test -f "externaldeps/libwebsockets/libwebsockets.a"; then
-        LWS_LIBS="-I externaldeps/libwebsockets/include"
+        LWS_CFLAGS="-I externaldeps/libwebsockets/include"
         HAVE_libwebsockets_a="yes"
     else
         HAVE_libwebsockets_a="no"
+        AC_DEFINE([ACLK_NO_LWS], [1], [libwebsockets.a was not found during build.])
     fi
     AC_MSG_RESULT([${HAVE_libwebsockets_a}])
 
     if test "${build_target}" = "linux" -a "${aclk_required}" != "no"; then
         if test "${have_libcap}" = "yes" -a "${with_libcap}" = "no"; then
-            AC_MSG_ERROR([agent-cloud-link can't be built without libcap. Disable it by --disable-aclk or enable libcap])
+            AC_MSG_ERROR([agent-cloud-link can't be built without libcap. Disable it by --disable-cloud or enable libcap])
         fi
         if test "${with_libcap}" = "yes"; then
-            LWS_LIBS+=" -lcap"
+            LWS_CFLAGS+=" ${LIBCAP_CFLAGS}"
         fi
     fi
 
     AC_MSG_CHECKING([if netdata agent-cloud-link can be enabled])
-    if test "${HAVE_libmosquitto_a}" = "yes" -a "${HAVE_libwebsockets_a}" = "yes"; then
+    if test "${HAVE_libmosquitto_a}" = "yes" -a "${HAVE_libwebsockets_a}" = "yes" -a -n "${SSL_LIBS}"; then
         can_enable_aclk="yes"
     else
         can_enable_aclk="no"
@@ -1213,7 +1230,7 @@ AC_SUBST([webdir])
 
 CFLAGS="${CFLAGS} ${OPTIONAL_MATH_CFLAGS} ${OPTIONAL_NFACCT_CFLAGS} ${OPTIONAL_ZLIB_CFLAGS} ${OPTIONAL_UUID_CFLAGS} \
     ${OPTIONAL_LIBCAP_CFLAGS} ${OPTIONAL_IPMIMONITORING_CFLAGS} ${OPTIONAL_CUPS_CFLAGS} ${OPTIONAL_XENSTAT_FLAGS} \
-    ${OPTIONAL_KINESIS_CFLAGS} ${OPTIONAL_PROMETHEUS_REMOTE_WRITE_CFLAGS} ${OPTIONAL_MONGOC_CFLAGS} ${LWS_LIBS}"
+    ${OPTIONAL_KINESIS_CFLAGS} ${OPTIONAL_PROMETHEUS_REMOTE_WRITE_CFLAGS} ${OPTIONAL_MONGOC_CFLAGS} ${LWS_CFLAGS}"
 
 CXXFLAGS="${CFLAGS} ${CXX11FLAG}"
 
@@ -1332,6 +1349,7 @@ AC_CONFIG_FILES([
     exporting/prometheus/Makefile
     exporting/prometheus/remote_write/Makefile
     exporting/aws_kinesis/Makefile
+    exporting/mongodb/Makefile
     exporting/tests/Makefile
     health/Makefile
     health/notifications/Makefile

@@ -406,6 +406,9 @@ static void security_init(){
     snprintfz(filename, FILENAME_MAX, "%s/ssl/cert.pem",netdata_configured_user_config_dir);
     security_cert    = config_get(CONFIG_SECTION_WEB, "ssl certificate",  filename);
 
+    tls_version    = config_get(CONFIG_SECTION_WEB, "tls version",  "1.3");
+    tls_ciphers    = config_get(CONFIG_SECTION_WEB, "tls ciphers",  "none");
+
     security_openssl_library();
 }
 #endif
@@ -575,6 +578,21 @@ static void get_netdata_configured_variables() {
     get_system_HZ();
     get_system_cpus();
     get_system_pid_max();
+
+    // --------------------------------------------------------------------
+    // Check if the cloud is enabled
+#ifdef DISABLE_CLOUD
+    netdata_cloud_setting = 0;
+#else
+    char *cloud = config_get(CONFIG_SECTION_GLOBAL, "netdata cloud", "coming soon");
+    if (!strcmp(cloud, "coming soon")) {
+        netdata_cloud_setting = 0;          // Note: this flips to 1 after the release
+    } else if (!strcmp(cloud, "enable")) {
+        netdata_cloud_setting = 1;
+    } else if (!strcmp(cloud, "disable")) {
+        netdata_cloud_setting = 0;
+    }
+#endif
 }
 
 static void get_system_timezone(void) {
@@ -1338,6 +1356,28 @@ int main(int argc, char **argv) {
     netdata_ready = 1;
 
     send_statistics("START", "-",  "-");
+
+    // ------------------------------------------------------------------------
+    // Report ACLK build failure
+#ifndef ENABLE_ACLK
+    error("This agent doesn't have ACLK.");
+    char filename[FILENAME_MAX + 1];
+    snprintfz(filename, FILENAME_MAX, "%s/.aclk_report_sent", netdata_configured_varlib_dir);
+    if (netdata_anonymous_statistics_enabled > 0 && access(filename, F_OK)) { // -1 -> not initialized
+        send_statistics("ACLK_DISABLED", "-", "-");
+#ifdef ACLK_NO_LWS
+        send_statistics("BUILD_FAIL_LWS", "-", "-");
+#endif
+#ifdef ACLK_NO_LIBMOSQ
+        send_statistics("BUILD_FAIL_MOSQ", "-", "-");
+#endif
+        int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 444);
+        if (fd == -1)
+            error("Cannot create file '%s'. Please fix this.", filename);
+        else
+            close(fd);
+    }
+#endif
 
     // ------------------------------------------------------------------------
     // unblock signals

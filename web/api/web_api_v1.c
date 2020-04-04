@@ -489,7 +489,7 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     st->last_accessed_time = now_realtime_sec();
 
     long long before = (before_str && *before_str)?str2l(before_str):0;
-    long long after  = (after_str  && *after_str) ?str2l(after_str):0;
+    long long after  = (after_str  && *after_str) ?str2l(after_str):-600;
     int       points = (points_str && *points_str)?str2i(points_str):0;
     long      group_time = (group_time_str && *group_time_str)?str2l(group_time_str):0;
 
@@ -807,6 +807,7 @@ inline void host_labels2json(RRDHOST *host, BUFFER *wb, size_t indentation) {
     rrdhost_unlock(host);
 }
 
+extern int aclk_connected;
 inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
 {
     buffer_strcat(wb, "{\n");
@@ -861,10 +862,13 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     chartcollectors2json(host, wb);
     buffer_strcat(wb, "\n\t],\n");
 
-#ifdef ENABLE_CLOUD
-    buffer_strcat(wb, "\t\"cloud-enabled\": true,\n");
-#else
+#ifdef DISABLE_CLOUD
     buffer_strcat(wb, "\t\"cloud-enabled\": false,\n");
+#else
+    if (netdata_cloud_setting)
+        buffer_strcat(wb, "\t\"cloud-enabled\": true,\n");
+    else
+        buffer_strcat(wb, "\t\"cloud-enabled\": false,\n");
 #endif
 #ifdef ENABLE_ACLK
     buffer_strcat(wb, "\t\"cloud-available\": true,\n");
@@ -872,9 +876,15 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     buffer_strcat(wb, "\t\"cloud-available\": false,\n");
 #endif
     if (is_agent_claimed() == NULL)
-        buffer_strcat(wb, "\t\"agent-claimed\": false\n");
+        buffer_strcat(wb, "\t\"agent-claimed\": false,\n");
     else
-        buffer_strcat(wb, "\t\"agent-claimed\": true\n");
+        buffer_strcat(wb, "\t\"agent-claimed\": true,\n");
+#ifdef ENABLE_ACLK
+    if (aclk_connected)
+        buffer_strcat(wb, "\t\"aclk-available\": true\n");
+    else
+#endif
+        buffer_strcat(wb, "\t\"aclk-available\": false\n");     // Intentionally valid with/without #ifdef above
 
     buffer_strcat(wb, "}");
     return 0;

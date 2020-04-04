@@ -48,6 +48,10 @@ defer_error() {
   NETDATA_DEFERRED_ERRORS="${NETDATA_DEFERRED_ERRORS}\n* ${1}"
 }
 
+defer_error_highlighted() {
+  NETDATA_DEFERRED_ERRORS="${TPUT_YELLOW}${TPUT_BOLD}${NETDATA_DEFERRED_ERRORS}\n* ${1}${TPUT_RESET}"
+}
+
 print_deferred_errors() {
   if [ -n "${NETDATA_DEFERRED_ERRORS}" ] ; then
     echo >&2
@@ -189,7 +193,8 @@ USAGE: ${PROGRAM} [options]
                              This results in more frequent updates.
   --disable-go               Disable installation of go.d.plugin.
   --enable-ebpf              Enable eBPF Kernel plugin (Default: disabled, feature preview)
-  --disable-cloud            Disable all cloud functionality.
+  --disable-cloud            Disable all Netdata Cloud functionality.
+  --require-cloud            Fail the install if it can't build Netdata Cloud support.
   --enable-plugin-freeipmi   Enable the FreeIPMI plugin. Default: enable it when libipmimonitoring is available.
   --disable-plugin-freeipmi
   --disable-https            Explicitly disable TLS support
@@ -276,12 +281,20 @@ while [ -n "${1}" ]; do
     "--disable-go") NETDATA_DISABLE_GO=1 ;;
     "--enable-ebpf") NETDATA_ENABLE_EBPF=1 ;;
     "--disable-cloud")
-      NETDATA_DISABLE_CLOUD=1
-      NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-cloud/} --disable-cloud"
+      if [ -n "${NETDATA_REQUIRE_CLOUD}" ] ; then
+        echo "Cloud explicitly enabled, ignoring --disable-cloud."
+      else
+        NETDATA_DISABLE_CLOUD=1
+        NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-cloud/} --disable-cloud"
+      fi
       ;;
-    "--cloud-testing")          # Temporary, until we flip the feature flag. Internal use only
-      NETDATA_DISABLE_CLOUD=0
-      NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-cloud/} --enable-cloud"
+    "--require-cloud")
+      if [ -n "${NETDATA_DISABLE_CLOUD}" ] ; then
+        echo "Cloud explicitly disabled, ignoring --require-cloud."
+      else
+        NETDATA_REQUIRE_CLOUD=1
+        NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--enable-cloud/} --enable-cloud"
+      fi
       ;;
     "--install")
       NETDATA_PREFIX="${2}/netdata"
@@ -472,6 +485,7 @@ copy_libmosquitto() {
 
 bundle_libmosquitto() {
   if [ -n "${NETDATA_DISABLE_CLOUD}" ]; then
+    echo "Skipping cloud"
     return 0
   fi
 
@@ -501,12 +515,20 @@ bundle_libmosquitto() {
     then
       run_ok "libmosquitto built and prepared."
     else
-      run_failed "Failed to build libmosquitto. The install process will continue, but you will not be able to connect this node to Netdata Cloud."
-      defer_error "Failed to build libmosquitto. The install process will continue, but you will not be able to connect this node to Netdata Cloud."
+      run_failed "Failed to build libmosquitto."
+      if [ -n "${NETDATA_REQUIRE_CLOUD}" ] ; then
+        exit 1
+      else
+        defer_error_highlighted "Unable to fetch sources for libmosquitto. You will not be able to connect this node to Netdata Cloud."
+      fi
     fi
   else
-    run_failed "Unable to fetch sources for libmosquitto. The install process will continue, but you will not be able to connect this node to Netdata Cloud."
-    defer_error "Unable to fetch sources for libmosquitto. The install process will continue, but you will not be able to connect this node to Netdata Cloud."
+    run_failed "Unable to fetch sources for libmosquitto."
+    if [ -n "${NETDATA_REQUIRE_CLOUD}" ] ; then
+      exit 1
+    else
+      defer_error_highlighted "Unable to fetch sources for libmosquitto. You will not be able to connect this node to Netdata Cloud."
+    fi
   fi
 }
 
@@ -535,6 +557,12 @@ bundle_libwebsockets() {
     return 0
   fi
 
+  if [ -z "$(command -v cmake)" ] ; then
+    run_failed "Could not find cmake, which is required to build libwebsockets. The install process will continue, but you may not be able to connect this node to Netdata Cloud."
+    defer_error_highlighted "Could not find cmake, which is required to build libwebsockets. The install process will continue, but you may not be able to connect this node to Netdata Cloud."
+    return 0
+  fi
+
   progress "Prepare libwebsockets"
 
   LIBWEBSOCKETS_PACKAGE_VERSION="$(cat packaging/libwebsockets.version)"
@@ -555,16 +583,31 @@ bundle_libwebsockets() {
     then
       run_ok "libwebsockets built and prepared."
     else
-      run_failed "Failed to build libwebsockets. The install process will continue, but you may not be able to connect this node to Netdata Cloud."
-      defer_error "Failed to build libwebsockets. The install process will continue, but you may not be able to connect this node to Netdata Cloud."
+      run_failed "Failed to build libwebsockets."
+      if [ -n "${NETDATA_REQUIRE_CLOUD}" ] ; then
+        exit 1
+      else
+        defer_error_highlighted "Failed to build libwebsockets. You may not be able to connect this node to Netdata Cloud."
+      fi
     fi
   else
-    run_failed "Unable to fetch sources for libwebsockets. The install process will continue, but you may not be able to connect this node to Netdata Cloud."
-    defer_error "Unable to fetch sources for libwebsockets. The install process will continue, but you may not be able to connect this node to Netdata Cloud."
+    run_failed "Unable to fetch sources for libwebsockets."
+    if [ -n "${NETDATA_REQUIRE_CLOUD}" ] ; then
+      exit 1
+    else
+      defer_error_highlighted "Unable to fetch sources for libwebsockets. You may not be able to connect this node to Netdata Cloud."
+    fi
   fi
 }
 
 bundle_libwebsockets
+
+# -----------------------------------------------------------------------------
+# If we have the dashboard switching logic, make sure we're on the classic
+# dashboard during the install (updates don't work correctly otherwise).
+if [ -x "${NETDATA_PREFIX}/usr/libexec/netdata-switch-dashboard.sh" ] ; then
+  "${NETDATA_PREFIX}/usr/libexec/netdata-switch-dashboard.sh" classic
+fi
 
 # -----------------------------------------------------------------------------
 echo >&2
@@ -956,6 +999,57 @@ else
   run find "${NETDATA_PREFIX}/usr/libexec/netdata" -type f -exec chmod 0755 {} \;
   run find "${NETDATA_PREFIX}/usr/libexec/netdata" -type d -exec chmod 0755 {} \;
 fi
+
+# -----------------------------------------------------------------------------
+
+copy_react_dashboard() {
+  run rm -rf "${NETDATA_WEB_DIR}-react"
+  run rm -rf "${NETDATA_WEB_DIR}-classic"
+  run cp -a "${1}/" "${NETDATA_WEB_DIR}-react"
+  run cp -a "${NETDATA_WEB_DIR}/dashboard_info.js" "${NETDATA_WEB_DIR}-react"
+  run cp -a "${NETDATA_WEB_DIR}/dashboard.slate.css" "${NETDATA_WEB_DIR}-react"
+  run cp -a "${NETDATA_WEB_DIR}/dashboard.css" "${NETDATA_WEB_DIR}-react"
+  run cp -a "${NETDATA_WEB_DIR}/main.css" "${NETDATA_WEB_DIR}-react"
+  run echo "$(cd ${NETDATA_WEB_DIR}-react && find . -type f | sed -e 's/\.\///')" > "${NETDATA_WEB_DIR}-react/.files"
+  run cp -a "${NETDATA_WEB_DIR}" "${NETDATA_WEB_DIR}-classic"
+  run echo "$(find web/gui -type f | sed -e "s/web\/gui\///")" > "${NETDATA_WEB_DIR}-classic/.files"
+  run chown -R "${NETDATA_WEB_USER}:${NETDATA_WEB_GROUP}" "${NETDATA_WEB_DIR}-react"
+}
+
+install_react_dashboard() {
+  progress "Fetching and installing dashboard"
+
+  DASHBOARD_PACKAGE_VERSION="$(cat packaging/dashboard.version)"
+
+  tmp="$(mktemp -d -t netdata-dashboard-XXXXXX)"
+  DASHBOARD_PACKAGE_BASENAME="dashboard.tar.gz"
+
+  if fetch_and_verify "dashboard" \
+                      "https://github.com/netdata/dashboard/releases/download/${DASHBOARD_PACKAGE_VERSION}/${DASHBOARD_PACKAGE_BASENAME}" \
+                      "${DASHBOARD_PACKAGE_BASENAME}" \
+                      "${tmp}" \
+                      "${NETDATA_LOCAL_TARBALL_OVERRIDE_DASHBOARD}"
+  then
+    if run tar -xf "${tmp}/${DASHBOARD_PACKAGE_BASENAME}" -C "${tmp}" && \
+       copy_react_dashboard "${tmp}/build" && \
+       rm -rf "${tmp}"
+    then
+      if run "${NETDATA_PREFIX}/usr/libexec/netdata/netdata-switch-dashboard.sh" "${NETDATA_SELECTED_DASHBOARD:-react}" ; then
+        run_ok "React dashboard installed."
+      else
+        run_failed "Failed to switch to React dashboard."
+        run rm -rf "${NETDATA_WEB_DIR}"
+        run cp -a "${NETDATA_WEB_DIR}-classic" "${NETDATA_WEB_DIR}"
+      fi
+    else
+      run_failed "Failed to install React dashboard. The install process will continue, but you will not be able to use the new dashboard."
+    fi
+  else
+    run_failed "Unable to fetch React dashboard. The install process will continue, but you will not be able to use the new dashboard."
+  fi
+}
+
+install_react_dashboard
 
 # -----------------------------------------------------------------------------
 
@@ -1507,6 +1601,7 @@ REINSTALL_OPTIONS="${REINSTALL_OPTIONS}"
 RELEASE_CHANNEL="${RELEASE_CHANNEL}"
 IS_NETDATA_STATIC_BINARY="${IS_NETDATA_STATIC_BINARY}"
 NETDATA_LIB_DIR="${NETDATA_LIB_DIR}"
+NETDATA_SELECTED_DASHBOARD="${NETDATA_SELECTED_DASHBOARD:-react}"
 EOF
 run chmod 0644 "${NETDATA_USER_CONFIG_DIR}/.environment"
 

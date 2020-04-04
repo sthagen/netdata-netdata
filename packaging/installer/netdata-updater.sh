@@ -19,6 +19,8 @@
 # Author: Paweł Krupa <paulfantom@gmail.com>
 # Author: Pavlos Emm. Katsoulakis <paul@netdata.cloud>
 
+set -e
+
 info() {
   echo >&3 "$(date) : INFO: " "${@}"
 }
@@ -42,12 +44,18 @@ safe_sha256sum() {
 # this is what we will do if it fails (head-less only)
 fatal() {
   error "FAILED TO UPDATE NETDATA : ${1}"
+  exit 1
+}
 
+cleanup() {
   if [ -n "${logfile}" ]; then
     cat >&2 "${logfile}"
     rm "${logfile}"
   fi
-  exit 1
+
+  if [ -n "$tmpdir" ] && [ -d "$tmpdir" ]; then
+    rm -rf "$tmpdir"
+  fi
 }
 
 create_tmp_directory() {
@@ -73,7 +81,7 @@ download() {
   fi
 }
 
-function parse_version() {
+parse_version() {
   r="${1}"
   if echo "${r}" | grep -q '^v.*'; then
     # shellcheck disable=SC2001
@@ -177,8 +185,12 @@ update() {
       do_not_start="--dont-start-it"
     fi
 
+    if [ -n "${NETDATA_SELECTED_DASHBOARD}" ] ; then
+        env="NETDATA_SELECTED_DASHBOARD=${NETDATA_SELECTED_DASHBOARD}"
+    fi
+
     info "Re-installing netdata..."
-    eval "./netdata-installer.sh ${REINSTALL_OPTIONS} --dont-wait ${do_not_start}" >&3 2>&3 || fatal "FAILED TO COMPILE/INSTALL NETDATA"
+    eval "${env} ./netdata-installer.sh ${REINSTALL_OPTIONS} --dont-wait ${do_not_start}" >&3 2>&3 || fatal "FAILED TO COMPILE/INSTALL NETDATA"
 
     # We no longer store checksum info here. but leave this so that we clean up all environment files upon next update.
     sed -i '/NETDATA_TARBALL/d' "${ENVIRONMENT_FILE}"
@@ -192,6 +204,11 @@ update() {
 
   return 0
 }
+
+logfile=
+tmpdir=
+
+trap cleanup EXIT
 
 # Usually stored in /etc/netdata/.environment
 : "${ENVIRONMENT_FILE:=THIS_SHOULD_BE_REPLACED_BY_INSTALLER_SCRIPT}"
@@ -209,7 +226,6 @@ if [ "${INSTALL_UID}" != "$(id -u)" ]; then
   fatal "You are running this script as user with uid $(id -u). We recommend to run this script as root (user with uid 0)"
 fi
 
-logfile=
 if [ -t 2 ]; then
   # we are running on a terminal
   # open fd 3 and send it to stderr
@@ -238,7 +254,7 @@ if [ "${IS_NETDATA_STATIC_BINARY}" == "yes" ]; then
   fi
 
   # Do not pass any options other than the accept, for now
-  if sh "${TMPDIR}/netdata-latest.gz.run" --accept "${REINSTALL_OPTIONS}"; then
+  if sh "${TMPDIR}/netdata-latest.gz.run" --accept -- "${REINSTALL_OPTIONS}"; then
     rm -r "${TMPDIR}"
   else
     echo >&2 "NOTE: did not remove: ${TMPDIR}"

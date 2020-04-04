@@ -93,7 +93,6 @@
 #define CONFIG_SECTION_STREAM    "stream"
 #define CONFIG_SECTION_EXPORTING "exporting:global"
 #define CONFIG_SECTION_HOST_LABEL   "host labels"
-#define CONFIG_SECTION_ACLK        "agent_cloud_link"
 #define EXPORTING_CONF           "exporting.conf"
 
 // these are used to limit the configuration names and values lengths
@@ -160,9 +159,11 @@ extern int appconfig_load(struct config *root, char *filename, int overwrite_use
 extern void config_section_wrlock(struct section *co);
 extern void config_section_unlock(struct section *co);
 
+extern char *appconfig_get_by_section(struct section *co, const char *name, const char *default_value);
 extern char *appconfig_get(struct config *root, const char *section, const char *name, const char *default_value);
 extern long long appconfig_get_number(struct config *root, const char *section, const char *name, long long value);
 extern LONG_DOUBLE appconfig_get_float(struct config *root, const char *section, const char *name, LONG_DOUBLE value);
+extern int appconfig_get_boolean_by_section(struct section *co, const char *name, int value);
 extern int appconfig_get_boolean(struct config *root, const char *section, const char *name, int value);
 extern int appconfig_get_boolean_ondemand(struct config *root, const char *section, const char *name, int value);
 extern int appconfig_get_duration(struct config *root, const char *section, const char *name, const char *value);
