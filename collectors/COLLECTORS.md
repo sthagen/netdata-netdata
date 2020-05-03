@@ -1,6 +1,7 @@
 <!--
 ---
 title: "Supported collectors list"
+date: 2020-03-31
 custom_edit_url: https://github.com/netdata/netdata/edit/master/collectors/COLLECTORS.md
 ---
 -->
@@ -11,9 +12,9 @@ Netdata uses collectors to help you gather metrics from your favorite applicatio
 real-time, interactive charts. The following list includes collectors for both internal system metrics, and external
 apps/services metrics.
 
-Read more about collectors and how to enable them in our [collectors documentation](README.md), or use the [collector
-quickstart](QUICKSTART.md) to figure out how to collect metrics from your favorite app/service with auto-detection and
-minimal configuration.
+Read more about collectors and how to enable them in our [collectors documentation](/collectors/README.md), or use the
+[collector quickstart](/collectors/QUICKSTART.md) to figure out how to collect metrics from your favorite app/service
+with auto-detection and minimal configuration.
 
 If you don't see the app/service you'd like to monitor here, check out our [GitHub
 issues](https://github.com/netdata/netdata/issues). Use the search bar to look for previous discussions about that
@@ -37,7 +38,7 @@ collector—we may be looking for contributions from users such as yourself!
 | [diskspace.plugin](diskspace.plugin/README.md)   | Linux   | Collects disk space usage metrics on Linux mount points.                                   |
 | [freebsd.plugin](freebsd.plugin/README.md)       | FreeBSD | Collects resource usage and performance data on FreeBSD systems.                           |
 | [idlejitter.plugin](idlejitter.plugin/README.md) | any     | Measures CPU latency and jitter on all operating systems.                                  |
-| [macos.plugin](macos.plugin/README.md)           | macos   | Collects resource usage and performance data on MacOS systems.                             |
+| [macos.plugin](macos.plugin/README.md)           | macos   | Collects resource usage and performance data on macOS systems.                             |
 | [proc.plugin](proc.plugin/README.md)             | Linux   | Collects resource usage and performance data on Linux systems.                             |
 | [slabinfo.plugin](slabinfo.plugin/README.md)     | Linux   | Collects kernel SLAB details on Linux systems.                                             |
 | [statsd.plugin](statsd.plugin/README.md)         | any     | Implements a high performance `statsd` server for Netdata.                                 |

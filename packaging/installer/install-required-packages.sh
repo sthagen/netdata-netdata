@@ -192,7 +192,7 @@ get_os_release() {
   eval "$(grep -E "^(NAME|ID|ID_LIKE|VERSION|VERSION_ID)=" "${os_release_file}")"
   for x in "${ID}" ${ID_LIKE}; do
     case "${x,,}" in
-      alpine | arch | centos | debian | fedora | gentoo | sabayon | rhel | ubuntu | suse | opensuse-leap | sles | clear-linux-os)
+      alpine | arch | centos | clear-linux-os | debian | fedora | gentoo | manjaro | opensuse-leap | rhel | sabayon | sles | suse | ubuntu)
         distribution="${x}"
         version="${VERSION_ID}"
         codename="${VERSION}"
@@ -595,6 +595,17 @@ declare -A pkg_automake=(
 declare -A pkg_cmake=(
   ['clearlinux']="c-basic"
   ['default']="cmake"
+)
+
+declare -A pkg_json_c_dev=(
+  ['alpine']="json-c-dev"
+  ['arch']="json-c"
+  ['clearlinux']="devpkg-json-c"
+  ['debian']="libjson-c-dev"
+  ['gentoo']="dev-libs/json-c"
+  ['sabayon']="dev-libs/json-c"
+  ['suse']="libjson-c-devel"
+  ['default']="json-c-devel"
 )
 
 declare -A pkg_bridge_utils=(
@@ -1047,7 +1058,9 @@ declare -A pkg_zip=(
 )
 
 validate_package_trees() {
-  validate_tree_${tree}
+  if type -t validate_tree_${tree} > /dev/null; then
+    validate_tree_${tree}
+  fi
 }
 
 validate_installed_package() {
@@ -1168,6 +1181,7 @@ packages() {
     suitable_package libz-dev
     suitable_package libuuid-dev
     suitable_package libmnl-dev
+    suitable_package json-c-dev
   fi
 
   # -------------------------------------------------------------------------
