@@ -100,10 +100,10 @@ static void rrddim_collect_store_metric(RRDDIM *rd, usec_t point_in_time, storag
 
     rd->values[rd->rrdset->current_entry] = number;
 }
-static void rrddim_collect_finalize(RRDDIM *rd) {
+static int rrddim_collect_finalize(RRDDIM *rd) {
     (void)rd;
 
-    return;
+    return 0;
 }
 
 // ----------------------------------------------------------------------------
@@ -189,7 +189,9 @@ void rrdcalc_link_to_rrddim(RRDDIM *rd, RRDSET *st, RRDHOST *host) {
 #endif
 }
 
-RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collected_number multiplier, collected_number divisor, RRD_ALGORITHM algorithm, RRD_MEMORY_MODE memory_mode) {
+RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collected_number multiplier,
+                          collected_number divisor, RRD_ALGORITHM algorithm, RRD_MEMORY_MODE memory_mode,
+                          int is_archived, uuid_t *dim_uuid) {
     RRDHOST *host = st->rrdhost;
     rrdset_wrlock(st);
 
@@ -200,11 +202,24 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
     if(unlikely(rd)) {
         debug(D_RRD_CALLS, "Cannot create rrd dimension '%s/%s', it already exists.", st->id, name?name:"<NONAME>");
 
-        rrddim_set_name(st, rd, name);
-        rrddim_set_algorithm(st, rd, algorithm);
-        rrddim_set_multiplier(st, rd, multiplier);
-        rrddim_set_divisor(st, rd, divisor);
-
+        int rc = rrddim_set_name(st, rd, name);
+        rc += rrddim_set_algorithm(st, rd, algorithm);
+        rc += rrddim_set_multiplier(st, rd, multiplier);
+        rc += rrddim_set_divisor(st, rd, divisor);
+        if (!is_archived && rrddim_flag_check(rd, RRDDIM_FLAG_ARCHIVED)) {
+            rd->state->collect_ops.init(rd);
+            rrddim_flag_clear(rd, RRDDIM_FLAG_ARCHIVED);
+            rrddimvar_create(rd, RRDVAR_TYPE_CALCULATED, NULL, NULL, &rd->last_stored_value, RRDVAR_OPTION_DEFAULT);
+            rrddimvar_create(rd, RRDVAR_TYPE_COLLECTED, NULL, "_raw", &rd->last_collected_value, RRDVAR_OPTION_DEFAULT);
+            rrddimvar_create(rd, RRDVAR_TYPE_TIME_T, NULL, "_last_collected_t", &rd->last_collected_time.tv_sec, RRDVAR_OPTION_DEFAULT);
+        }
+        // DBENGINE available and activated?
+#ifdef ENABLE_DBENGINE
+        if (likely(!is_archived && rd->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) && unlikely(rc)) {
+            debug(D_METADATALOG, "DIMENSION [%s] metadata updated", rd->id);
+            metalog_commit_update_dimension(rd);
+        }
+#endif
         rrdset_unlock(st);
         return rd;
     }
@@ -301,7 +316,6 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
         else
             rd->rrd_memory_mode = (memory_mode == RRD_MEMORY_MODE_NONE) ? RRD_MEMORY_MODE_NONE : RRD_MEMORY_MODE_ALLOC;
     }
-
     rd->memsize = size;
 
     strcpy(rd->magic, RRDDIMENSION_MAGIC);
@@ -350,15 +364,16 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
     rd->state = mallocz(sizeof(*rd->state));
     if(memory_mode == RRD_MEMORY_MODE_DBENGINE) {
 #ifdef ENABLE_DBENGINE
-        rd->state->collect_ops.init         = rrdeng_store_metric_init;
+        rrdeng_metric_init(rd, dim_uuid);
+        rd->state->collect_ops.init = rrdeng_store_metric_init;
         rd->state->collect_ops.store_metric = rrdeng_store_metric_next;
-        rd->state->collect_ops.finalize     = rrdeng_store_metric_finalize;
-        rd->state->query_ops.init           = rrdeng_load_metric_init;
-        rd->state->query_ops.next_metric    = rrdeng_load_metric_next;
-        rd->state->query_ops.is_finished    = rrdeng_load_metric_is_finished;
-        rd->state->query_ops.finalize       = rrdeng_load_metric_finalize;
-        rd->state->query_ops.latest_time    = rrdeng_metric_latest_time;
-        rd->state->query_ops.oldest_time    = rrdeng_metric_oldest_time;
+        rd->state->collect_ops.finalize = rrdeng_store_metric_finalize;
+        rd->state->query_ops.init = rrdeng_load_metric_init;
+        rd->state->query_ops.next_metric = rrdeng_load_metric_next;
+        rd->state->query_ops.is_finished = rrdeng_load_metric_is_finished;
+        rd->state->query_ops.finalize = rrdeng_load_metric_finalize;
+        rd->state->query_ops.latest_time = rrdeng_metric_latest_time;
+        rd->state->query_ops.oldest_time = rrdeng_metric_oldest_time;
 #endif
     } else {
         rd->state->collect_ops.init         = rrddim_collect_init;
@@ -371,7 +386,10 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
         rd->state->query_ops.latest_time    = rrddim_query_latest_time;
         rd->state->query_ops.oldest_time    = rrddim_query_oldest_time;
     }
-    rd->state->collect_ops.init(rd);
+    if (is_archived)
+        rrddim_flag_set(rd, RRDDIM_FLAG_ARCHIVED);
+    else
+        rd->state->collect_ops.init(rd); // only initialize if a collector created this dimension
     // append this dimension
     if(!st->dimensions)
         st->dimensions = rd;
@@ -398,7 +416,7 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
         td->next = rd;
     }
 
-    if(host->health_enabled) {
+    if(host->health_enabled && !is_archived) {
         rrddimvar_create(rd, RRDVAR_TYPE_CALCULATED, NULL, NULL, &rd->last_stored_value, RRDVAR_OPTION_DEFAULT);
         rrddimvar_create(rd, RRDVAR_TYPE_COLLECTED, NULL, "_raw", &rd->last_collected_value, RRDVAR_OPTION_DEFAULT);
         rrddimvar_create(rd, RRDVAR_TYPE_TIME_T, NULL, "_last_collected_t", &rd->last_collected_time.tv_sec, RRDVAR_OPTION_DEFAULT);
@@ -432,17 +450,33 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
     if (netdata_cloud_setting)
         aclk_update_chart(host, st->id, ACLK_CMD_CHART);
 #endif
+#ifdef ENABLE_DBENGINE
+    rrd_atomic_fetch_add(&st->rrdhost->objects_nr, 1);
+    metalog_commit_update_dimension(rd);
+#endif
+
     return(rd);
 }
 
 // ----------------------------------------------------------------------------
 // RRDDIM remove / free a dimension
 
-void rrddim_free(RRDSET *st, RRDDIM *rd)
+void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
 {
+#ifndef ENABLE_ACLK
+    UNUSED(db_rotated);
+#endif
     debug(D_RRD_CALLS, "rrddim_free() %s.%s", st->name, rd->name);
 
-    rd->state->collect_ops.finalize(rd);
+    if (!rrddim_flag_check(rd, RRDDIM_FLAG_ARCHIVED)) {
+        uint8_t can_delete_metric = rd->state->collect_ops.finalize(rd);
+        if (can_delete_metric && rd->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
+#ifdef ENABLE_DBENGINE
+            /* This metric has no data and no references */
+            metalog_commit_delete_dimension(rd);
+#endif
+        }
+    }
     freez(rd->state);
 
     if(rd == st->dimensions)
@@ -466,7 +500,8 @@ void rrddim_free(RRDSET *st, RRDDIM *rd)
 
     // free(rd->annotations);
 
-    switch(rd->rrd_memory_mode) {
+    RRD_MEMORY_MODE rrd_memory_mode = rd->rrd_memory_mode;
+    switch(rrd_memory_mode) {
         case RRD_MEMORY_MODE_SAVE:
         case RRD_MEMORY_MODE_MAP:
         case RRD_MEMORY_MODE_RAM:
@@ -486,8 +521,11 @@ void rrddim_free(RRDSET *st, RRDDIM *rd)
             break;
     }
 #ifdef ENABLE_ACLK
-    if (netdata_cloud_setting)
+    if ((netdata_cloud_setting) && (db_rotated || RRD_MEMORY_MODE_DBENGINE != rrd_memory_mode))
         aclk_update_chart(st->rrdhost, st->id, ACLK_CMD_CHART);
+#endif
+#ifdef ENABLE_DBENGINE
+    rrd_atomic_fetch_add(&st->rrdhost->objects_nr, -1);
 #endif
 }
 
@@ -535,12 +573,20 @@ int rrddim_unhide(RRDSET *st, const char *id) {
 inline void rrddim_is_obsolete(RRDSET *st, RRDDIM *rd) {
     debug(D_RRD_CALLS, "rrddim_is_obsolete() for chart %s, dimension %s", st->name, rd->name);
 
+    if(unlikely(rrddim_flag_check(rd, RRDDIM_FLAG_ARCHIVED))) {
+        info("Cannot obsolete already archived dimension %s from chart %s", rd->name, st->name);
+        return;
+    }
     rrddim_flag_set(rd, RRDDIM_FLAG_OBSOLETE);
     rrdset_flag_set(st, RRDSET_FLAG_OBSOLETE_DIMENSIONS);
 #ifdef ENABLE_ACLK
     if (netdata_cloud_setting)
         aclk_update_chart(st->rrdhost, st->id, ACLK_CMD_CHART);
 #endif
+#ifdef ENABLE_DBENGINE
+    metalog_commit_update_dimension(rd);
+#endif
+
 }
 
 inline void rrddim_isnot_obsolete(RRDSET *st __maybe_unused, RRDDIM *rd) {
@@ -550,6 +596,9 @@ inline void rrddim_isnot_obsolete(RRDSET *st __maybe_unused, RRDDIM *rd) {
 #ifdef ENABLE_ACLK
     if (netdata_cloud_setting)
         aclk_update_chart(st->rrdhost, st->id, ACLK_CMD_CHART);
+#endif
+#ifdef ENABLE_DBENGINE
+    metalog_commit_update_dimension(rd);
 #endif
 }
 
