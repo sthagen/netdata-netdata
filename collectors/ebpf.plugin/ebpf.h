@@ -186,6 +186,8 @@ extern void write_end_chart();
 
 #define EBPF_GLOBAL_SECTION "global"
 #define EBPF_PROGRAMS_SECTION "ebpf programs"
+#define EBPF_NETWORK_VIEWER_SECTION "network viewer"
+#define EBPF_SERVICE_NAME_SECTION "service name"
 
 #define EBPF_COMMON_DIMENSION_CALL "Calls"
 #define EBPF_COMMON_DIMENSION_BYTESS "bytes/s"
@@ -208,7 +210,7 @@ extern int update_every;
 
 #define EBPF_MAX_SYNCHRONIZATION_TIME 300
 
-//External functions
+// External functions
 extern void change_socket_event();
 extern void change_process_event();
 

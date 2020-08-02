@@ -2,7 +2,7 @@
 # This way we prevent modifications which will be overwriten by automation.
 
 # Global (default) code owner
-* @ktsaou @amoss
+* @ktsaou @amoss @prologic
 
 # Ownership by directory structure
 .travis/ @amoss @Ferroin @prologic
@@ -13,7 +13,7 @@ backends/graphite/ @thiagoftsm @vlvkobal
 backends/json/ @thiagoftsm @vlvkobal
 backends/opentsdb/ @thiagoftsm @vlvkobal
 backends/prometheus/ @vlvkobal @thiagoftsm
-build/ @amoss
+build/ @amoss @prologic
 contrib/debian @amoss @Ferroin @prologic
 collectors/ @vlvkobal @mfundul @amoss
 collectors/charts.d.plugin/ @ilyam8 @Ferroin @prologic @amoss
@@ -37,11 +37,12 @@ libnetdata/ @thiagofsm @mfundul @amoss
 packaging/ @amoss @Ferroin @prologic
 registry/ @jacekkolasa @amoss
 streaming/ @thiagoftsm @vlvkobal @amoss
+system/ @prologic @Ferroin @amoss
 web/ @thiagoftsm @mfundul @vlvkobal @amoss
 web/gui/ @jacekkolasa @amoss
 
 # Ownership by filetype (overwrites ownership by directory)
-*.am @amoss
+*.am @amoss @prologic
 *.md @amoss @joelhans @shortpatti
 Dockerfile* @Ferroin @prologic @amoss
 
@@ -57,8 +58,8 @@ Dockerfile* @Ferroin @prologic @amoss
 .yamllint.yml @amoss @Ferroin @prologic
 netdata.spec.in @amoss @Ferroin @prologic
 netdata-installer.sh @amoss @Ferroin @prologic
-package.json @jacekkolasa
-packaging/version @netdatabot
+package.json @jacekkolasa @prologic
+packaging/version @netdatabot @prologic
 
-LICENSE.md @amoss @joelhans
-CHANGELOG.md @netdatabot
+LICENSE.md @amoss @joelhans @prologic
+CHANGELOG.md @netdatabot @prologic

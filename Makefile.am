@@ -59,6 +59,7 @@ dist_noinst_DATA = \
     netdata.spec \
     package.json \
     docs \
+    libnetdata/ebpf/libbpf.c.diff \
     packaging/version \
     packaging/dashboard.version \
     packaging/dashboard.checksums \
@@ -71,6 +72,8 @@ dist_noinst_DATA = \
     packaging/mosquitto.version \
     packaging/mosquitto.checksums \
     packaging/bundle-dashboard.sh \
+    packaging/bundle-ebpf.sh \
+    packaging/bundle-libbpf.sh \
     packaging/bundle-mosquitto.sh \
     packaging/check-kernel-config.sh \
     packaging/libbpf.checksums \
