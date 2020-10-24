@@ -13,10 +13,12 @@ typedef struct rrddimvar RRDDIMVAR;
 typedef struct rrdcalc RRDCALC;
 typedef struct rrdcalctemplate RRDCALCTEMPLATE;
 typedef struct alarm_entry ALARM_ENTRY;
+typedef struct context_param CONTEXT_PARAM;
 
 // forward declarations
 struct rrddim_volatile;
 struct rrdset_volatile;
+struct context_param;
 #ifdef ENABLE_DBENGINE
 struct rrdeng_page_descr;
 struct rrdengine_instance;
@@ -31,6 +33,12 @@ struct pg_cache_page_index;
 #include "rrdcalc.h"
 #include "rrdcalctemplate.h"
 #include "../streaming/rrdpush.h"
+
+struct context_param {
+    RRDDIM *rd;
+    time_t first_entry_t;
+    time_t last_entry_t;
+};
 
 #define META_CHART_UPDATED 1
 #define META_PLUGIN_UPDATED 2
@@ -817,6 +825,9 @@ struct rrdhost {
     struct netdata_ssl stream_ssl;                         //Structure used to encrypt the stream
 #endif
 
+    netdata_mutex_t claimed_id_lock;
+    char *claimed_id;                               // Claimed ID if host has one otherwise NULL
+
     struct rrdhost *next;
 };
 extern RRDHOST *localhost;
@@ -965,6 +976,14 @@ extern void rrdset_update_heterogeneous_flag(RRDSET *st);
 
 extern RRDSET *rrdset_find(RRDHOST *host, const char *id);
 #define rrdset_find_localhost(id) rrdset_find(localhost, id)
+/* This will not return charts that are archived */
+static inline RRDSET *rrdset_find_active_localhost(const char *id)
+{
+    RRDSET *st = rrdset_find_localhost(id);
+    if (unlikely(st && rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED)))
+        return NULL;
+    return st;
+}
 
 extern RRDSET *rrdset_find_bytype(RRDHOST *host, const char *type, const char *id);
 #define rrdset_find_bytype_localhost(type, id) rrdset_find_bytype(localhost, type, id)
@@ -1040,6 +1059,19 @@ static inline time_t rrdset_first_entry_t(RRDSET *st) {
     } else {
         return (time_t)(rrdset_last_entry_t(st) - rrdset_duration(st));
     }
+}
+
+// get the timestamp of the last entry in the round robin database
+static inline time_t rrddim_last_entry_t(RRDDIM *rd) {
+    if (rd->rrdset->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        return rd->state->query_ops.latest_time(rd);
+    return (time_t)rd->rrdset->last_updated.tv_sec;
+}
+
+static inline time_t rrddim_first_entry_t(RRDDIM *rd) {
+    if (rd->rrdset->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        return rd->state->query_ops.oldest_time(rd);
+    return (time_t)(rd->rrdset->last_updated.tv_sec - rrdset_duration(rd->rrdset));
 }
 
 time_t rrdhost_last_entry_t(RRDHOST *h);

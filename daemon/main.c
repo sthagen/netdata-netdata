@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "common.h"
+#include "buildinfo.h"
 
 int netdata_zero_metrics_enabled;
 int netdata_anonymous_statistics_enabled;
@@ -60,7 +61,9 @@ void netdata_cleanup_and_exit(int ret) {
 #ifdef ENABLE_HTTPS
     security_clean_openssl();
 #endif
-
+#ifdef ENABLE_DBENGINE
+    free_global_guid_map();
+#endif
     info("EXIT: all done - netdata is now exiting - bye bye...");
     exit(ret);
 }
@@ -118,6 +121,7 @@ int make_dns_decision(const char *section_name, const char *config_name, const c
     if(strcmp("heuristic",value))
         error("Invalid configuration option '%s' for '%s'/'%s'. Valid options are 'yes', 'no' and 'heuristic'. Proceeding with 'heuristic'",
               value, section_name, config_name);
+
     return simple_pattern_is_potential_name(p);
 }
 
@@ -163,9 +167,9 @@ void web_server_config_options(void)
                                                        "localhost fd* 10.* 192.168.* 172.16.* 172.17.* 172.18.*"
                                                        " 172.19.* 172.20.* 172.21.* 172.22.* 172.23.* 172.24.*"
                                                        " 172.25.* 172.26.* 172.27.* 172.28.* 172.29.* 172.30.*"
-                                                       " 172.31.*"), NULL, SIMPLE_PATTERN_EXACT);
+                                                       " 172.31.* UNKNOWN"), NULL, SIMPLE_PATTERN_EXACT);
     web_allow_netdataconf_dns  =
-        make_dns_decision(CONFIG_SECTION_WEB, "allow netdata.conf by dns", "no", web_allow_mgmt_from);
+        make_dns_decision(CONFIG_SECTION_WEB, "allow netdata.conf by dns", "no", web_allow_netdataconf_from);
     web_allow_mgmt_from        =
         simple_pattern_create(config_get(CONFIG_SECTION_WEB, "allow management from", "localhost"),
                               NULL, SIMPLE_PATTERN_EXACT);
@@ -541,7 +545,8 @@ static void get_netdata_configured_variables() {
     netdata_configured_web_dir          = config_get(CONFIG_SECTION_GLOBAL, "web files directory",    netdata_configured_web_dir);
     netdata_configured_cache_dir        = config_get(CONFIG_SECTION_GLOBAL, "cache directory",        netdata_configured_cache_dir);
     netdata_configured_varlib_dir       = config_get(CONFIG_SECTION_GLOBAL, "lib directory",          netdata_configured_varlib_dir);
-    netdata_configured_home_dir         = config_get(CONFIG_SECTION_GLOBAL, "home directory",         netdata_configured_home_dir);
+    char *env_home=getenv("HOME");
+    netdata_configured_home_dir         = config_get(CONFIG_SECTION_GLOBAL, "home directory",         env_home?env_home:netdata_configured_home_dir);
 
     netdata_configured_lock_dir = initialize_lock_directory_path(netdata_configured_varlib_dir);
 
@@ -1250,6 +1255,11 @@ int main(int argc, char **argv) {
                         else if(strncmp(optarg, claim_string, strlen(claim_string)) == 0) {
                             /* will trigger a claiming attempt when the agent is initialized */
                             claiming_pending_arguments = optarg + strlen(claim_string);
+                        }
+                        else if(strcmp(optarg, "buildinfo") == 0) {
+                            printf("Version: %s %s\n", program_name, program_version);
+                            print_build_info();
+                            return 0;
                         }
                         else {
                             fprintf(stderr, "Unknown -W parameter '%s'\n", optarg);

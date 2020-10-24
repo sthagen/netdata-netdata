@@ -167,6 +167,8 @@ RRDHOST *rrdhost_create(const char *hostname,
     netdata_rwlock_init(&host->rrdhost_rwlock);
     netdata_rwlock_init(&host->labels_rwlock);
 
+    netdata_mutex_init(&host->claimed_id_lock);
+
     rrdhost_init_hostname(host, hostname);
     rrdhost_init_machine_guid(host, guid);
 
@@ -571,6 +573,12 @@ RRDHOST *rrdhost_find_or_create(
            , rrdpush_send_charts_matching
            , system_info);
     }
+    if (host) {
+        rrdhost_wrlock(host);
+        rrdhost_flag_clear(host, RRDHOST_FLAG_ORPHAN);
+        host->senders_disconnected_time = 0;
+        rrdhost_unlock(host);
+    }
 
     rrdhost_cleanup_orphan_hosts_nolock(host);
 
@@ -858,6 +866,8 @@ void rrdhost_free(RRDHOST *host) {
     // ------------------------------------------------------------------------
     // free it
 
+    pthread_mutex_destroy(&host->claimed_id_lock);
+    freez(host->claimed_id);
     freez((void *)host->tags);
     free_host_labels(host->labels);
     freez((void *)host->os);
@@ -879,6 +889,10 @@ void rrdhost_free(RRDHOST *host) {
     netdata_rwlock_destroy(&host->labels_rwlock);
     netdata_rwlock_destroy(&host->health_log.alarm_log_rwlock);
     netdata_rwlock_destroy(&host->rrdhost_rwlock);
+
+#ifdef ENABLE_DBENGINE
+    free_uuid(&host->host_uuid);
+#endif
     freez(host);
 
     rrd_hosts_available--;
@@ -1507,9 +1521,41 @@ restart_after_removal:
         )) {
 #ifdef ENABLE_DBENGINE
             if(st->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
+                RRDDIM *rd, *last;
+
                 rrdset_flag_set(st, RRDSET_FLAG_ARCHIVED);
-                while(st->variables)  rrdsetvar_free(st->variables);
-                while(st->alarms)     rrdsetcalc_unlink(st->alarms);
+                while (st->variables)  rrdsetvar_free(st->variables);
+                while (st->alarms)     rrdsetcalc_unlink(st->alarms);
+                rrdset_wrlock(st);
+                for (rd = st->dimensions, last = NULL ; likely(rd) ; ) {
+                    if (rrddim_flag_check(rd, RRDDIM_FLAG_ARCHIVED))
+                        continue;
+
+                    rrddim_flag_set(rd, RRDDIM_FLAG_ARCHIVED);
+                    while (rd->variables)
+                        rrddimvar_free(rd->variables);
+
+                    if (rrddim_flag_check(rd, RRDDIM_FLAG_OBSOLETE)) {
+                        rrddim_flag_clear(rd, RRDDIM_FLAG_OBSOLETE);
+                        /* only a collector can mark a chart as obsolete, so we must remove the reference */
+                        uint8_t can_delete_metric = rd->state->collect_ops.finalize(rd);
+                        if (can_delete_metric) {
+                            /* This metric has no data and no references */
+                            metalog_commit_delete_dimension(rd);
+                            rrddim_free(st, rd);
+                            if (unlikely(!last)) {
+                                rd = st->dimensions;
+                            }
+                            else {
+                                rd = last->next;
+                            }
+                            continue;
+                        }
+                    }
+                    last = rd;
+                    rd = rd->next;
+                }
+                rrdset_unlock(st);
 
                 debug(D_RRD_CALLS, "RRDSET: Cleaning up remaining chart variables for host '%s', chart '%s'", host->hostname, st->id);
                 rrdvar_free_remaining_variables(host, &st->rrdvar_root_index);

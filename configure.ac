@@ -43,7 +43,6 @@ AC_PROG_INSTALL
 PKG_PROG_PKG_CONFIG
 AC_USE_SYSTEM_EXTENSIONS
 
-
 # -----------------------------------------------------------------------------
 # configurable options
 
@@ -167,6 +166,16 @@ AC_ARG_ENABLE(
     ,
     [enable_jsonc="detect"]
 )
+AC_ARG_ENABLE(
+    [ebpf],
+    [AS_HELP_STRING([--disable-ebpf], [Disable eBPF support @<:@default autodetect@:>@])],
+    ,
+    [enable_ebpf="detect"]
+)
+
+# -----------------------------------------------------------------------------
+# Enforce building with C99, bail early if we can't.
+test "${ac_cv_prog_cc_c99}" = "no" && AC_MSG_ERROR([Netdata rquires a compiler that supports C99 to build])
 
 # -----------------------------------------------------------------------------
 # Check if cloud is enabled and if the functionality is available
@@ -322,15 +331,6 @@ AC_CHECK_LIB(
     [LZ4_LIBS="-llz4"]
 )
 
-# -----------------------------------------------------------------------------
-# Judy General purpose dynamic array
-
-AC_CHECK_LIB(
-    [Judy],
-    [JudyLIns],
-    [JUDY_LIBS="-lJudy"]
-)
-
 
 # -----------------------------------------------------------------------------
 # zlib
@@ -384,6 +384,9 @@ AC_CHECK_LIB(
     [ssl_host_validation="no"]
 )
 
+test -z "${SSL_LIBS}" || \
+    AC_DEFINE([HAVE_CRYPTO], [1], [libcrypto availability])
+
 if test "${ssl_host_validation}" = "no"; then
     AC_DEFINE([HAVE_X509_VERIFY_PARAM_set1_host], [0], [ssl host validation])
     AC_MSG_WARN([DISABLING SSL HOSTNAME VALIDATION BECAUSE IT IS NOT AVAILABLE ON THIS SYSTEM.])
@@ -409,6 +412,44 @@ OPTIONAL_JSONC_LIBS="${JSONC_LIBS}"
 # DB engine and HTTPS
 test "${enable_dbengine}" = "yes" -a -z "${LZ4_LIBS}" && \
     AC_MSG_ERROR([liblz4 required but not found. Try installing 'liblz4-dev' or 'lz4-devel'.])
+
+
+AC_ARG_WITH([libJudy],
+            [AS_HELP_STRING([--with-libJudy=PREFIX],[Use a specific Judy library (default is system-library)])],
+            [
+                libJudy_dir="$withval"
+                AC_MSG_CHECKING(for libJudy in $withval)
+                if test -f "${libJudy_dir}/libJudy.a" -a -f "${libJudy_dir}/Judy.h"; then
+                    LIBS_BACKUP="${LIBS}"
+                    LIBS="${libJudy_dir}/libJudy.a"
+                    AC_LINK_IFELSE([AC_LANG_SOURCE([[#include "${libJudy_dir}/Judy.h"
+                                                     int main (int argc, char **argv) {
+                                                        Pvoid_t PJLArray = (Pvoid_t) NULL;
+                                                        Word_t * PValue;
+                                                        Word_t Index;
+                                                        JLI(PValue, PJLArray, Index);
+                                                     }]])],
+                                                     [HAVE_libJudy_a="yes"],
+                                                     [HAVE_libJudy_a="no"])
+                    LIBS="${LIBS_BACKUP}"
+                    JUDY_LIBS="${libJudy_dir}/libJudy.a"
+                    JUDY_CFLAGS="-I${libJudy_dir}"
+                    AC_MSG_RESULT([$HAVE_libJudy_a])
+                else
+                    libjudy_dir=""
+                    HAVE_libJudy_a="no"
+                    AC_MSG_RESULT([$HAVE_libJudy_a])
+                fi
+            ],
+            [HAVE_libJudy_a="no"])
+
+if test "${HAVE_libJudy_a}" = "no"; then
+    AC_CHECK_LIB(
+                    [Judy],
+                    [JudyLIns],
+                    [JUDY_LIBS="-lJudy"]
+                )
+fi
 
 test "${enable_dbengine}" = "yes" -a -z "${JUDY_LIBS}" && \
     AC_MSG_ERROR([libJudy required but not found. Try installing 'libjudy-dev' or 'Judy-devel'.])
@@ -451,23 +492,23 @@ AM_CONDITIONAL([ENABLE_HTTPS], [test "${enable_https}" = "yes"])
 # JSON-C
 
 if test "${enable_jsonc}" != "no" -a -z "${JSONC_LIBS}"; then
-	# Try and detect manual static build presence (from netdata-installer.sh)
-	AC_MSG_CHECKING([if statically built json-c is present])
-	HAVE_libjson_c_a="no"
-	if test -f "externaldeps/jsonc/libjson-c.a"; then
-		LIBS_BKP="${LIBS}"
-		LIBS="externaldeps/jsonc/libjson-c.a"
-		AC_LINK_IFELSE([AC_LANG_SOURCE([[#include "externaldeps/jsonc/json-c/json.h"
-										 int main (int argc, char **argv) {
-											 struct json_object *jobj;
-											 char *str = "{ \"msg-type\": \"random\" }";
-											 jobj = json_tokener_parse(str);
-											 json_object_get_type(jobj);
-										 }]])],
-										[HAVE_libjson_c_a="yes"],
-										[HAVE_libjson_c_a="no"])
-		LIBS="${LIBS_BKP}"
-	fi
+    # Try and detect manual static build presence (from netdata-installer.sh)
+    AC_MSG_CHECKING([if statically built json-c is present])
+    HAVE_libjson_c_a="no"
+    if test -f "externaldeps/jsonc/libjson-c.a"; then
+        LIBS_BKP="${LIBS}"
+        LIBS="externaldeps/jsonc/libjson-c.a"
+        AC_LINK_IFELSE([AC_LANG_SOURCE([[#include "externaldeps/jsonc/json-c/json.h"
+                                         int main (int argc, char **argv) {
+                                             struct json_object *jobj;
+                                             char *str = "{ \"msg-type\": \"random\" }";
+                                             jobj = json_tokener_parse(str);
+                                             json_object_get_type(jobj);
+                                         }]])],
+                                        [HAVE_libjson_c_a="yes"],
+                                        [HAVE_libjson_c_a="no"])
+        LIBS="${LIBS_BKP}"
+    fi
 
 	if test "${HAVE_libjson_c_a}" = "yes"; then
 		AC_DEFINE([LINK_STATIC_JSONC], [1], [static json-c should be used])
@@ -669,6 +710,7 @@ AM_CONDITIONAL([ENABLE_ACLK], [test "${enable_aclk}" = "yes"])
 
 AC_MSG_CHECKING([if apps.plugin should be enabled])
 if test "${build_target}" != "macos"; then
+    AC_DEFINE([ENABLE_APPS_PLUGIN], [1], [apps.plugin])
     enable_plugin_apps="yes"
 else
     enable_plugin_apps="no"
@@ -936,6 +978,7 @@ AC_CHECK_HEADER(
 
 AC_MSG_CHECKING([if perf.plugin should be enabled])
 if test "${build_target}" == "linux" -a "${have_perf_event}" = "yes"; then
+    AC_DEFINE([ENABLE_PERF_PLUGIN], [1], [perf.plugin])
     enable_plugin_perf="yes"
 else
     enable_plugin_perf="no"
@@ -946,35 +989,38 @@ AM_CONDITIONAL([ENABLE_PLUGIN_PERF], [test "${enable_plugin_perf}" = "yes"])
 # -----------------------------------------------------------------------------
 # ebpf.plugin
 
-PKG_CHECK_MODULES(
-    [LIBELF],
-    [libelf],
-    [have_libelf=yes],
-    [have_libelf=no]
-)
+if test "${build_target}" = "linux" -a "${enable_ebpf}" != "no"; then
+    PKG_CHECK_MODULES(
+        [LIBELF],
+        [libelf],
+        [have_libelf=yes],
+        [have_libelf=no]
+    )
 
-AC_CHECK_TYPE(
-    [struct bpf_prog_info],
-    [have_bpf=yes],
-    [have_bpf=no],
-    [#include <linux/bpf.h>]
-)
+    AC_CHECK_TYPE(
+        [struct bpf_prog_info],
+        [have_bpf=yes],
+        [have_bpf=no],
+        [#include <linux/bpf.h>]
+    )
 
-AC_CHECK_FILE(
-    externaldeps/libbpf/libbpf.a,
-    [have_libbpf=yes],
-    [have_libbpf=no]
-)
+    AC_CHECK_FILE(
+        externaldeps/libbpf/libbpf.a,
+        [have_libbpf=yes],
+        [have_libbpf=no]
+    )
 
-AC_MSG_CHECKING([if ebpf.plugin should be enabled])
-if test "${build_target}" = "linux" -a \
-        "${have_libelf}" = "yes" -a \
-        "${have_bpf}" = "yes" -a \
-        "${have_libbpf}" = "yes"; then
-    OPTIONAL_BPF_CFLAGS="${LIBELF_CFLAGS} -I externaldeps/libbpf/include"
-    OPTIONAL_BPF_LIBS="externaldeps/libbpf/libbpf.a ${LIBELF_LIBS}"
-    AC_DEFINE([HAVE_LIBBPF], [1], [libbpf usability])
-    enable_ebpf="yes"
+    AC_MSG_CHECKING([if ebpf.plugin should be enabled])
+    if test "${have_libelf}" = "yes" -a \
+            "${have_bpf}" = "yes" -a \
+            "${have_libbpf}" = "yes"; then
+        OPTIONAL_BPF_CFLAGS="${LIBELF_CFLAGS} -I externaldeps/libbpf/include"
+        OPTIONAL_BPF_LIBS="externaldeps/libbpf/libbpf.a ${LIBELF_LIBS}"
+        AC_DEFINE([HAVE_LIBBPF], [1], [libbpf usability])
+        enable_ebpf="yes"
+    else
+        enable_ebpf="no"
+    fi
 else
     enable_ebpf="no"
 fi
@@ -986,6 +1032,7 @@ AM_CONDITIONAL([ENABLE_PLUGIN_EBPF], [test "${enable_ebpf}" = "yes"])
 
 AC_MSG_CHECKING([if slabinfo.plugin should be enabled])
 if test "${build_target}" == "linux"; then
+    AC_DEFINE([ENABLE_SLABINFO], [1], [slabinfo plugin])
     enable_plugin_slabinfo="yes"
 else
     enable_plugin_slabinfo="no"
@@ -1033,46 +1080,45 @@ PKG_CHECK_MODULES(
     [have_libcurl=no]
 )
 
-AC_CHECK_LIB(
+PKG_CHECK_MODULES(
+    [AWS_CPP_SDK_CORE],
     [aws-cpp-sdk-core],
-    [cJSON_free],
-    [have_libaws_cpp_sdk_core=yes],
-    [have_libaws_cpp_sdk_core=no],
-    [${LIBCRYPTO_LIBS} ${LIBSSL_LIBS} ${LIBCURL_LIBS}]
+    [AC_CHECK_LIB(
+        [aws-cpp-sdk-core],
+        [cJSON_free],
+        [have_libaws_cpp_sdk_core=yes],
+        [have_libaws_cpp_sdk_core=no]
+    )],
+    [have_libaws_cpp_sdk_core=no]
 )
 
-AC_MSG_CHECKING([for Aws::Kinesis::Model::PutRecordRequest in -laws-cpp-sdk-kinesis])
+PKG_CHECK_MODULES(
+    [AWS_CPP_SDK_KINESIS],
+    [aws-cpp-sdk-kinesis],
+    [have_libaws_cpp_sdk_kinesis=yes],
+    [have_libaws_cpp_sdk_kinesis=no]
+)
 
-if test "${have_libaws_cpp_sdk_core}" = "yes" -a "${have_libcrypto}" = "yes" -a "${have_libssl}" = "yes" -a "${have_libcurl}" = "yes"; then
-    AC_LANG_SAVE
-    AC_LANG_CPLUSPLUS
-    save_LIBS="${LIBS}"
-    LIBS="-laws-cpp-sdk-kinesis -laws-cpp-sdk-core ${LIBCRYPTO_LIBS} ${LIBSSL_LIBS} ${LIBCURL_LIBS}"
-    save_CXXFLAGS="${CXXFLAGS}"
-    CXXFLAGS="${CXXFLAGS} -std=c++11"
+AC_CHECK_LIB(
+    [aws-checksums],
+    [aws_checksums_crc32],
+    [have_libaws_checksums=yes],
+    [have_libaws_checksums=no]
+)
 
-    AC_TRY_LINK(
-        [
-            #include <aws/core/Aws.h>
-            #include <aws/core/client/ClientConfiguration.h>
-            #include <aws/core/auth/AWSCredentials.h>
-            #include <aws/core/utils/Outcome.h>
-            #include <aws/kinesis/KinesisClient.h>
-            #include <aws/kinesis/model/PutRecordRequest.h>
-        ],
-        [Aws::Kinesis::Model::PutRecordRequest request;],
-        [have_libaws_cpp_sdk_kinesis=yes],
-        [have_libaws_cpp_sdk_kinesis=no]
-    )
+AC_CHECK_LIB(
+    [aws-c-common],
+    [aws_default_allocator],
+    [have_libaws_c_common=yes],
+    [have_libaws_c_common=no]
+)
 
-    LIBS="${save_LIBS}"
-    CXXFLAGS="${save_CXXFLAGS}"
-    AC_LANG_RESTORE
-else
-    have_libaws_cpp_sdk_kinesis=no
-fi
-
-AC_MSG_RESULT([${have_libaws_cpp_sdk_kinesis}])
+AC_CHECK_LIB(
+    [aws-c-event-stream],
+    [aws_event_stream_library_init],
+    [have_libaws_c_event_stream=yes],
+    [have_libaws_c_event_stream=no]
+)
 
 test "${enable_backend_kinesis}" = "yes" -a "${have_libaws_cpp_sdk_kinesis}" != "yes" && \
     AC_MSG_ERROR([libaws-cpp-sdk-kinesis required but not found. try installing AWS C++ SDK])
@@ -1089,14 +1135,26 @@ test "${enable_backend_kinesis}" = "yes" -a "${have_libssl}" != "yes" && \
 test "${enable_backend_kinesis}" = "yes" -a "${have_libcrypto}" != "yes" && \
     AC_MSG_ERROR([libcrypto required but not found])
 
+test "${enable_backend_kinesis}" = "yes" -a "${have_libaws_checksums}" != "yes" \
+                                         -a "${have_libaws_c_common}" != "yes" \
+                                         -a "${have_libaws_c_event_stream}" != "yes" && \
+    AC_MSG_ERROR([AWS SKD third party dependencies required but not found])
+
 AC_MSG_CHECKING([if kinesis backend should be enabled])
-if test "${enable_backend_kinesis}" != "no" -a "${have_libaws_cpp_sdk_kinesis}" = "yes" -a "${have_libaws_cpp_sdk_core}" = "yes" \
-                                            -a "${have_libcurl}" = "yes" -a "${have_libssl}" = "yes" -a "${have_libcrypto}" = "yes"; then
+if test "${enable_backend_kinesis}" != "no" -a "${have_libaws_cpp_sdk_kinesis}" = "yes" \
+                                            -a "${have_libaws_cpp_sdk_core}" = "yes" \
+                                            -a "${have_libaws_checksums}" = "yes" \
+                                            -a "${have_libaws_c_common}" = "yes" \
+                                            -a "${have_libaws_c_event_stream}" = "yes" \
+                                            -a "${have_libcurl}" = "yes" \
+                                            -a "${have_libssl}" = "yes" \
+                                            -a "${have_libcrypto}" = "yes"; then
     enable_backend_kinesis="yes"
     AC_DEFINE([HAVE_KINESIS], [1], [libaws-cpp-sdk-kinesis usability])
     OPTIONAL_KINESIS_CFLAGS="${LIBCRYPTO_CFLAGS} ${LIBSSL_CFLAGS} ${LIBCURL_CFLAGS}"
-    CXX11FLAG="-std=c++11"
-    OPTIONAL_KINESIS_LIBS="-laws-cpp-sdk-kinesis -laws-cpp-sdk-core ${LIBCRYPTO_LIBS} ${LIBSSL_LIBS} ${LIBCURL_LIBS}"
+    CXX11FLAG="${AWS_CPP_SDK_KINESIS_CFLAGS} ${AWS_CPP_SDK_CORE_CFLAGS}"
+    OPTIONAL_KINESIS_LIBS="${AWS_CPP_SDK_KINESIS_LIBS} ${AWS_CPP_SDK_CORE_LIBS} \
+                           ${LIBCRYPTO_LIBS} ${LIBSSL_LIBS} ${LIBCURL_LIBS}"
 else
     enable_backend_kinesis="no"
 fi
@@ -1345,7 +1403,7 @@ AC_SUBST([webdir])
 CFLAGS="${CFLAGS} ${OPTIONAL_MATH_CFLAGS} ${OPTIONAL_NFACCT_CFLAGS} ${OPTIONAL_ZLIB_CFLAGS} ${OPTIONAL_UUID_CFLAGS} \
     ${OPTIONAL_LIBCAP_CFLAGS} ${OPTIONAL_IPMIMONITORING_CFLAGS} ${OPTIONAL_CUPS_CFLAGS} ${OPTIONAL_XENSTAT_FLAGS} \
     ${OPTIONAL_KINESIS_CFLAGS} ${OPTIONAL_PUBSUB_CFLAGS} ${OPTIONAL_PROMETHEUS_REMOTE_WRITE_CFLAGS} \
-    ${OPTIONAL_MONGOC_CFLAGS} ${LWS_CFLAGS} ${OPTIONAL_JSONC_STATIC_CFLAGS} ${OPTIONAL_BPF_CFLAGS}"
+    ${OPTIONAL_MONGOC_CFLAGS} ${LWS_CFLAGS} ${OPTIONAL_JSONC_STATIC_CFLAGS} ${OPTIONAL_BPF_CFLAGS} ${OPTIONAL_JUDY_CFLAGS}"
 
 CXXFLAGS="${CFLAGS} ${CXX11FLAG}"
 
@@ -1365,6 +1423,7 @@ AC_SUBST([OPTIONAL_MATH_CFLAGS])
 AC_SUBST([OPTIONAL_MATH_LIBS])
 AC_SUBST([OPTIONAL_UV_LIBS])
 AC_SUBST([OPTIONAL_LZ4_LIBS])
+AC_SUBST([OPTIONAL_JUDY_CFLAGS])
 AC_SUBST([OPTIONAL_JUDY_LIBS])
 AC_SUBST([OPTIONAL_SSL_LIBS])
 AC_SUBST([OPTIONAL_JSONC_LIBS])
@@ -1420,6 +1479,14 @@ TEST_LIBS="${CMOCKA_LIBS}"
 
 AC_SUBST([TEST_CFLAGS])
 AC_SUBST([TEST_LIBS])
+
+# -----------------------------------------------------------------------------
+# save configure options for build info
+AC_DEFINE_UNQUOTED(
+    [CONFIGURE_COMMAND],
+    ["$ac_configure_args"],
+    [options passed to configure script]
+)
 
 AC_CONFIG_FILES([
     Makefile

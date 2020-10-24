@@ -201,7 +201,7 @@ void aclk_lws_wss_client_destroy()
     aclk_lws_wss_destroy_context();
     engine_instance->lws_wsi = NULL;
 
-    aclk_lws_wss_clear_io_buffers(engine_instance);
+    aclk_lws_wss_clear_io_buffers();
 
 #ifdef ACLK_LWS_MOSQUITTO_IO_CALLS_MULTITHREADED
     pthread_mutex_destroy(&engine_instance->write_buf_mutex);
@@ -209,6 +209,7 @@ void aclk_lws_wss_client_destroy()
 #endif
 }
 
+#ifdef LWS_WITH_SOCKS5
 static int aclk_wss_set_socks(struct lws_vhost *vhost, const char *socks)
 {
     char *proxy = strstr(socks, ACLK_PROXY_PROTO_ADDR_SEPARATOR);
@@ -223,6 +224,7 @@ static int aclk_wss_set_socks(struct lws_vhost *vhost, const char *socks)
 
     return lws_set_socks(vhost, proxy);
 }
+#endif
 
 void aclk_wss_set_proxy(struct lws_vhost *vhost)
 {
@@ -232,7 +234,9 @@ void aclk_wss_set_proxy(struct lws_vhost *vhost)
 
     proxy = aclk_get_proxy(&proxy_type);
 
+#ifdef LWS_WITH_SOCKS5
     lws_set_socks(vhost, ":");
+#endif
     lws_set_proxy(vhost, ":");
 
     if (proxy_type == PROXY_TYPE_UNKNOWN) {
@@ -247,9 +251,13 @@ void aclk_wss_set_proxy(struct lws_vhost *vhost)
         freez(log);
     }
     if (proxy_type == PROXY_TYPE_SOCKS5) {
+#ifdef LWS_WITH_SOCKS5
         if (aclk_wss_set_socks(vhost, proxy))
             error("LWS failed to accept socks proxy.");
         return;
+#else
+        fatal("We have no SOCKS5 support but we made it here. Programming error!");
+#endif
     }
     if (proxy_type == PROXY_TYPE_HTTP) {
         if (lws_set_proxy(vhost, proxy))
@@ -510,7 +518,7 @@ static int aclk_lws_wss_callback(struct lws *wsi, enum lws_callback_reasons reas
             aclk_lws_connection_closed();
             return -1;                       // the callback response is ignored, hope the above remains true
         case LWS_CALLBACK_WSI_DESTROY:
-            aclk_lws_wss_clear_io_buffers(engine_instance);
+            aclk_lws_wss_clear_io_buffers();
             if (!engine_instance->websocket_connection_up)
                 aclk_lws_wss_fail_report();
             engine_instance->lws_wsi = NULL;

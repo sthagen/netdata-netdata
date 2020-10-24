@@ -7,7 +7,6 @@
 #include "mqtt.h"
 #include "aclk_common.h"
 
-#define ACLK_VERSION 1
 #define ACLK_THREAD_NAME "ACLK_Query"
 #define ACLK_CHART_TOPIC "outbound/meta"
 #define ACLK_ALARMS_TOPIC "outbound/alarms"
@@ -29,12 +28,16 @@
 #define ACLK_DEFAULT_PORT 9002
 #define ACLK_DEFAULT_HOST "localhost"
 
+#define ACLK_V2_PAYLOAD_SEPARATOR "\x0D\x0A\x0D\x0A"
+
 struct aclk_request {
     char *type_id;
     char *msg_id;
     char *callback_topic;
     char *payload;
     int version;
+    int min_version;
+    int max_version;
 };
 
 typedef enum aclk_init_action { ACLK_INIT, ACLK_REINIT } ACLK_INIT_ACTION;
@@ -51,6 +54,7 @@ void *aclk_main(void *ptr);
       .start_routine = aclk_main },
 
 extern int aclk_send_message(char *sub_topic, char *message, char *msg_id);
+extern int aclk_send_message_bin(char *sub_topic, const void *message, size_t len, char *msg_id);
 
 extern char *is_agent_claimed(void);
 extern void aclk_lws_wss_mqtt_layer_disconect_notif();
@@ -72,8 +76,8 @@ char *create_publish_base_topic();
 int aclk_send_single_chart(char *host, char *chart);
 int aclk_update_chart(RRDHOST *host, char *chart_name, ACLK_CMD aclk_cmd);
 int aclk_update_alarm(RRDHOST *host, ALARM_ENTRY *ae);
-void aclk_create_header(BUFFER *dest, char *type, char *msg_id, time_t ts_secs, usec_t ts_us);
-int aclk_handle_cloud_request(char *payload);
+void aclk_create_header(BUFFER *dest, char *type, char *msg_id, time_t ts_secs, usec_t ts_us, int version);
+int aclk_handle_cloud_message(char *payload);
 void aclk_add_collector(const char *hostname, const char *plugin_name, const char *module_name);
 void aclk_del_collector(const char *hostname, const char *plugin_name, const char *module_name);
 void aclk_alarm_reload();

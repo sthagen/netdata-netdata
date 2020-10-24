@@ -35,6 +35,7 @@ static struct {
         , {"match_names"     , 0    , RRDR_OPTION_MATCH_NAMES}
         , {"match-names"     , 0    , RRDR_OPTION_MATCH_NAMES}
         , {"showcustomvars"  , 0    , RRDR_OPTION_CUSTOM_VARS}
+        , {"allow_past"      , 0    , RRDR_OPTION_ALLOW_PAST}
         , {                  NULL, 0, 0}
 };
 
@@ -397,7 +398,8 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     , *before_str = NULL
     , *after_str = NULL
     , *group_time_str = NULL
-    , *points_str = NULL;
+    , *points_str = NULL
+    , *context = NULL;
 
     int group = RRDR_GROUPING_AVERAGE;
     uint32_t format = DATASOURCE_JSON;
@@ -416,7 +418,8 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
         // name and value are now the parameters
         // they are not null and not empty
 
-        if(!strcmp(name, "chart")) chart = value;
+        if(!strcmp(name, "context")) context = value;
+        else if(!strcmp(name, "chart")) chart = value;
         else if(!strcmp(name, "dimension") || !strcmp(name, "dim") || !strcmp(name, "dimensions") || !strcmp(name, "dims")) {
             if(!dimensions) dimensions = buffer_create(100);
             buffer_strcat(dimensions, "|");
@@ -482,20 +485,46 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     fix_google_param(responseHandler);
     fix_google_param(outFileName);
 
-    if(!chart || !*chart) {
+    RRDSET *st = NULL;
+
+    if((!chart || !*chart) && (!context)) {
         buffer_sprintf(w->response.data, "No chart id is given at the request.");
         goto cleanup;
     }
 
-    RRDSET *st = rrdset_find(host, chart);
-    if(!st) st = rrdset_find_byname(host, chart);
-    if(!st) {
-        buffer_strcat(w->response.data, "Chart is not found: ");
-        buffer_strcat_htmlescape(w->response.data, chart);
+    struct context_param  *context_param_list = NULL;
+    if (context && !chart) {
+        RRDSET *st1;
+        uint32_t context_hash = simple_hash(context);
+        rrdhost_rdlock(localhost);
+        rrdset_foreach_read(st1, localhost) {
+            if (st1->hash_context == context_hash && !strcmp(st1->context, context))
+                build_context_param_list(&context_param_list, st1);
+        }
+        rrdhost_unlock(localhost);
+        if (likely(context_param_list && context_param_list->rd))  // Just set the first one
+            st = context_param_list->rd->rrdset;
+    }
+    else {
+        st = rrdset_find(host, chart);
+        if (!st)
+            st = rrdset_find_byname(host, chart);
+        if (likely(st))
+            st->last_accessed_time = now_realtime_sec();
+    }
+
+    if (!st && !context_param_list) {
+        if (context && !chart) {
+            buffer_strcat(w->response.data, "Context is not found: ");
+            buffer_strcat_htmlescape(w->response.data, context);
+        }
+        else {
+            buffer_strcat(w->response.data, "Chart is not found: ");
+            buffer_strcat_htmlescape(w->response.data, chart);
+        }
         ret = HTTP_RESP_NOT_FOUND;
         goto cleanup;
     }
-    st->last_accessed_time = now_realtime_sec();
 
     long long before = (before_str && *before_str)?str2l(before_str):0;
     long long after  = (after_str  && *after_str) ?str2l(after_str):-600;
@@ -540,7 +569,9 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     }
 
     ret = rrdset2anything_api_v1(st, w->response.data, dimensions, format, points, after, before, group, group_time
-                                 , options, &last_timestamp_in_data);
+                                 , options, &last_timestamp_in_data, context_param_list);
+
+    free_context_param_list(&context_param_list);
 
     if(format == DATASOURCE_DATATABLE_JSONP) {
         if(google_timestamp < last_timestamp_in_data)
@@ -774,18 +805,48 @@ static inline void web_client_api_request_v1_info_summary_alarm_statuses(RRDHOST
 }
 
 static inline void web_client_api_request_v1_info_mirrored_hosts(BUFFER *wb) {
-    RRDHOST *rc;
+    RRDHOST *host;
     int count = 0;
+
+    buffer_strcat(wb, "\t\"mirrored_hosts\": [\n");
     rrd_rdlock();
-    rrdhost_foreach_read(rc) {
-        if (rrdhost_flag_check(rc, RRDHOST_FLAG_ARCHIVED))
+    rrdhost_foreach_read(host) {
+        if (rrdhost_flag_check(host, RRDHOST_FLAG_ARCHIVED))
             continue;
-        if(count > 0) buffer_strcat(wb, ",\n");
-        buffer_sprintf(wb, "\t\t\"%s\"", rc->hostname);
+        if (count > 0)
+            buffer_strcat(wb, ",\n");
+
+        buffer_sprintf(wb, "\t\t\"%s\"", host->hostname);
         count++;
     }
-    buffer_strcat(wb, "\n");
+
+    buffer_strcat(wb, "\n\t],\n\t\"mirrored_hosts_status\": [\n");
+    count = 0;
+    rrdhost_foreach_read(host)
+    {
+        if (rrdhost_flag_check(host, RRDHOST_FLAG_ARCHIVED))
+            continue;
+        if (count > 0)
+            buffer_strcat(wb, ",\n");
+
+        netdata_mutex_lock(&host->receiver_lock);
+        buffer_sprintf(
+            wb, "\t\t{ \"guid\": \"%s\", \"reachable\": %s, \"claim_id\": ", host->machine_guid,
+            (host->receiver || host == localhost) ? "true" : "false");
+        netdata_mutex_unlock(&host->receiver_lock);
+
+        netdata_mutex_lock(&host->claimed_id_lock);
+        if (host->claimed_id)
+            buffer_sprintf(wb, "\"%s\" }", host->claimed_id);
+        else
+            buffer_strcat(wb, "null }");
+        netdata_mutex_unlock(&host->claimed_id_lock);
+
+        count++;
+    }
     rrd_unlock();
+
+    buffer_strcat(wb, "\n\t],\n");
 }
 
 inline void host_labels2json(RRDHOST *host, BUFFER *wb, size_t indentation) {
@@ -825,9 +886,7 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     buffer_sprintf(wb, "\t\"version\": \"%s\",\n", host->program_version);
     buffer_sprintf(wb, "\t\"uid\": \"%s\",\n", host->machine_guid);
 
-    buffer_strcat(wb, "\t\"mirrored_hosts\": [\n");
     web_client_api_request_v1_info_mirrored_hosts(wb);
-    buffer_strcat(wb, "\t],\n");
 
     buffer_strcat(wb, "\t\"alarms\": {\n");
     web_client_api_request_v1_info_summary_alarm_statuses(host, wb);

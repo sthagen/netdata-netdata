@@ -134,6 +134,7 @@ void metalog_try_link_new_metadata_logfile(struct metalog_worker_config *wc)
     if (metalogfile->records.first) { /* it has records */
         /* Finalize metadata log file and create a new one */
         mlf_flush_records_buffer(wc, &ctx->records_log, &ctx->metadata_logfiles);
+        fsync_metadata_logfile(ctx->metadata_logfiles.last);
         ret = add_new_metadata_logfile(ctx, &ctx->metadata_logfiles, 0, ctx->last_fileno + 1);
         if (likely(!ret)) {
             ++ctx->last_fileno;
@@ -364,6 +365,7 @@ void metalog_worker(void* arg)
             case METALOG_COMPACTION_FLUSH:
                 mlf_flush_records_buffer(wc, &ctx->compaction_state.records_log,
                                          &ctx->compaction_state.new_metadata_logfiles);
+                fsync_metadata_logfile(ctx->compaction_state.new_metadata_logfiles.last);
                 complete(cmd.record_io_descr.completion);
                 break;
                 default:
@@ -414,4 +416,12 @@ void error_with_guid(uuid_t *uuid, char *reason)
     uuid_unparse_lower(*uuid, uuid_str);
     errno = 0;
     error("%s (GUID = %s)", reason, uuid_str);
+}
+
+void info_with_guid(uuid_t *uuid, char *reason)
+{
+    char  uuid_str[37];
+
+    uuid_unparse_lower(*uuid, uuid_str);
+    info("%s (GUID = %s)", reason, uuid_str);
 }

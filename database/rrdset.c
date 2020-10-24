@@ -388,6 +388,12 @@ void rrdset_free(RRDSET *st) {
         case RRD_MEMORY_MODE_ALLOC:
         case RRD_MEMORY_MODE_NONE:
         case RRD_MEMORY_MODE_DBENGINE:
+#ifdef ENABLE_DBENGINE
+            if (st->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
+                free_uuid(st->chart_uuid);
+                freez(st->chart_uuid);
+            }
+#endif
             freez(st);
             break;
     }
@@ -1128,34 +1134,6 @@ static inline usec_t rrdset_init_last_updated_time(RRDSET *st) {
     return last_updated_ut;
 }
 
-static inline void rrdset_done_push_exclusive(RRDSET *st) {
-//    usec_t update_every_ut = st->update_every * USEC_PER_SEC; // st->update_every in microseconds
-//
-//    if(unlikely(st->usec_since_last_update > update_every_ut * remote_clock_resync_iterations)) {
-//        error("Chart '%s' was last collected %llu usec before. Resetting it.", st->id, st->usec_since_last_update);
-//        rrdset_reset(st);
-//        st->usec_since_last_update = update_every_ut;
-//    }
-
-    if(unlikely(!st->last_collected_time.tv_sec)) {
-        // it is the first entry
-        // set the last_collected_time to now
-        rrdset_init_last_collected_time(st);
-    }
-    else {
-        // it is not the first entry
-        // calculate the proper last_collected_time, using usec_since_last_update
-        rrdset_update_last_collected_time(st);
-    }
-
-    st->counter_done++;
-
-    rrdset_rdlock(st);
-    rrdset_done_push(st);
-    rrdset_unlock(st);
-}
-
-
 static inline size_t rrdset_done_interpolate(
         RRDSET *st
         , usec_t update_every_ut
@@ -1401,13 +1379,6 @@ static inline void rrdset_done_fill_the_gap(RRDSET *st) {
 void rrdset_done(RRDSET *st) {
     if(unlikely(netdata_exit)) return;
 
-    if(unlikely(st->rrd_memory_mode == RRD_MEMORY_MODE_NONE)) {
-        if(unlikely(st->rrdhost->rrdpush_send_enabled))
-            rrdset_done_push_exclusive(st);
-
-        return;
-    }
-
     debug(D_RRD_CALLS, "rrdset_done() for chart %s", st->name);
 
     RRDDIM *rd;
@@ -1417,10 +1388,10 @@ void rrdset_done(RRDSET *st) {
             first_entry = 0;        // boolean: 1 = this is the first entry seen for this chart, 0 = all other entries
 
     usec_t
-            last_collect_ut,        // the timestamp in microseconds, of the last collected value
-            now_collect_ut,         // the timestamp in microseconds, of this collected value (this is NOW)
-            last_stored_ut,         // the timestamp in microseconds, of the last stored entry in the db
-            next_store_ut,          // the timestamp in microseconds, of the next entry to store in the db
+            last_collect_ut = 0,    // the timestamp in microseconds, of the last collected value
+            now_collect_ut = 0,     // the timestamp in microseconds, of this collected value (this is NOW)
+            last_stored_ut = 0,     // the timestamp in microseconds, of the last stored entry in the db
+            next_store_ut = 0,      // the timestamp in microseconds, of the next entry to store in the db
             update_every_ut = st->update_every * USEC_PER_SEC; // st->update_every in microseconds
 
     netdata_thread_disable_cancelability();
@@ -1435,7 +1406,7 @@ void rrdset_done(RRDSET *st) {
 
     // check if the chart has a long time to be updated
     if(unlikely(st->usec_since_last_update > st->entries * update_every_ut &&
-                st->rrd_memory_mode != RRD_MEMORY_MODE_DBENGINE)) {
+                st->rrd_memory_mode != RRD_MEMORY_MODE_DBENGINE && st->rrd_memory_mode != RRD_MEMORY_MODE_NONE)) {
         info("host '%s', chart %s: took too long to be updated (counter #%zu, update #%zu, %0.3" LONG_DOUBLE_MODIFIER " secs). Resetting it.", st->rrdhost->hostname, st->name, st->counter, st->counter_done, (LONG_DOUBLE)st->usec_since_last_update / USEC_PER_SEC);
         rrdset_reset(st);
         st->usec_since_last_update = update_every_ut;
@@ -1461,6 +1432,9 @@ void rrdset_done(RRDSET *st) {
         // it is not the first entry
         // calculate the proper last_collected_time, using usec_since_last_update
         last_collect_ut = rrdset_update_last_collected_time(st);
+    }
+    if (unlikely(st->rrd_memory_mode == RRD_MEMORY_MODE_NONE)) {
+        goto after_first_database_work;
     }
 
     // if this set has not been updated in the past
@@ -1545,10 +1519,14 @@ void rrdset_done(RRDSET *st) {
             #endif
         }
     }
+after_first_database_work:
     st->counter_done++;
 
     if(unlikely(st->rrdhost->rrdpush_send_enabled))
         rrdset_done_push(st);
+    if (unlikely(st->rrd_memory_mode == RRD_MEMORY_MODE_NONE)) {
+        goto after_second_database_work;
+    }
 
     #ifdef NETDATA_INTERNAL_CHECKS
     rrdset_debug(st, "last_collect_ut = %0.3" LONG_DOUBLE_MODIFIER " (last collection time)", (LONG_DOUBLE)last_collect_ut/USEC_PER_SEC);
@@ -1818,6 +1796,7 @@ void rrdset_done(RRDSET *st) {
             , storage_flags
     );
 
+after_second_database_work:
     st->last_collected_total  = st->collected_total;
 
     rrddim_foreach_read(rd, st) {

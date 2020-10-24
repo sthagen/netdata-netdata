@@ -43,7 +43,8 @@ int mark_scheduled_instances(struct engine *engine)
     int instances_were_scheduled = 0;
 
     for (struct instance *instance = engine->instance_root; instance; instance = instance->next) {
-        if (!instance->disabled && (engine->now % instance->config.update_every < localhost->rrd_update_every)) {
+        if (!instance->disabled && (engine->now % instance->config.update_every >=
+                                    instance->config.update_every - localhost->rrd_update_every)) {
             instance->scheduled = 1;
             instances_were_scheduled = 1;
             instance->before = engine->now;
@@ -293,6 +294,7 @@ void end_batch_formatting(struct engine *engine)
                 continue;
             }
             uv_mutex_unlock(&instance->mutex);
+            instance->data_is_ready = 1;
             uv_cond_signal(&instance->cond_var);
 
             instance->scheduled = 0;

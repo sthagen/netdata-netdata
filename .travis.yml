@@ -39,14 +39,16 @@ install:
 # Setup notification system
 #
 notifications:
-  webhooks: https://app.fossa.io/hooks/travisci
-
+  webhooks:
+    urls:
+      - https://app.fossa.io/hooks/travisci
 
 # Define the stage sequence and conditionals
 #
 stages:
   # Mandatory runs, we always want these executed
   - name: Build process
+    if: commit_message =~ /^((?!\[Package (amd64|arm64|i386) (DEB|RPM)( .*)?\]).)*$/
 
     # Nightly operations
   - name: Nightly operations
@@ -124,10 +126,6 @@ jobs:
       script: 'for i in $(seq 0 4); do printf "[XXX: Run #%s]\n" "$i";docker run -it -v "${PWD}:/netdata:rw" -w /netdata "ubuntu:18.04" tests/updater_checks.sh && break; done'
       after_failure: post_message "TRAVIS_MESSAGE" "Netdata updater process failed on bare Ubuntu 18.04"
 
-    - name: Run netdata lifecycle, on Ubuntu 19.10
-      script: 'for i in $(seq 0 4); do printf "[XXX: Run #%s]\n" "$i";docker run -it -v "${PWD}:/netdata:rw" -w /netdata "ubuntu:19.10" tests/updater_checks.sh && break; done'
-      after_failure: post_message "TRAVIS_MESSAGE" "Netdata updater process failed on bare Ubuntu 19.10"
-
       # Centos runs
     - name: Run netdata lifecycle on CentOS 7
       script: 'for i in $(seq 0 4); do printf "[XXX: Run #%s]\n" "$i";docker run -it -v "${PWD}:/netdata:rw" -w /netdata "centos:7" tests/updater_checks.sh && break; done '
@@ -185,6 +183,7 @@ jobs:
       env:
         - BUILDER_NAME="builder" BUILD_DISTRO="debian" BUILD_RELEASE="buster" BUILD_STRING="debian/buster"
         - PACKAGE_TYPE="deb" REPO_TOOL="apt-get"
+      after_failure: post_message "TRAVIS_MESSAGE" "Netdata DEB package build check failed."
 
     - name: RPM package test
       git:
@@ -205,6 +204,7 @@ jobs:
       env:
         - BUILDER_NAME="builder" BUILD_DISTRO="fedora" BUILD_RELEASE="31" BUILD_STRING="fedora/31"
         - PACKAGE_TYPE="rpm" REPO_TOOL="dnf"
+      after_failure: post_message "TRAVIS_MESSAGE" "Netdata RPM package build check failed."
 
     - stage: Support activities on main branch
       name: Generate changelog for release (only on special and tagged commit msg)
@@ -266,15 +266,7 @@ jobs:
           - if [ -n "${BUILDER_NAME}" ]; then rm -rf /home/${BUILDER_NAME}/* && echo "Cleared /home/${BUILDER_NAME} directory" || echo "Failed to clean /home/${BUILDER_NAME} directory"; fi;
           - if [ -d "${PACKAGES_DIRECTORY}" ]; then rm -rf "${PACKAGES_DIRECTORY}"; fi;
 
-      name: "Build & Publish DEB package for ubuntu/eoan"
-      <<: *DEB_TEMPLATE
-      if: commit_message =~ /\[Package (amd64|arm64|i386) DEB( Ubuntu)?\]/
-      env:
-        - BUILDER_NAME="builder" BUILD_DISTRO="ubuntu" BUILD_RELEASE="eoan" BUILD_STRING="ubuntu/eoan"
-        - PACKAGE_TYPE="deb" REPO_TOOL="apt-get"
-        - ALLOW_SOFT_FAILURE_HERE=true
-
-    - name: "Build & Publish DEB package for ubuntu/bionic"
+      name: "Build & Publish DEB package for ubuntu/bionic"
       <<: *DEB_TEMPLATE
       if: commit_message =~ /\[Package (amd64|arm64|i386) DEB( Ubuntu)?\]/
       env:
@@ -287,6 +279,14 @@ jobs:
       if: commit_message =~ /\[Package (amd64|arm64|i386) DEB( Ubuntu)?\]/
       env:
         - BUILDER_NAME="builder" BUILD_DISTRO="ubuntu" BUILD_RELEASE="xenial" BUILD_STRING="ubuntu/xenial"
+        - PACKAGE_TYPE="deb" REPO_TOOL="apt-get"
+        - ALLOW_SOFT_FAILURE_HERE=true
+
+    - name: "Build & Publish DEB package for ubuntu/focal"
+      <<: *DEB_TEMPLATE
+      if: commit_message =~ /\[Package (amd64|arm64) DEB( Ubuntu)?\]/
+      env:
+        - BUILDER_NAME="builder" BUILD_DISTRO="ubuntu" BUILD_RELEASE="focal" BUILD_STRING="ubuntu/focal"
         - PACKAGE_TYPE="deb" REPO_TOOL="apt-get"
         - ALLOW_SOFT_FAILURE_HERE=true
 
@@ -305,15 +305,6 @@ jobs:
         - BUILDER_NAME="builder" BUILD_DISTRO="debian" BUILD_RELEASE="stretch" BUILD_STRING="debian/stretch"
         - PACKAGE_TYPE="deb" REPO_TOOL="apt-get"
         - ALLOW_SOFT_FAILURE_HERE=true
-
-    - name: "Build & Publish DEB package for debian/jessie"
-      <<: *DEB_TEMPLATE
-      if: commit_message =~ /\[Package (amd64|arm64|i386) DEB( Debian)?\]/
-      env:
-        - BUILDER_NAME="builder" BUILD_DISTRO="debian" BUILD_RELEASE="jessie" BUILD_STRING="debian/jessie"
-        - PACKAGE_TYPE="deb" REPO_TOOL="apt-get"
-        - ALLOW_SOFT_FAILURE_HERE=true
-
 
     - stage: Package centos, fedora and opensuse
       _template: &RPM_TEMPLATE

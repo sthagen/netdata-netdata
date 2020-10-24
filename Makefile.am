@@ -59,7 +59,6 @@ dist_noinst_DATA = \
     netdata.spec \
     package.json \
     docs \
-    libnetdata/ebpf/libbpf.c.diff \
     packaging/version \
     packaging/dashboard.version \
     packaging/dashboard.checksums \
@@ -67,12 +66,15 @@ dist_noinst_DATA = \
     packaging/go.d.checksums \
     packaging/jsonc.version \
     packaging/jsonc.checksums \
+    packaging/judy.version \
+    packaging/judy.checksums \
     packaging/libwebsockets.version \
     packaging/libwebsockets.checksums \
     packaging/mosquitto.version \
     packaging/mosquitto.checksums \
     packaging/bundle-dashboard.sh \
     packaging/bundle-ebpf.sh \
+    packaging/bundle-judy.sh \
     packaging/bundle-libbpf.sh \
     packaging/bundle-mosquitto.sh \
     packaging/check-kernel-config.sh \
@@ -303,6 +305,7 @@ PROC_PLUGIN_FILES = \
     collectors/proc.plugin/proc_pressure.c \
     collectors/proc.plugin/proc_pressure.h \
     collectors/proc.plugin/proc_net_dev.c \
+    collectors/proc.plugin/proc_net_wireless.c \
     collectors/proc.plugin/proc_net_ip_vs_stats.c \
     collectors/proc.plugin/proc_net_netstat.c \
     collectors/proc.plugin/proc_net_rpc_nfs.c \
@@ -533,6 +536,8 @@ ACLK_FILES += \
     aclk/aclk_query.h \
     aclk/mqtt.c \
     aclk/mqtt.h \
+    aclk/aclk_rx_msgs.c \
+    aclk/aclk_rx_msgs.h \
     aclk/aclk_lws_wss_client.c \
     aclk/aclk_lws_wss_client.h \
     aclk/aclk_lws_https_client.c \
@@ -614,6 +619,8 @@ MONGODB_BACKEND_FILES = \
     $(NULL)
 
 DAEMON_FILES = \
+    daemon/buildinfo.c \
+    daemon/buildinfo.h \
     daemon/common.c \
     daemon/common.h \
     daemon/daemon.c \

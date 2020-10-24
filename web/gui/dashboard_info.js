@@ -50,6 +50,12 @@ netdataDashboard.menu = {
         info: 'Performance metrics for network interfaces.'
     },
 
+    'wireless': {
+        title: 'Wireless Interfaces',
+        icon: '<i class="fas fa-wifi"></i>',
+        info: 'Performance metrics for wireless interfaces.'
+    },
+
     'ip': {
         title: 'Networking Stack',
         icon: '<i class="fas fa-cloud"></i>',
@@ -754,7 +760,7 @@ netdataDashboard.context = {
     },
 
     'system.load': {
-        info: 'Current system load, i.e. the number of processes using CPU or waiting for system resources (usually CPU and disk). The 3 metrics refer to 1, 5 and 15 minute averages. The system calculates this once every 5 seconds. For more information check <a href="https://en.wikipedia.org/wiki/Load_(computing)" target="_blank">this wikipedia article</a>',
+        info: 'Current system load, i.e. the number of processes using CPU or waiting for system resources (usually CPU and disk). The 3 metrics refer to 1, 5 and 15 minute averages. The system calculates this once every 5 seconds. For more information check <a href="https://en.wikipedia.org/wiki/Load_(computing)" target="_blank">this wikipedia article</a>.',
         height: 0.7
     },
 
@@ -2265,6 +2271,106 @@ netdataDashboard.context = {
             '<code>TIMEOUT</code>, when the response was not completed due to a connection timeout.'
     },
 
+     // ------------------------------------------------------------------------
+    // go web_log
+
+    'web_log.type_requests': {
+        info: 'Web server responses by type. <code>success</code> includes <b>1xx</b>, <b>2xx</b>, <b>304</b> and <b>401</b>, <code>error</code> includes <b>5xx</b>, <code>redirect</code> includes <b>3xx</b> except <b>304</b>, <code>bad</code> includes <b>4xx</b> except <b>401</b>, <code>other</code> are all the other responses.',
+        mainheads: [
+            function (os, id) {
+                void (os);
+                return '<div data-netdata="' + id + '"'
+                    + ' data-dimensions="success"'
+                    + ' data-chart-library="gauge"'
+                    + ' data-title="Successful"'
+                    + ' data-units="requests/s"'
+                    + ' data-gauge-adjust="width"'
+                    + ' data-width="12%"'
+                    + ' data-before="0"'
+                    + ' data-after="-CHART_DURATION"'
+                    + ' data-points="CHART_DURATION"'
+                    + ' data-common-max="' + id + '"'
+                    + ' data-colors="' + NETDATA.colors[0] + '"'
+                    + ' data-decimal-digits="0"'
+                    + ' role="application"></div>';
+            },
+
+            function (os, id) {
+                void (os);
+                return '<div data-netdata="' + id + '"'
+                    + ' data-dimensions="redirect"'
+                    + ' data-chart-library="gauge"'
+                    + ' data-title="Redirects"'
+                    + ' data-units="requests/s"'
+                    + ' data-gauge-adjust="width"'
+                    + ' data-width="12%"'
+                    + ' data-before="0"'
+                    + ' data-after="-CHART_DURATION"'
+                    + ' data-points="CHART_DURATION"'
+                    + ' data-common-max="' + id + '"'
+                    + ' data-colors="' + NETDATA.colors[2] + '"'
+                    + ' data-decimal-digits="0"'
+                    + ' role="application"></div>';
+            },
+
+            function (os, id) {
+                void (os);
+                return '<div data-netdata="' + id + '"'
+                    + ' data-dimensions="bad"'
+                    + ' data-chart-library="gauge"'
+                    + ' data-title="Bad Requests"'
+                    + ' data-units="requests/s"'
+                    + ' data-gauge-adjust="width"'
+                    + ' data-width="12%"'
+                    + ' data-before="0"'
+                    + ' data-after="-CHART_DURATION"'
+                    + ' data-points="CHART_DURATION"'
+                    + ' data-common-max="' + id + '"'
+                    + ' data-colors="' + NETDATA.colors[3] + '"'
+                    + ' data-decimal-digits="0"'
+                    + ' role="application"></div>';
+            },
+
+            function (os, id) {
+                void (os);
+                return '<div data-netdata="' + id + '"'
+                    + ' data-dimensions="error"'
+                    + ' data-chart-library="gauge"'
+                    + ' data-title="Server Errors"'
+                    + ' data-units="requests/s"'
+                    + ' data-gauge-adjust="width"'
+                    + ' data-width="12%"'
+                    + ' data-before="0"'
+                    + ' data-after="-CHART_DURATION"'
+                    + ' data-points="CHART_DURATION"'
+                    + ' data-common-max="' + id + '"'
+                    + ' data-colors="' + NETDATA.colors[1] + '"'
+                    + ' data-decimal-digits="0"'
+                    + ' role="application"></div>';
+            }
+        ]
+    },
+
+    'web_log.request_processing_time': {
+        mainheads: [
+            function (os, id) {
+                void (os);
+                return '<div data-netdata="' + id + '"'
+                    + ' data-dimensions="avg"'
+                    + ' data-chart-library="gauge"'
+                    + ' data-title="Average Response Time"'
+                    + ' data-units="milliseconds"'
+                    + ' data-gauge-adjust="width"'
+                    + ' data-width="12%"'
+                    + ' data-before="0"'
+                    + ' data-after="-CHART_DURATION"'
+                    + ' data-points="CHART_DURATION"'
+                    + ' data-colors="' + NETDATA.colors[4] + '"'
+                    + ' data-decimal-digits="2"'
+                    + ' role="application"></div>';
+            }
+        ]
+    },
     // ------------------------------------------------------------------------
     // Fronius Solar Power
 
@@ -2436,6 +2542,16 @@ netdataDashboard.context = {
 
     'rabbitmq.disk_space': {
         info: 'Total amount of disk space consumed by the message store(s).  See <code><a href="https://www.rabbitmq.com/production-checklist.html#resource-limits-disk-space" target=_"blank">Disk Space Limits</a></code> for further details.',
+        colors: NETDATA.colors[3]
+    },
+
+    'rabbitmq.queue_messages': {
+        info: 'Total amount of messages and their states in this queue.',
+        colors: NETDATA.colors[3]
+    },
+
+    'rabbitmq.queue_messages_stats': {
+        info: 'Overall messaging rates including acknowledgements, delieveries, redeliveries, and publishes.',
         colors: NETDATA.colors[3]
     },
 

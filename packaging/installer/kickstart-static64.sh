@@ -11,6 +11,7 @@
 #  --disable-telemetry        Opt-out of anonymous telemetry program (DO_NOT_TRACK=1)
 #  --local-files              Use a manually provided tarball for the installation
 #  --allow-duplicate-install  do not bail if we detect a duplicate install
+#  --reinstall                if an existing install would be updated, reinstall instead
 #
 # Environment options:
 #
@@ -120,15 +121,43 @@ fatal() {
   exit 1
 }
 
-create_tmp_directory() {
-  # Check if tmp is mounted as noexec
-  if grep -Eq '^[^ ]+ /tmp [^ ]+ ([^ ]*,)?noexec[, ]' /proc/mounts; then
-    pattern="$(pwd)/netdata-kickstart-XXXXXX"
-  else
-    pattern="/tmp/netdata-kickstart-XXXXXX"
+_cannot_use_tmpdir() {
+  local testfile ret
+  testfile="$(TMPDIR="${1}" mktemp -q -t netdata-test.XXXXXXXXXX)"
+  ret=0
+
+  if [ -z "${testfile}" ] ; then
+    return "${ret}"
   fi
 
-  mktemp -d $pattern
+  if printf '#!/bin/sh\necho SUCCESS\n' > "${testfile}" ; then
+    if chmod +x "${testfile}" ; then
+      if [ "$("${testfile}")" = "SUCCESS" ] ; then
+        ret=1
+      fi
+    fi
+  fi
+
+  rm -f "${testfile}"
+  return "${ret}"
+}
+
+create_tmp_directory() {
+  if [ -z "${TMPDIR}" ] || _cannot_use_tmpdir "${TMPDIR}" ; then
+    if _cannot_use_tmpdir /tmp ; then
+      if _cannot_use_tmpdir "${PWD}" ; then
+        echo >&2
+        echo >&2 "Unable to find a usable temprorary directory. Please set \$TMPDIR to a path that is both writable and allows execution of files and try again."
+        exit 1
+      else
+        TMPDIR="${PWD}"
+      fi
+    else
+      TMPDIR="/tmp"
+    fi
+  fi
+
+  mktemp -d -t netdata-kickstart-XXXXXXXXXX
 }
 
 download() {
@@ -179,52 +208,6 @@ umask 022
 sudo=""
 [ -z "${UID}" ] && UID="$(id -u)"
 [ "${UID}" -ne "0" ] && sudo="sudo"
-
-# ---------------------------------------------------------------------------------------------------------------------
-# look for an existing install and try to update that instead if it exists
-
-ndpath="$(command -v netdata 2>/dev/null)"
-if [ -z "$ndpath" ] && [ -x /opt/netdata/bin/netdata ] ; then
-    ndpath="/opt/netdata/bin/netdata"
-fi
-
-if [ -n "$ndpath" ] ; then
-  ndprefix="$(dirname "$(dirname "${ndpath}")")"
-
-  if [ "${ndprefix}" = /usr ] ; then
-    ndprefix="/"
-  fi
-
-  progress "Found existing install of Netdata under: ${ndprefix}"
-
-  if [ -r "${ndprefix}/etc/netdata/.environment" ] ; then
-    if [ -x "${ndprefix}/usr/libexec/netdata/netdata-updater.sh" ] ; then
-      progress "Attempting to update existing install instead of creating a new one"
-      if run ${sudo} "${ndprefix}/usr/libexec/netdata/netdata-updater.sh" --not-running-from-cron ; then
-        progress "Updated existing install at ${ndpath}"
-        exit 0
-      else
-        fatal "Failed to update existing Netdata install"
-        exit 1
-      fi
-    else
-      if [ -z "${NETDATA_ALLOW_DUPLICATE_INSTALL}" ] ; then
-        fatal "Existing installation detected which cannot be safely updated by this script, refusing to continue."
-        exit 1
-      else
-        progress "User explicitly requested duplicate install, proceeding."
-      fi
-    fi
-  else
-    progress "Existing install appears to be handled manually or through the system package manager."
-    if [ -z "${NETDATA_ALLOW_DUPLICATE_INSTALL}" ] ; then
-      fatal "Existing installation detected which cannot be safely updated by this script, refusing to continue."
-      exit 1
-    else
-      progress "User explicitly requested duplicate install, proceeding."
-    fi
-  fi
-fi
 
 # ----------------------------------------------------------------------------
 if [ "$(uname -m)" != "x86_64" ]; then
@@ -278,6 +261,9 @@ while [ -n "${1}" ]; do
   elif [ "${1}" = "--allow-duplicate-install" ]; then
     NETDATA_ALLOW_DUPLICATE_INSTALL=1
     shift 1
+  elif [ "${1}" = "--reinstall" ]; then
+    NETDATA_REINSTALL=1
+    shift 1
   else
     echo >&2 "Unknown option '${1}' or invalid number of arguments. Please check the README for the available arguments of ${0} and try again"
     exit 1
@@ -290,6 +276,62 @@ fi
 
 # Netdata Tarball Base URL (defaults to our Google Storage Bucket)
 [ -z "$NETDATA_TARBALL_BASEURL" ] && NETDATA_TARBALL_BASEURL=https://storage.googleapis.com/netdata-nightlies
+
+# ---------------------------------------------------------------------------------------------------------------------
+# look for an existing install and try to update that instead if it exists
+
+ndpath="$(command -v netdata 2>/dev/null)"
+if [ -z "$ndpath" ] && [ -x /opt/netdata/bin/netdata ] ; then
+    ndpath="/opt/netdata/bin/netdata"
+fi
+
+if [ -n "$ndpath" ] ; then
+  ndprefix="$(dirname "$(dirname "${ndpath}")")"
+
+  if [ "${ndprefix}" = /usr ] ; then
+    ndprefix="/"
+  fi
+
+  progress "Found existing install of Netdata under: ${ndprefix}"
+
+  if [ -r "${ndprefix}/etc/netdata/.environment" ] ; then
+    ndstatic="$(grep IS_NETDATA_STATIC_BINARY "${ndprefix}/etc/netdata/.environment" | cut -d "=" -f 2 | tr -d \")"
+    if [ -z "${NETDATA_REINSTALL}" ] && [ -z "${NETDATA_LOCAL_TARBALL_OVERRIDE}" ] ; then
+      if [ -x "${ndprefix}/usr/libexec/netdata/netdata-updater.sh" ] ; then
+        progress "Attempting to update existing install instead of creating a new one"
+        if run ${sudo} "${ndprefix}/usr/libexec/netdata/netdata-updater.sh" --not-running-from-cron ; then
+          progress "Updated existing install at ${ndpath}"
+          exit 0
+        else
+          fatal "Failed to update existing Netdata install"
+          exit 1
+        fi
+      else
+        if [ -z "${NETDATA_ALLOW_DUPLICATE_INSTALL}" ] || [ "${ndstatic}" = "no" ] ; then
+          fatal "Existing installation detected which cannot be safely updated by this script, refusing to continue."
+          exit 1
+        else
+          progress "User explicitly requested duplicate install, proceeding."
+        fi
+      fi
+    else
+      if [ "${ndstatic}" = "yes" ] ; then
+        progress "User requested reinstall instead of update, proceeding."
+      else
+        fatal "Existing install is not a static install, please use kickstart.sh instead."
+        exit 1
+      fi
+    fi
+  else
+    progress "Existing install appears to be handled manually or through the system package manager."
+    if [ -z "${NETDATA_ALLOW_DUPLICATE_INSTALL}" ] ; then
+      fatal "Existing installation detected which cannot be safely updated by this script, refusing to continue."
+      exit 1
+    else
+      progress "User explicitly requested duplicate install, proceeding."
+    fi
+  fi
+fi
 
 # ----------------------------------------------------------------------------
 TMPDIR=$(create_tmp_directory)

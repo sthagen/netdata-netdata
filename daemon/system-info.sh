@@ -30,6 +30,10 @@ if [ -z "${VIRTUALIZATION}" ]; then
                     VIRTUALIZATION="none"
             fi
     fi
+    if [ -z "${VIRTUALIZATION}" ]; then
+      # Output from the command is outside of spec
+      VIRTUALIZATION="unknown"
+    fi
 else
     # Passed from outside - probably in docker run
     VIRT_DETECTION="provided"
@@ -280,6 +284,9 @@ TOTAL_RAM="unknown"
 RAM_DETECTION="none"
 
 if [ "${KERNEL_NAME}" = FreeBSD ] ; then
+        RAM_DETECTION="sysctl"
+        TOTAL_RAM="$(sysctl -n hw.physmem)"
+elif [ "${KERNEL_NAME}" = Darwin ] ; then
         RAM_DETECTION="sysctl"
         TOTAL_RAM="$(sysctl -n hw.physmem)"
 elif [ -r /proc/meminfo ] ; then

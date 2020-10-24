@@ -11,7 +11,7 @@ long term?
 
 Many people think Netdata can only store about an hour's worth of real-time metrics, but that's simply not true any
 more. With the right settings, Netdata is quite capable of efficiently storing hours or days worth of historical,
-per-second metrics without having to rely on an [exporting engine](/exporting/README.md).
+per-second metrics without having to rely on an [exporting engine](/docs/export/external-databases.md).
 
 This guide gives two options for configuring Netdata to store more metrics. **We recommend the default [database
 engine](#using-the-database-engine)**, but you can stick with or switch to the round-robin database if you prefer.
@@ -43,21 +43,23 @@ When the Netdata dashboard queries for historical metrics, the database engine w
 return relevant metrics for visualization in charts.
 
 Now, given that the database engine uses _both_ RAM and disk, there are two other settings to consider: `page cache
-size` and `dbengine disk space`.
+size` and `dbengine multihost disk space`.
 
 ```conf
 [global]
     page cache size = 32
-    dbengine disk space = 256
+    dbengine multihost disk space = 256
 ```
 
 `page cache size` sets the maximum amount of RAM (in MiB) the database engine will use for caching and indexing.
-`dbengine disk space` sets the maximum disk space (again, in MiB) the database engine will use for storing compressed
-metrics. The default settings retain about two day's worth of metris on a system collecting 2,000 metrics every second.
+`dbengine multihost disk space` sets the maximum disk space (again, in MiB) the database engine will use for storing
+compressed metrics. The default settings retain about two day's worth of metris on a system collecting 2,000 metrics
+every second.
 
-[**See our database engine calculator**](https://learn.netdata.cloud/docs/agent/database/calculator) to help you
-correctly set `dbengine disk space` based on your needs. The calculator gives an accurate estimate based on how many
-child nodes you have, how many metrics your Agent collects, and more.
+[**See our database engine
+calculator**](/docs/store/change-metrics-storage.md#calculate-the-system-resources-RAM-disk-space-needed-to-store-metrics)
+to help you correctly set `dbengine multihost disk space` based on your needs. The calculator gives an accurate estimate
+based on how many child nodes you have, how many metrics your Agent collects, and more.
 
 With the database engine active, you can back up your `/var/cache/netdata/dbengine/` folder to another location for
 redundancy.

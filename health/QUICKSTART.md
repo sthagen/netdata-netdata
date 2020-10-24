@@ -1,24 +1,15 @@
 <!--
----
 title: "Health quickstart"
 custom_edit_url: https://github.com/netdata/netdata/edit/master/health/QUICKSTART.md
----
 -->
 
 # Health quickstart
 
-In this getting started guide, you'll learn the basics of editing health configuration files. With this knowledge, you
+In this quickstart guide, you'll learn the basics of editing health configuration files. With this knowledge, you
 will be able to customize how and when Netdata triggers alarms based on the health and performance of your system or
 infrastructure.
 
-To learn about more advanced health configurations, visit the [health reference guide](REFERENCE.md).
-
-## What's in this getting started guide
-
--   [Edit health configuration files](#edit-health-configuration-files)
--   [Reference Netdata's stock health configuration files](#reference-netdatas-stock-health-configuration-files)
--   [Write a new health entity](#write-a-new-health-entity)
--   [Reload health configuration](#reload-health-configuration)
+To learn about more advanced health configurations, visit the [health reference guide](/health/REFERENCE.md).
 
 ## Edit health configuration files
 
@@ -50,8 +41,9 @@ health configuration files Netdata ships with. Stock files can be useful as refe
 file you should edit with `edit-config`.
 
 By default, Netdata will put health configuration files in `/usr/lib/netdata/conf.d/health.d`.  However, you can
-double-check the location of these files by navigating to `http://HOST:19999/netdata.conf` in your browser and looking
-for the `stock health configuration directory` option. The value here will show the correct path for your installation.
+double-check the location of these files by navigating to `http://NODE:19999/netdata.conf`, replacing `NODE` with the IP
+address or hostname for your Agent dashboard, looking for the `stock health configuration directory` option. The value
+here will show the correct path for your installation.
 
 ```conf
 [health]
@@ -133,12 +125,20 @@ To make any changes to your health configuration live, you must reload Netdata's
 without restarting all of Netdata, run the following:
 
 ```bash
-killall -USR2 netdata
+netdatacli reload-health
 ```
 
+If you receive an error like `command not found`, this means that `netdatacli` is not installed in your `$PATH`. In that 
+ case, you can reload only the health component by sending a `SIGUSR2` to Netdata:
+
+```bash
+killall -USR2 netdata
+```
 ## What's next?
 
-To learn about all of Netdata's health configuration options, view the [reference guide](/health/REFERENCE.md).
+To learn about all of Netdata's health configuration options, view the [reference guide](/health/REFERENCE.md) and
+[daemon configuration](/daemon/config/README.md#health-section-options) for additional options available in the
+`[health]` section of `netdata.conf`.
 
 Or, get guided insights into specific health configurations with our [health guides](/health/README.md#guides).
 

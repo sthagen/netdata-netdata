@@ -95,6 +95,48 @@ PARSER_RC streaming_timestamp(char **words, void *user, PLUGINSD_ACTION *plugins
     return PARSER_RC_ERROR;
 }
 
+#define CLAIMED_ID_MIN_WORDS 3
+PARSER_RC streaming_claimed_id(char **words, void *user, PLUGINSD_ACTION *plugins_action)
+{
+    UNUSED(plugins_action);
+
+    int i;
+    uuid_t uuid;
+    RRDHOST *host = ((PARSER_USER_OBJECT *)user)->host;
+
+    for (i = 0; words[i]; i++) ;
+    if (i != CLAIMED_ID_MIN_WORDS) {
+        error("Command CLAIMED_ID came malformed %d parameters are expected but %d received", CLAIMED_ID_MIN_WORDS - 1, i - 1);
+        return PARSER_RC_ERROR;
+    }
+
+    // We don't need the parsed UUID
+    // just do it to check the format
+    if(uuid_parse(words[1], uuid)) {
+        error("1st parameter (host GUID) to CLAIMED_ID command is not valid GUID. Received: \"%s\".", words[1]);
+        return PARSER_RC_ERROR;
+    }
+    if(uuid_parse(words[2], uuid) && strcmp(words[2], "NULL")) {
+        error("2nd parameter (Claim ID) to CLAIMED_ID command is not valid GUID. Received: \"%s\".", words[2]);
+        return PARSER_RC_ERROR;
+    }
+
+    if(strcmp(words[1], host->machine_guid)) {
+        error("Claim ID is for host \"%s\" but it came over connection for \"%s\"", words[1], host->machine_guid);
+        return PARSER_RC_OK; //the message is OK problem must be somewehere else
+    }
+
+    netdata_mutex_lock(&host->claimed_id_lock);
+    if (host->claimed_id)
+        freez(host->claimed_id);
+    host->claimed_id = strcmp(words[2], "NULL") ? strdupz(words[2]) : NULL;
+    netdata_mutex_unlock(&host->claimed_id_lock);
+
+    rrdpush_claimed_id(host);
+
+    return PARSER_RC_OK;
+}
+
 /* The receiver socket is blocking, perform a single read into a buffer so that we can reassemble lines for parsing.
  */
 static int receiver_read(struct receiver_state *r, FILE *fp) {
@@ -139,7 +181,7 @@ static char *receiver_next_line(struct receiver_state *r, int *pos) {
         r->read_buffer[scan] = 0;
         return &r->read_buffer[start];
     }
-    memcpy(r->read_buffer, &r->read_buffer[start], r->read_len - start);
+    memmove(r->read_buffer, &r->read_buffer[start], r->read_len - start);
     r->read_len -= start;
     return NULL;
 }
@@ -156,6 +198,7 @@ size_t streaming_parser(struct receiver_state *rpt, struct plugind *cd, FILE *fp
 
     PARSER *parser = parser_init(rpt->host, user, fp, PARSER_INPUT_SPLIT);
     parser_add_keyword(parser, "TIMESTAMP", streaming_timestamp);
+    parser_add_keyword(parser, "CLAIMED_ID", streaming_claimed_id);
 
     if (unlikely(!parser)) {
         error("Failed to initialize parser");
@@ -236,8 +279,7 @@ static int rrdpush_receive(struct receiver_state *rpt)
     rrdpush_send_charts_matching = appconfig_get(&stream_config, rpt->key, "default proxy send charts matching", rrdpush_send_charts_matching);
     rrdpush_send_charts_matching = appconfig_get(&stream_config, rpt->machine_guid, "proxy send charts matching", rrdpush_send_charts_matching);
 
-    rpt->tags = (char*)appconfig_set_default(&stream_config, rpt->machine_guid, "host tags", (rpt->tags)?rpt->tags:"");
-    if(rpt->tags && !*rpt->tags) rpt->tags = NULL;
+    (void)appconfig_set_default(&stream_config, rpt->machine_guid, "host tags", (rpt->tags)?rpt->tags:"");
 
     if (strcmp(rpt->machine_guid, localhost->machine_guid) == 0) {
         log_stream_connection(rpt->client_ip, rpt->client_port, rpt->key, rpt->machine_guid, rpt->hostname, "DENIED - ATTEMPT TO RECEIVE METRICS FROM MACHINE_GUID IDENTICAL TO PARENT");
@@ -378,9 +420,7 @@ static int rrdpush_receive(struct receiver_state *rpt)
     }
 */
 
-    rrdhost_flag_clear(rpt->host, RRDHOST_FLAG_ORPHAN);
 //    rpt->host->connected_senders++;
-    rpt->host->senders_disconnected_time = 0;
     rpt->host->labels_flag = (rpt->stream_version > 0)?LABEL_FLAG_UPDATE_STREAM:LABEL_FLAG_STOP_STREAM;
 
     if(health_enabled != CONFIG_BOOLEAN_NO) {
@@ -410,17 +450,21 @@ static int rrdpush_receive(struct receiver_state *rpt)
 
     // During a shutdown there is cleanup code in rrdhost that will cancel the sender thread
     if (!netdata_exit && rpt->host) {
+        rrd_rdlock();
+        rrdhost_wrlock(rpt->host);
         netdata_mutex_lock(&rpt->host->receiver_lock);
         if (rpt->host->receiver == rpt) {
-            rrdhost_wrlock(rpt->host);
             rpt->host->senders_disconnected_time = now_realtime_sec();
             rrdhost_flag_set(rpt->host, RRDHOST_FLAG_ORPHAN);
             if(health_enabled == CONFIG_BOOLEAN_AUTO)
                 rpt->host->health_enabled = 0;
-            rrdhost_unlock(rpt->host);
+        }
+        rrdhost_unlock(rpt->host);
+        if (rpt->host->receiver == rpt) {
             rrdpush_sender_thread_stop(rpt->host);
         }
         netdata_mutex_unlock(&rpt->host->receiver_lock);
+        rrd_unlock();
     }
 
     // cleanup

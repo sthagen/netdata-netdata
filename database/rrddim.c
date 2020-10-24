@@ -3,6 +3,32 @@
 #define NETDATA_RRD_INTERNALS
 #include "rrd.h"
 
+static inline void calc_link_to_rrddim(RRDDIM *rd)
+{
+    RRDHOST *host = rd->rrdset->rrdhost;
+    RRDSET  *st = rd->rrdset;
+    if (host->alarms_with_foreach || host->alarms_template_with_foreach) {
+        int count = 0;
+        int hostlocked;
+        for (count = 0; count < 5; count++) {
+            hostlocked = netdata_rwlock_trywrlock(&host->rrdhost_rwlock);
+            if (!hostlocked) {
+                rrdcalc_link_to_rrddim(rd, st, host);
+                rrdhost_unlock(host);
+                break;
+            } else if (hostlocked != EBUSY) {
+                error("Cannot lock host to create an alarm for the dimension.");
+            }
+            sleep_usec(USEC_PER_MS * 200);
+        }
+
+        if (count == 5) {
+            error(
+                "Failed to create an alarm for dimension %s of chart %s 5 times. Skipping alarm.", rd->name, st->name);
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // RRDDIM index
 
@@ -212,6 +238,7 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
             rrddimvar_create(rd, RRDVAR_TYPE_CALCULATED, NULL, NULL, &rd->last_stored_value, RRDVAR_OPTION_DEFAULT);
             rrddimvar_create(rd, RRDVAR_TYPE_COLLECTED, NULL, "_raw", &rd->last_collected_value, RRDVAR_OPTION_DEFAULT);
             rrddimvar_create(rd, RRDVAR_TYPE_TIME_T, NULL, "_last_collected_t", &rd->last_collected_time.tv_sec, RRDVAR_OPTION_DEFAULT);
+            calc_link_to_rrddim(rd);
         }
         // DBENGINE available and activated?
 #ifdef ENABLE_DBENGINE
@@ -425,26 +452,9 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
     if(unlikely(rrddim_index_add(st, rd) != rd))
         error("RRDDIM: INTERNAL ERROR: attempt to index duplicate dimension '%s' on chart '%s'", rd->id, st->id);
 
-    if (host->alarms_with_foreach || host->alarms_template_with_foreach) {
-        int count = 0;
-        int hostlocked;
-        for (count = 0 ; count < 5 ; count++) {
-            hostlocked = netdata_rwlock_trywrlock(&host->rrdhost_rwlock);
-            if (!hostlocked) {
-                rrdcalc_link_to_rrddim(rd, st, host);
-                rrdhost_unlock(host);
-                break;
-            } else if (hostlocked != EBUSY) {
-                error("Cannot lock host to create an alarm for the dimension.");
-            }
-            usleep(200000);
-        }
+    if (!is_archived)
+        calc_link_to_rrddim(rd);
 
-        if (count == 5) {
-            error("Failed to create an alarm for dimension %s of chart %s 5 times. Skipping alarm."
-            , rd->name, st->name);
-        }
-    }
     rrdset_unlock(st);
 #ifdef ENABLE_ACLK
     if (netdata_cloud_setting)
@@ -477,7 +487,6 @@ void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
 #endif
         }
     }
-    freez(rd->state);
 
     if(rd == st->dimensions)
         st->dimensions = rd->next;
@@ -508,6 +517,7 @@ void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
             debug(D_RRD_CALLS, "Unmapping dimension '%s'.", rd->name);
             freez((void *)rd->id);
             freez(rd->cache_filename);
+            freez(rd->state);
             munmap(rd, rd->memsize);
             break;
 
@@ -517,6 +527,13 @@ void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
             debug(D_RRD_CALLS, "Removing dimension '%s'.", rd->name);
             freez((void *)rd->id);
             freez(rd->cache_filename);
+#ifdef ENABLE_DBENGINE
+            if (rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
+                free_uuid(rd->state->metric_uuid);
+                freez(rd->state->metric_uuid);
+            }
+#endif
+            freez(rd->state);
             freez(rd);
             break;
     }

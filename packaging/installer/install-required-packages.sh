@@ -650,6 +650,13 @@ declare -A pkg_automake=(
   ['default']="automake"
 )
 
+# required to bundle libJudy
+declare -A pkg_libtool=(
+  ['gentoo']="sys-devel/libtool"
+  ['clearlinux']="c-basic"
+  ['default']="libtool"
+)
+
 # Required to build libwebsockets and libmosquitto on some systems.
 declare -A pkg_cmake=(
   ['gentoo']="dev-util/cmake"
@@ -954,6 +961,10 @@ declare -A pkg_python3_mysqldb=(
   ['ubuntu-14.10']="WARNING|"
   ['ubuntu-15.04']="WARNING|"
   ['ubuntu-15.10']="WARNING|"
+  ['centos-7']="python36-mysql"
+  ['centos-8']="python38-mysql"
+  ['rhel-7']="python36-mysql"
+  ['rhel-8']="python38-mysql"
 )
 
 declare -A pkg_python_psycopg2=(
@@ -982,6 +993,11 @@ declare -A pkg_python3_psycopg2=(
   ['clearlinux']="WARNING|"
   ['macos']="WARNING|"
   ['default']="WARNING|"
+
+  ['centos-7']="python3-psycopg2"
+  ['centos-8']="python38-psycopg2"
+  ['rhel-7']="python3-psycopg2"
+  ['rhel-8']="python38-psycopg2"
 )
 
 declare -A pkg_python_pip=(
@@ -996,10 +1012,8 @@ declare -A pkg_python_pip=(
 declare -A pkg_python3_pip=(
   ['alpine']="py3-pip"
   ['arch']="python-pip"
-  ['centos']="WARNING|"
   ['gentoo']="dev-python/pip"
   ['sabayon']="dev-python/pip"
-  ['rhel']="WARNING|"
   ['clearlinux']="python3-basic"
   ['macos']="NOTREQUIRED"
   ['default']="python3-pip"
@@ -1013,6 +1027,7 @@ declare -A pkg_python_pymongo=(
   ['gentoo']="dev-python/pymongo"
   ['suse']="python-pymongo"
   ['clearlinux']="WARNING|"
+  ['rhel']="WARNING|"
   ['macos']="WARNING|"
   ['default']="python-pymongo"
 )
@@ -1025,9 +1040,15 @@ declare -A pkg_python3_pymongo=(
   ['gentoo']="dev-python/pymongo"
   ['suse']="python3-pymongo"
   ['clearlinux']="WARNING|"
+  ['rhel']="WARNING|"
   ['freebsd']="py37-pymongo"
   ['macos']="WARNING|"
   ['default']="python3-pymongo"
+
+  ['centos-7']="python36-pymongo"
+  ['centos-8']="python3-pymongo"
+  ['rhel-7']="python36-pymongo"
+  ['rhel-8']="python3-pymongo"
 )
 
 declare -A pkg_python_requests=(
@@ -1058,6 +1079,11 @@ declare -A pkg_python3_requests=(
   ['clearlinux']="python-extras"
   ['macos']="WARNING|"
   ['default']="WARNING|"
+
+  ['centos-7']="python36-requests"
+  ['centos-8']="python3-requests"
+  ['rhel-7']="python36-requests"
+  ['rhel-8']="python3-requests"
 )
 
 declare -A pkg_lz4=(
@@ -1099,16 +1125,14 @@ declare -A pkg_openssl=(
 )
 
 declare -A pkg_judy=(
-  ['alpine']="WARNING|" # TODO - need to add code to download and install judy for alpine and clearlinux
-  ['clearlinux']="WARNING|"
-  ['macos']="WARNING|"
   ['debian']="libjudy-dev"
   ['ubuntu']="libjudy-dev"
   ['suse']="judy-devel"
   ['gentoo']="dev-libs/judy"
   ['arch']="judy"
   ['freebsd']="Judy"
-  ['default']="Judy-devel"
+  ['fedora']="Judy-devel"
+  ['default']="NOTREQUIRED"
 )
 
 declare -A pkg_python3=(
@@ -1272,6 +1296,7 @@ packages() {
   suitable_package autoconf-archive
   require_cmd autogen || suitable_package autogen
   require_cmd automake || suitable_package automake
+  require_cmd libtoolize || suitable_package libtool
   require_cmd pkg-config || suitable_package pkg-config
   require_cmd cmake || suitable_package cmake
 
@@ -1379,7 +1404,6 @@ packages() {
   if [ "${PACKAGES_NETDATA_PYTHON3}" -ne 0 ]; then
     require_cmd python3 || suitable_package python3
 
-    suitable_package python3-pymongo
     [ "${PACKAGES_NETDATA_PYTHON_MONGO}" -ne 0 ] && suitable_package python3-pymongo
     # suitable_package python3-requests
     # suitable_package python3-pip

@@ -6,9 +6,10 @@
 
 fetch "curl-curl-7_60_0" "https://github.com/curl/curl/archive/curl-7_60_0.tar.gz"
 
-export LDFLAGS="-static"
+export CFLAGS="-I/openssl-static/include"
+export LDFLAGS="-static -L/openssl-static/lib"
 export PKG_CONFIG="pkg-config --static"
-export PKG_CONFIG_PATH="/opnessl/lib/pkgconfig"
+export PKG_CONFIG_PATH="/openssl-static/lib/pkgconfig"
 
 run ./buildconf
 
@@ -20,7 +21,9 @@ run ./configure \
   --enable-http \
   --enable-proxy \
   --enable-ipv6 \
-  --enable-cookies
+  --enable-cookies \
+  --with-ca-fallback \
+  --with-ca-bundle=/opt/netdata/etc/ssl/certs/ca-bundle.crt
 
 # Curl autoconf does not honour the curl_LDFLAGS environment variable
 run sed -i -e "s/curl_LDFLAGS =/curl_LDFLAGS = -all-static/" src/Makefile

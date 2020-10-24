@@ -364,6 +364,28 @@ void rrdpush_send_labels(RRDHOST *host) {
 
     host->labels_flag &= ~LABEL_FLAG_UPDATE_STREAM;
 }
+
+void rrdpush_claimed_id(RRDHOST *host)
+{
+    if(unlikely(!host->rrdpush_send_enabled || !host->rrdpush_sender_connected))
+        return;
+    
+    if(host->sender->version < STREAM_VERSION_CLAIM)
+        return;
+
+    sender_start(host->sender);
+    netdata_mutex_lock(&host->claimed_id_lock);
+
+    buffer_sprintf(host->sender->build, "CLAIMED_ID %s %s\n", host->machine_guid, (host->claimed_id ? host->claimed_id : "NULL") );
+
+    netdata_mutex_unlock(&host->claimed_id_lock);
+    sender_commit(host->sender);
+
+    // signal the sender there are more data
+    if(host->rrdpush_sender_pipe[PIPE_WRITE] != -1 && write(host->rrdpush_sender_pipe[PIPE_WRITE], " ", 1) == -1)
+        error("STREAM %s [send]: cannot write to internal pipe", host->hostname);
+}
+
 // ----------------------------------------------------------------------------
 // rrdpush sender thread
 
@@ -610,11 +632,16 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *url) {
      * lookup to the now-attached structure).
      */
     struct receiver_state *rpt = callocz(1, sizeof(*rpt));
+
+    rrd_rdlock();
     RRDHOST *host = rrdhost_find_by_guid(machine_guid, 0);
     if (unlikely(host && rrdhost_flag_check(host, RRDHOST_FLAG_ARCHIVED))) /* Ignore archived hosts. */
         host = NULL;
     if (host) {
+        rrdhost_wrlock(host);
         netdata_mutex_lock(&host->receiver_lock);
+        rrdhost_flag_clear(host, RRDHOST_FLAG_ORPHAN);
+        host->senders_disconnected_time = 0;
         if (host->receiver != NULL) {
             time_t age = now_realtime_sec() - host->receiver->last_msg_t;
             if (age > 30) {
@@ -625,6 +652,8 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *url) {
             }
             else {
                 netdata_mutex_unlock(&host->receiver_lock);
+                rrdhost_unlock(host);
+                rrd_unlock();
                 log_stream_connection(w->client_ip, w->client_port, key, host->machine_guid, host->hostname,
                                       "REJECTED - ALREADY CONNECTED");
                 info("STREAM %s [receive from [%s]:%s]: multiple connections for same host detected - existing connection is active (within last %ld sec), rejecting new connection.", host->hostname, w->client_ip, w->client_port, age);
@@ -637,7 +666,9 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *url) {
         }
         host->receiver = rpt;
         netdata_mutex_unlock(&host->receiver_lock);
+        rrdhost_unlock(host);
     }
+    rrd_unlock();
 
     rpt->last_msg_t = now_realtime_sec();
 

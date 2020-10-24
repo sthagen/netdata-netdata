@@ -10,9 +10,10 @@
 
 #define CONNECTED_TO_SIZE 100
 
-// #define STREAMING_PROTOCOL_CURRENT_VERSION (uint32_t)3       Gap-filling
-#define STREAMING_PROTOCOL_CURRENT_VERSION (uint32_t)2
-#define VERSION_GAP_FILLING 3
+// #define STREAMING_PROTOCOL_CURRENT_VERSION (uint32_t)4       Gap-filling
+#define STREAMING_PROTOCOL_CURRENT_VERSION (uint32_t)3
+#define VERSION_GAP_FILLING 4
+#define STREAM_VERSION_CLAIM 3
 
 #define STREAMING_PROTOCOL_VERSION "1.1"
 #define START_STREAMING_PROMPT "Hit me baby, push them over..."
@@ -81,7 +82,7 @@ struct receiver_state {
     int update_every;
     uint32_t stream_version;
     time_t last_msg_t;
-    char read_buffer[512];
+    char read_buffer[1024];     // Need to allow RRD_ID_LENGTH_MAX * 4 + the other fields
     int read_len;
 #ifdef ENABLE_HTTPS
     struct netdata_ssl ssl;
@@ -106,6 +107,7 @@ extern void rrdset_done_push(RRDSET *st);
 extern void rrdset_push_chart_definition_now(RRDSET *st);
 extern void *rrdpush_sender_thread(void *ptr);
 extern void rrdpush_send_labels(RRDHOST *host);
+extern void rrdpush_claimed_id(RRDHOST *host);
 
 extern int rrdpush_receiver_thread_spawn(struct web_client *w, char *url);
 extern void rrdpush_sender_thread_stop(RRDHOST *host);
