@@ -7,6 +7,7 @@
 import subprocess
 import threading
 import os
+import pwd
 
 import xml.etree.ElementTree as et
 
@@ -16,8 +17,6 @@ from bases.collection import find_binary
 disabled_by_default = True
 
 NVIDIA_SMI = 'nvidia-smi'
-
-BAD_VALUE = 'N/A'
 
 EMPTY_ROW = ''
 EMPTY_ROW_LIMIT = 500
@@ -247,9 +246,12 @@ HOST_PREFIX = os.getenv('NETDATA_HOST_PREFIX')
 ETC_PASSWD_PATH = '/etc/passwd'
 PROC_PATH = '/proc'
 
+IS_INSIDE_DOCKER = False
+
 if HOST_PREFIX:
     ETC_PASSWD_PATH = os.path.join(HOST_PREFIX, ETC_PASSWD_PATH[1:])
     PROC_PATH = os.path.join(HOST_PREFIX, PROC_PATH[1:])
+    IS_INSIDE_DOCKER = True
 
 
 def read_passwd_file():
@@ -271,20 +273,24 @@ def read_passwd_file():
 
 def read_passwd_file_safe():
     try:
-        return read_passwd_file()
+        if IS_INSIDE_DOCKER:
+            return read_passwd_file()
+        return dict((k[2], k) for k in pwd.getpwall())
     except (OSError, IOError):
         return dict()
 
 
 def get_username_by_pid_safe(pid, passwd_file):
-    if not passwd_file:
-        return ''
     path = os.path.join(PROC_PATH, pid)
     try:
         uid = os.stat(path).st_uid
-        return passwd_file[uid][0]
-    except (OSError, IOError, KeyError):
+    except (OSError, IOError):
         return ''
+
+    try:
+        return passwd_file[uid][0]
+    except KeyError:
+        return str(uid)
 
 
 class GPU:
@@ -415,9 +421,7 @@ class GPU:
                     data[key] = p['used_memory']
         data['user_num'] = len(users)
 
-        return dict(
-            ('gpu{0}_{1}'.format(self.num, k), v) for k, v in data.items() if v is not None and v != BAD_VALUE
-        )
+        return dict(('gpu{0}_{1}'.format(self.num, k), v) for k, v in data.items())
 
 
 class Service(SimpleService):
@@ -459,7 +463,10 @@ class Service(SimpleService):
         data = dict()
         for idx, root in enumerate(parsed.findall('gpu')):
             gpu = GPU(idx, root, self.exclude_zero_memory_users)
-            data.update(gpu.data())
+            gpu_data = gpu.data()
+            # self.debug(gpu_data)
+            gpu_data = dict((k, v) for k, v in gpu_data.items() if is_gpu_data_value_valid(v))
+            data.update(gpu_data)
             self.update_processes_mem_chart(gpu)
             self.update_processes_user_mem_chart(gpu)
 
@@ -533,3 +540,11 @@ class Service(SimpleService):
             order, charts = gpu_charts(GPU(idx, root))
             self.order.extend(order)
             self.definitions.update(charts)
+
+
+def is_gpu_data_value_valid(value):
+    try:
+        int(value)
+    except (TypeError, ValueError):
+        return False
+    return True

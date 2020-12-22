@@ -366,6 +366,7 @@ RRD_PLUGIN_FILES = \
     database/rrddimvar.h \
     database/rrdfamily.c \
     database/rrdhost.c \
+    database/rrdlabels.c \
     database/rrd.c \
     database/rrd.h \
     database/rrdset.c \
@@ -377,6 +378,10 @@ RRD_PLUGIN_FILES = \
 
 if ENABLE_DBENGINE
     RRD_PLUGIN_FILES += \
+        database/sqlite/sqlite_functions.c \
+        database/sqlite/sqlite_functions.h \
+        database/sqlite/sqlite3.c \
+        database/sqlite/sqlite3.h \
         database/engine/rrdengine.c \
         database/engine/rrdengine.h \
         database/engine/rrddiskprotocol.h \
@@ -392,7 +397,6 @@ if ENABLE_DBENGINE
         database/engine/pagecache.h \
         database/engine/rrdenglocking.c \
         database/engine/rrdenglocking.h \
-        database/engine/metadata_log/metadatalog.c \
         database/engine/metadata_log/metadatalog.h \
         database/engine/metadata_log/metadatalogapi.c \
         database/engine/metadata_log/metadatalogapi.h \
@@ -403,8 +407,6 @@ if ENABLE_DBENGINE
         database/engine/metadata_log/metalogpluginsd.h \
         database/engine/metadata_log/compaction.c \
         database/engine/metadata_log/compaction.h \
-        database/engine/global_uuid_map/global_uuid_map.c \
-        database/engine/global_uuid_map/global_uuid_map.h \
         $(NULL)
 endif
 
@@ -712,8 +714,8 @@ netdata_SOURCES = $(NETDATA_FILES)
 if ENABLE_ACLK
 netdata_LDADD = \
     externaldeps/mosquitto/libmosquitto.a \
-    externaldeps/libwebsockets/libwebsockets.a \
     $(OPTIONAL_LIBCAP_LIBS) \
+    $(OPTIONAL_LWS_LIBS) \
     $(NETDATA_COMMON_LIBS) \
     $(NULL)
 else
@@ -853,6 +855,7 @@ if ENABLE_UNITTESTS
         exporting/tests/exporting_engine_testdriver \
         web/api/tests/web_api_testdriver \
         web/api/tests/valid_urls_testdriver \
+        collectors/cgroups_plugin/tests/cgroups_testdriver \
         $(NULL)
 
     TESTS = $(check_PROGRAMS)
@@ -955,6 +958,7 @@ if ENABLE_UNITTESTS
         -Wl,--wrap=connect_to_one_of \
         -Wl,--wrap=create_main_rusage_chart \
         -Wl,--wrap=send_main_rusage \
+        -Wl,--wrap=simple_connector_end_batch \
         $(TEST_LDFLAGS) \
         $(NULL)
     exporting_tests_exporting_engine_testdriver_LDADD = $(NETDATA_COMMON_LIBS) $(TEST_LIBS)
@@ -1004,4 +1008,19 @@ if ENABLE_BACKEND_MONGODB
         -Wl,--wrap=mongoc_collection_insert_many \
         $(NULL)
 endif
+
+    collectors_cgroups_plugin_tests_cgroups_testdriver_SOURCES = \
+        collectors/cgroups.plugin/tests/test_cgroups_plugin.c \
+        collectors/cgroups.plugin/tests/test_cgroups_plugin.h \
+        collectors/cgroups.plugin/tests/test_doubles.c \
+        $(CGROUPS_PLUGIN_FILES) \
+        database/rrdlabels.c \
+        database/rrd.h \
+        $(LIBNETDATA_FILES) \
+        $(NULL)
+    collectors_cgroups_plugin_tests_cgroups_testdriver_LDADD = $(NETDATA_COMMON_LIBS) $(TEST_LIBS)
+    collectors_cgroups_plugin_tests_cgroups_testdriver_LDFLAGS = \
+        -Wl,--wrap=add_label_to_list \
+        $(NULL)
+
 endif

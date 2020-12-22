@@ -69,13 +69,19 @@ int is_valid_connector(char *type, int check_reserved)
 
     if (!strcmp(type, "graphite") || !strcmp(type, "graphite:plaintext")) {
         return rc;
+    } else if (!strcmp(type, "graphite:http") || !strcmp(type, "graphite:https")) {
+        return rc;
+    } else if (!strcmp(type, "json") || !strcmp(type, "json:plaintext")) {
+        return rc;
+    } else if (!strcmp(type, "json:http") || !strcmp(type, "json:https")) {
+        return rc;
     } else if (!strcmp(type, "opentsdb") || !strcmp(type, "opentsdb:telnet")) {
         return rc;
     } else if (!strcmp(type, "opentsdb:http") || !strcmp(type, "opentsdb:https")) {
         return rc;
-    } else if (!strcmp(type, "json") || !strcmp(type, "json:plaintext")) {
-        return rc;
     } else if (!strcmp(type, "prometheus_remote_write")) {
+        return rc;
+    } else if (!strcmp(type, "prometheus_remote_write:http") || !strcmp(type, "prometheus_remote_write:https")) {
         return rc;
     } else if (!strcmp(type, "kinesis") || !strcmp(type, "kinesis:plaintext")) {
         return rc;
@@ -181,6 +187,49 @@ static inline struct section *appconfig_section_create(struct config *root, cons
     appconfig_unlock(root);
 
     return co;
+}
+
+void appconfig_section_destroy_non_loaded(struct config *root, const char *section)
+{
+    struct section *co;
+    struct config_option *cv, *cv_next;
+
+    debug(D_CONFIG, "Destroying section '%s'.", section);
+
+    co = appconfig_section_find(root, section);
+    if(!co) {
+        error("Could not destroy section '%s'. Not found.", section);
+        return;
+    }
+
+    config_section_wrlock(co);
+    for(cv = co->values; cv ; cv = cv->next) {
+        if (cv->flags & CONFIG_VALUE_LOADED) {
+            /* Do not destroy values that were loaded from the configuration files. */
+            config_section_unlock(co);
+            return;
+        }
+    }
+    for(cv = co->values ; cv ; cv = cv_next) {
+        cv_next = cv->next;
+        if(unlikely(!appconfig_option_index_del(co, cv)))
+            error("Cannot remove config option '%s' from section '%s'.", cv->name, co->name);
+        freez(cv->value);
+        freez(cv->name);
+        freez(cv);
+    }
+    co->values = NULL;
+    config_section_unlock(co);
+
+    if (unlikely(!appconfig_index_del(root, co))) {
+        error("Cannot remove section '%s' from config.", section);
+        return;
+    }
+
+    avl_destroy_lock(&co->values_index);
+    freez(co->name);
+    pthread_mutex_destroy(&co->mutex);
+    freez(co);
 }
 
 

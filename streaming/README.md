@@ -36,7 +36,7 @@ Alarms for the child are served by the parent.
 In this mode the child is just a plain data collector. It spawns all external plugins, but instead of maintaining a
 local database and accepting dashboard requests, it streams all metrics to the parent. The memory footprint is reduced
 significantly, to between 6 MiB and 40 MiB, depending on the enabled plugins. To reduce the memory usage as much as
-possible, refer to [running Netdata in embedded devices](/docs/Performance.md#running-netdata-in-embedded-devices).
+possible, refer to the [performance optimization guide](/docs/guides/configure/performance.md).
 
 The same parent can collect data for any number of child nodes.
 
@@ -554,7 +554,7 @@ ERROR : STREAM_RECEIVER[CHILD HOSTNAME,[CHILD IP]:CHILD PORT] : sent command 'B'
 
 In this example, `B` was part of a `BEGIN` message that was cut due to connection problems.
 
-Slow connections can also cause problems when the parent misses a message and then recieves a command related to the
+Slow connections can also cause problems when the parent misses a message and then receives a command related to the
 missed message. For example, a parent might miss a message containing the child's charts, and then doesn't know
 what to do with the `SET` message that follows. When that happens, the parent will show a message like this:
 

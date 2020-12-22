@@ -26,8 +26,7 @@ what that chart's current value is, the alarm that triggered it, and when the al
 
 Use the input field in the Alarms panel to filter active alarms. You can sort by the node's name, alarm, status, chart
 that triggered the alarm, or the operating system. Read more about the [filtering
-syntax](/docs/visualize/view-all-nodes.md#filter-and-group-your-infrastructure) to build valuable filters for your
-infrastructure.
+syntax](https://learn.netdata.cloud/docs/cloud/war-rooms#node-filter) to build valuable filters for your infrastructure.
 
 Click on the 3-dot icon (`⋮`) to view active alarm information or navigate directly to the offending chart in that
 node's Cloud dashboard with the **Go to chart** button.
@@ -70,7 +69,7 @@ With the information that appears on Netdata Cloud and the local dashboard about
 alarms](/docs/monitor/configure-alarms.md) to match your infrastructure's needs or your team's goals.
 
 If you're happy with the pre-configured alarms, skip ahead to [enable
-notifications](/docs/monitor/enable-notifications.md) to instantly see alarms in email, Slack, PagerDuty, Twilio, and
-many other platforms.
+notifications](/docs/monitor/enable-notifications.md) to use Netdata Cloud's centralized alarm notifications and/or
+per-node notifications to endpoints like Slack, PagerDuty, Twilio, and more.
 
 [![analytics](https://www.google-analytics.com/collect?v=1&aip=1&t=pageview&_s=1&ds=github&dr=https%3A%2F%2Fgithub.com%2Fnetdata%2Fnetdata&dl=https%3A%2F%2Fmy-netdata.io%2Fgithub%2Fdocs%2Fmonitor%2Fview-active-alarms&_u=MAC~&cid=5792dfd7-8dc4-476b-af31-da2fdb9f93d2&tid=UA-64295674-3)](<>)

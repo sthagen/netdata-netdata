@@ -2,7 +2,7 @@
 
 #include "json_wrapper.h"
 
-void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS options, int string_value, RRDDIM *temp_rd) {
+void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS options, int string_value, RRDDIM *temp_rd, char *chart_label_key) {
     rrdset_check_rdlock(r->st);
 
     long rows = rrdr_rows(r);
@@ -22,6 +22,7 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
         sq[0] = '"';
     }
 
+    rrdset_rdlock(r->st);
     buffer_sprintf(wb, "{\n"
                        "   %sapi%s: 1,\n"
                        "   %sid%s: %s%s%s,\n"
@@ -38,11 +39,12 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
                    , kq, kq, sq, temp_rd?r->st->context:r->st->name, sq
                    , kq, kq, r->update_every
                    , kq, kq, r->st->update_every
-                   , kq, kq, (uint32_t)rrdset_first_entry_t(r->st)
-                   , kq, kq, (uint32_t)rrdset_last_entry_t(r->st)
+                   , kq, kq, (uint32_t)rrdset_first_entry_t_nolock(r->st)
+                   , kq, kq, (uint32_t)rrdset_last_entry_t_nolock(r->st)
                    , kq, kq, (uint32_t)r->before
                    , kq, kq, (uint32_t)r->after
                    , kq, kq);
+    rrdset_unlock(r->st);
 
     for(c = 0, i = 0, rd = temp_rd?temp_rd:r->st->dimensions; rd && c < r->d ;c++, rd = rd->next) {
         if(unlikely(r->od[c] & RRDR_DIMENSION_HIDDEN)) continue;
@@ -84,12 +86,12 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
         buffer_strcat(wb, "no data");
         buffer_strcat(wb, sq);
     }
+    buffer_strcat(wb, "],\n");
 
     // Composite charts
     if (temp_rd) {
         buffer_sprintf(
             wb,
-            "],\n"
             "   %schart_ids%s: [",
             kq, kq);
 
@@ -112,11 +114,46 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
             buffer_strcat(wb, "no data");
             buffer_strcat(wb, sq);
         }
+        buffer_strcat(wb, "],\n");
+        if (chart_label_key) {
+            uint32_t key_hash = simple_hash(chart_label_key);
+            struct label *current_label;
+
+            buffer_sprintf(
+                wb,
+                "   %schart_labels%s: { %s%s%s : [",
+                kq, kq, kq, chart_label_key, kq);
+
+            for (c = 0, i = 0, rd = temp_rd; rd && c < r->d; c++, rd = rd->next) {
+                if (unlikely(r->od[c] & RRDR_DIMENSION_HIDDEN))
+                    continue;
+                if (unlikely((options & RRDR_OPTION_NONZERO) && !(r->od[c] & RRDR_DIMENSION_NONZERO)))
+                    continue;
+
+                if (i)
+                    buffer_strcat(wb, ", ");
+
+                current_label = rrdset_lookup_label_key(rd->rrdset, chart_label_key, key_hash);
+                if (current_label) {
+                    buffer_strcat(wb, sq);
+                    buffer_strcat(wb, current_label->value);
+                    buffer_strcat(wb, sq);
+                } else
+                    buffer_strcat(wb, "null");
+                i++;
+            }
+            if (!i) {
+                rows = 0;
+                buffer_strcat(wb, sq);
+                buffer_strcat(wb, "no data");
+                buffer_strcat(wb, sq);
+            }
+            buffer_strcat(wb, "] },\n");
+        }
     }
 
 
-    buffer_sprintf(wb, "],\n"
-                       "   %slatest_values%s: ["
+    buffer_sprintf(wb, "   %slatest_values%s: ["
                    , kq, kq);
 
     for(c = 0, i = 0, rd = temp_rd?temp_rd:r->st->dimensions; rd && c < r->d ;c++, rd = rd->next) {

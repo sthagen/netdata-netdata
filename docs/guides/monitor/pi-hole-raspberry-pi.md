@@ -2,7 +2,7 @@
 title: "Monitor Pi-hole (and a Raspberry Pi) with Netdata"
 description: "Monitor Pi-hole metrics, plus Raspberry Pi system metrics, in minutes and completely for free with Netdata's open-source monitoring agent."
 image: /img/seo/guides/monitor/netdata-pi-hole-raspberry-pi.png
-custom_edit_url: https://github.com/netdata/netdata/edit/master/docs/guides/monitor/raspberry-pi-hole.md
+custom_edit_url: https://github.com/netdata/netdata/edit/master/docs/guides/monitor/pi-hole-raspberry-pi.md
 -->
 
 # Monitor Pi-hole (and a Raspberry Pi) with Netdata
@@ -149,7 +149,7 @@ configure Netdata to more specific goals.
 Most importantly, you can always install additional services and instantly collect metrics from many of them with our
 [300+ integrations](/collectors/COLLECTORS.md).
 
--   [Optimize performance](/docs/Performance.md) using tweaks developed for IoT devices.
+-   [Optimize performance](/docs/guides/configure/performance.md) using tweaks developed for IoT devices.
 -   [Stream Raspberry Pi metrics](/streaming/README.md) to a parent host for easy access or longer-term storage.
 -   [Tweak alarms](/health/QUICKSTART.md) for either Pi-hole or the health of your Raspberry Pi.
 -   [Export metrics to external databases](/exporting/README.md) with the exporting engine.

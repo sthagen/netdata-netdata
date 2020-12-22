@@ -116,8 +116,8 @@ static inline void rrdpush_sender_thread_data_flush(RRDHOST *host) {
 }
 
 static inline void rrdpush_set_flags_to_newest_stream(RRDHOST *host) {
-    host->labels_flag |= LABEL_FLAG_UPDATE_STREAM;
-    host->labels_flag &= ~LABEL_FLAG_STOP_STREAM;
+    host->labels.labels_flag |= LABEL_FLAG_UPDATE_STREAM;
+    host->labels.labels_flag &= ~LABEL_FLAG_STOP_STREAM;
 }
 
 void rrdpush_encode_variable(stream_encoded_t *se, RRDHOST *host)
@@ -354,8 +354,8 @@ static int rrdpush_sender_thread_connect_to_parent(RRDHOST *host, int default_po
             answer = memcmp(http, START_STREAMING_PROMPT, strlen(START_STREAMING_PROMPT));
             if(!answer) {
                 version = 0;
-                host->labels_flag |= LABEL_FLAG_STOP_STREAM;
-                host->labels_flag &= ~LABEL_FLAG_UPDATE_STREAM;
+                host->labels.labels_flag |= LABEL_FLAG_STOP_STREAM;
+                host->labels.labels_flag &= ~LABEL_FLAG_UPDATE_STREAM;
             }
         }
     }
@@ -584,10 +584,14 @@ void *rrdpush_sender_thread(void *ptr) {
 
     s->timeout = (int)appconfig_get_number(&stream_config, CONFIG_SECTION_STREAM, "timeout seconds", 60);
     s->default_port = (int)appconfig_get_number(&stream_config, CONFIG_SECTION_STREAM, "default port", 19999);
-    s->max_size = (size_t)appconfig_get_number(&stream_config, CONFIG_SECTION_STREAM, "buffer size bytes",
-                                                  1024 * 1024);
-    s->reconnect_delay = (unsigned int)appconfig_get_number(&stream_config, CONFIG_SECTION_STREAM, "reconnect delay seconds", 5);
-    remote_clock_resync_iterations = (unsigned int)appconfig_get_number(&stream_config, CONFIG_SECTION_STREAM, "initial clock resync iterations", remote_clock_resync_iterations); // TODO: REMOVE FOR SLEW / GAPFILLING
+    s->buffer->max_size =
+        (size_t)appconfig_get_number(&stream_config, CONFIG_SECTION_STREAM, "buffer size bytes", 1024 * 1024);
+    s->reconnect_delay =
+        (unsigned int)appconfig_get_number(&stream_config, CONFIG_SECTION_STREAM, "reconnect delay seconds", 5);
+    remote_clock_resync_iterations = (unsigned int)appconfig_get_number(
+        &stream_config, CONFIG_SECTION_STREAM,
+        "initial clock resync iterations",
+        remote_clock_resync_iterations); // TODO: REMOVE FOR SLEW / GAPFILLING
 
     // initialize rrdpush globals
     s->host->rrdpush_sender_connected = 0;
