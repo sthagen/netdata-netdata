@@ -17,6 +17,9 @@ databases](/docs/export/external-databases.md), or jump in to [enabling a connec
 The exporting engine has a modular structure and supports metric exporting via multiple exporting connector instances at
 the same time. You can have different update intervals and filters configured for every exporting connector instance. 
 
+When you enable the exporting engine and a connector, the Netdata Agent exports metrics _beginning from the time you
+restart its process_, not the entire [database of long-term metrics](/docs/store/change-metrics-storage.md).
+
 The exporting engine has its own configuration file `exporting.conf`. The configuration is almost similar to the
 deprecated [backends](/backends/README.md#configuration) system. The most important difference is that type of a
 connector should be specified in a section name before a colon and an instance name after the colon. Also, you can't use
@@ -89,7 +92,7 @@ X seconds (though, it can send them per second if you need it to).
 
 ## Configuration
 
-Here are the configruation blocks for every supported connector. Your current `exporting.conf` file may look a little
+Here are the configuration blocks for every supported connector. Your current `exporting.conf` file may look a little
 different. 
 
 You can configure each connector individually using the available [options](#options). The
@@ -231,7 +234,7 @@ Configure individual connectors and override any global settings with the follow
 
 -   `prefix = Netdata`, is the prefix to add to all metrics.
 
--   `update every = 10`, is the number of seconds between sending data to the external datanase. Netdata will add some
+-   `update every = 10`, is the number of seconds between sending data to the external database. Netdata will add some
     randomness to this number, to prevent stressing the external server when many Netdata servers send data to the same
     database. This randomness does not affect the quality of the data, only the time they are sent.
 
@@ -263,7 +266,7 @@ Configure individual connectors and override any global settings with the follow
 -   `send configured labels = yes | no` controls if labels defined in the `[host labels]` section in `netdata.conf`
     should be sent to the external database
 
--   `send automatic labels = yes | no` controls if automatially created labels, like `_os_name` or `_architecture`
+-   `send automatic labels = yes | no` controls if automatically created labels, like `_os_name` or `_architecture`
     should be sent to the external database
 
 > Starting from Netdata v1.20 the host tags (defined in the `[backend]` section of `netdata.conf`) are parsed in

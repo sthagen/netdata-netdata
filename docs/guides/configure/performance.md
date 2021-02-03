@@ -52,28 +52,29 @@ Let's walk through the best ways to improve the Netdata Agent's performance.
 
 The fastest way to improve the Agent's resource utilization is to reduce how often it collects metrics.
 
-## Global
+### Global
 
-If you don't need per-second metrics, or if the Agent uses a lot of CPU even when no one is viewing that node's
+If you don't need per-second metrics, or if the Netdata Agent uses a lot of CPU even when no one is viewing that node's
 dashboard, configure the Agent to collect metrics less often.
 
-Open `netdata.conf` and edit the `update every` setting. The default is `1`, meaning that the Agent updates every
-second.
+Open `netdata.conf` and edit the `update every` setting. The default is `1`, meaning that the Agent collects metrics
+every second.
 
-If you change this to `2`, Netdata collects metrics every other second, which will effectively halve the CPU utilization
-dedicated for metrics collection. Set this to `5` or `10` to collect metrics every 5 or 10 seconds, respectively.
+If you change this to `2`, Netdata enforces a minimum `update every` setting of 2 seconds, and collects metrics every
+other second, which will effectively halve CPU utilization. Set this to `5` or `10` to collect metrics every 5 or 10
+seconds, respectively.
 
 ```conf
 [global]
-  update every: 5
+    update every = 5
 ```
 
-## Specific plugin or collector
+### Specific plugin or collector
 
-If you did not [reduce the global collection frequency](#global) but find that a specific plugin/collector uses too many
-resources, you can reduce its frequency. You configure [internal
-collectors](/docs/collect/how-collectors-work.md#collector-architecture-and-terminolog) in `netdata.conf` and external
-collectors in their individual `.conf` files.
+Every collector and plugin has its own `update every` setting, which you can also change in the `go.d.conf`,
+`python.d.conf`, `node.d.conf`, or `charts.d.conf` files, or in individual collector configuration files. If the `update
+every` for an individual collector is less than the global, the Netdata Agent uses the global setting. See the [enable
+or configure a collector](/docs/collect/enable-configure.md) doc for details.
 
 To reduce the frequency of an [internal
 plugin/collector](/docs/collect/how-collectors-work.md#collector-architecture-and-terminology), open `netdata.conf` and
@@ -127,6 +128,7 @@ sudo ./edit-config charts.d.conf
 For example, to disable a few Python collectors:
 
 ```conf
+modules:
   apache: no
 	dockerd: no
 	fail2ban: no
@@ -148,9 +150,9 @@ All the settings are found in the `[global]` section of `netdata.conf`:
 
 ```conf
 [global]
-	memory mode = dbengine
-	page cache size = 32
-  dbengine multihost disk space = 256
+    memory mode = dbengine
+    page cache size = 32
+    dbengine multihost disk space = 256
 ```
 
 ## Run Netdata behind Nginx
@@ -193,15 +195,15 @@ To disable gzip compression, open `netdata.conf` and find the `[web]` section:
 
 ```conf
 [web]
-	enable gzip compression = no
+    enable gzip compression = no
 ```
 
 Or to lower the default compression level:
 
 ```conf
 [web]
-	enable gzip compression = yes
-	gzip compression level = 1
+    enable gzip compression = yes
+    gzip compression level = 1
 ```
 
 ## Disable logs
@@ -211,9 +213,9 @@ If you installation is working correctly, and you're not actively auditing Netda
 
 ```conf
 [global]
-	debug log = none
-	error log = none
-	access log = none
+    debug log = none
+    error log = none
+    access log = none
 ```
 
 ## What's next?

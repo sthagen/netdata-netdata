@@ -48,7 +48,7 @@ pkg add http://pkg.freebsd.org/FreeBSD:11:amd64/latest/All/py37-yaml-5.3.1.txz
 > Python from the FreeBSD repository as instructed above.
 
 > ⚠️ If you are using the `apcupsd` collector, you need to make sure that apcupsd is up before starting Netdata.
-> Otherwise a infinitely running `cat` process triggered by the default activated apcuspd charts plugin will eat up CPU
+> Otherwise a infinitely running `cat` process triggered by the default activated apcupsd charts plugin will eat up CPU
 > and RAM (`/tmp/.netdata-charts.d-*/run-*`). This also applies to `OPNsense`.
 
 ## Install Netdata
@@ -56,7 +56,7 @@ pkg add http://pkg.freebsd.org/FreeBSD:11:amd64/latest/All/py37-yaml-5.3.1.txz
 You can now install Netdata from the FreeBSD repository.
 
 ```bash
-pkg add http://pkg.freebsd.org/FreeBSD:11:amd64/latest/All/netdata-1.26.0.txz
+pkg add http://pkg.freebsd.org/FreeBSD:11:amd64/latest/All/netdata-1.28.0.txz
 ```
 
 > ⚠️ If the above command returns a `Not Found` error, you need to manually search for the latest version of Netdata in
@@ -80,3 +80,5 @@ If you experience an issue with `/usr/bin/install` being absent in pfSense 2.3 o
 workaround from <https://redmine.pfsense.org/issues/6643>  
 
 **Note:** In pfSense, the Netdata configuration files are located under `/usr/local/etc/netdata`.
+
+[![analytics](https://www.google-analytics.com/collect?v=1&aip=1&t=pageview&_s=1&ds=github&dr=https%3A%2F%2Fgithub.com%2Fnetdata%2Fnetdata&dl=https%3A%2F%2Fmy-netdata.io%2Fgithub%2Fpackaging%2Finstaller%2Fmethods%2Fpfsense&_u=MAC~&cid=5792dfd7-8dc4-476b-af31-da2fdb9f93d2&tid=UA-64295674-3)](<>)

@@ -1,8 +1,6 @@
 <!--
----
 title: "Netdata via apache's mod_proxy"
 custom_edit_url: https://github.com/netdata/netdata/edit/master/docs/Running-behind-apache.md
----
 -->
 
 # Netdata via apache's mod_proxy
@@ -367,7 +365,7 @@ apache logs accesses and Netdata logs them too. You can prevent Netdata from gen
 
 ## Troubleshooting mod_proxy
 
-Make sure the requests reach Netdata, by examing `/var/log/netdata/access.log`.
+Make sure the requests reach Netdata, by examining `/var/log/netdata/access.log`.
 
 1.  if the requests do not reach Netdata, your apache does not forward them.
 2.  if the requests reach Netdata but the URLs are wrong, you have not re-written them properly.

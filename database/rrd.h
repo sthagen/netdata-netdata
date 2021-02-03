@@ -34,7 +34,7 @@ struct pg_cache_page_index;
 #include "rrdcalc.h"
 #include "rrdcalctemplate.h"
 #include "../streaming/rrdpush.h"
-#include "../aclk/aclk_common.h"
+#include "../aclk/legacy/aclk_rrdhost_state.h"
 
 struct context_param {
     RRDDIM *rd;
@@ -211,6 +211,8 @@ extern int is_valid_label_value(char *value);
 extern int is_valid_label_key(char *key);
 extern void free_label_list(struct label *labels);
 extern struct label *label_list_lookup_key(struct label *head, char *key, uint32_t key_hash);
+extern struct label *label_list_lookup_keylist(struct label *head, char *keylist);
+extern int label_list_contains_keylist(struct label *head, char *keylist);
 extern int label_list_contains_key(struct label *head, char *key, uint32_t key_hash);
 extern int label_list_contains(struct label *head, struct label *check);
 extern struct label *merge_label_lists(struct label *lo_pri, struct label *hi_pri);
@@ -223,7 +225,7 @@ void reload_host_labels(void);
 extern void rrdset_add_label_to_new_list(RRDSET *st, char *key, char *value, LABEL_SOURCE source);
 extern void rrdset_finalize_labels(RRDSET *st);
 extern void rrdset_update_labels(RRDSET *st, struct label *labels);
-extern int rrdset_contains_label_key(RRDSET *st, char *key, uint32_t key_hash);
+extern int rrdset_contains_label_keylist(RRDSET *st, char *key);
 extern struct label *rrdset_lookup_label_key(RRDSET *st, char *key, uint32_t key_hash);
 
 // ----------------------------------------------------------------------------
@@ -365,7 +367,6 @@ struct rrddim_volatile {
     uuid_t *rrdeng_uuid;                 // database engine metric UUID
     uuid_t *metric_uuid;                 // global UUID for this metric (unique_across hosts)
     struct pg_cache_page_index *page_index;
-    uint32_t compaction_id;              // The last metadata log compaction procedure that has processed this object.
 #endif
     union rrddim_collect_handle handle;
     // ------------------------------------------------------------------------
@@ -408,7 +409,6 @@ struct rrddim_volatile {
 // volatile state per chart
 struct rrdset_volatile {
     char *old_title;
-    char *old_family;
     char *old_context;
     struct label *new_labels;
     struct label_index labels;
@@ -529,10 +529,9 @@ struct rrdset {
     char *plugin_name;                              // the name of the plugin that generated this
     char *module_name;                              // the name of the plugin module that generated this
     uuid_t *chart_uuid;                             // Store the global GUID for this chart
-    size_t compaction_id;                           // The last metadata log compaction procedure that has processed
                                                     // this object.
     struct rrdset_volatile *state;                  // volatile state that is not persistently stored
-    size_t unused[2];
+    size_t unused[3];
 
     size_t rrddim_page_alignment;                   // keeps metric pages in alignment when using dbengine
 
@@ -719,6 +718,7 @@ struct rrdhost_system_info {
     char *virt_detection;
     char *container;
     char *container_detection;
+    char *is_k8s_node;
 };
 
 struct rrdhost {
@@ -852,8 +852,6 @@ struct rrdhost {
 #ifdef ENABLE_DBENGINE
     struct rrdengine_instance *rrdeng_ctx;          // DB engine instance for this host
     uuid_t  host_uuid;                              // Global GUID for this host
-    uint32_t compaction_id;                         // The last metadata log compaction procedure that has processed
-                                                    // this object.
 #endif
 
 #ifdef ENABLE_HTTPS

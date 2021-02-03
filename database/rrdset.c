@@ -331,11 +331,6 @@ void rrdset_free(RRDSET *st) {
     rrdset_index_del_name(host, st);
 
     // ------------------------------------------------------------------------
-    // remove it from the configuration
-
-    appconfig_section_destroy_non_loaded(&netdata_config, st->config_section);
-
-    // ------------------------------------------------------------------------
     // free its children structures
 
     freez(st->exporting_flags);
@@ -352,6 +347,11 @@ void rrdset_free(RRDSET *st) {
 
     debug(D_RRD_CALLS, "RRDSET: Cleaning up remaining chart variables for host '%s', chart '%s'", host->hostname, st->id);
     rrdvar_free_remaining_variables(host, &st->rrdvar_root_index);
+
+    // ------------------------------------------------------------------------
+    // remove it from the configuration
+
+    appconfig_section_destroy_non_loaded(&netdata_config, st->config_section);
 
     // ------------------------------------------------------------------------
     // unlink it from the host
@@ -382,7 +382,6 @@ void rrdset_free(RRDSET *st) {
     freez(st->plugin_name);
     freez(st->module_name);
     freez(st->state->old_title);
-    freez(st->state->old_family);
     freez(st->state->old_context);
     free_label_list(st->state->labels.head);
     freez(st->state);
@@ -554,8 +553,8 @@ RRDSET *rrdset_create_custom(
             changed_from_archived_to_active = 1;
             mark_rebuild |= META_CHART_ACTIVATED;
         }
-        char *old_plugin = NULL, *old_module = NULL, *old_title = NULL, *old_family = NULL, *old_context = NULL,
-             *old_title_v = NULL, *old_family_v = NULL, *old_context_v = NULL;
+        char *old_plugin = NULL, *old_module = NULL, *old_title = NULL, *old_context = NULL,
+             *old_title_v = NULL, *old_context_v = NULL;
         int rc;
 
         if(unlikely(name))
@@ -653,10 +652,8 @@ RRDSET *rrdset_create_custom(
             freez(old_plugin);
             freez(old_module);
             freez(old_title);
-            freez(old_family);
             freez(old_context);
             freez(old_title_v);
-            freez(old_family_v);
             freez(old_context_v);
             if (mark_rebuild != META_CHART_ACTIVATED) {
                 info("Collector updated metadata for chart %s", st->id);
@@ -848,7 +845,6 @@ RRDSET *rrdset_create_custom(
 
     st->state = callocz(1, sizeof(*st->state));
     st->family     = config_get(st->config_section, "family", family?family:st->type);
-    st->state->old_family = strdupz(st->family);
     json_fix_string(st->family);
 
     st->units      = config_get(st->config_section, "units", units?units:"");
@@ -936,7 +932,6 @@ RRDSET *rrdset_create_custom(
             st->chart_uuid = create_chart_uuid(st, id, name);
 
         store_active_chart(st->chart_uuid);
-        st->compaction_id = 0;
     }
 #endif
 
@@ -1949,7 +1944,7 @@ void rrdset_update_labels(RRDSET *st, struct label *labels)
     rrdset_finalize_labels(st);
 }
 
-int rrdset_contains_label_key(RRDSET *st, char *key, uint32_t key_hash)
+int rrdset_contains_label_keylist(RRDSET *st, char *keylist)
 {
     struct label_index *labels = &st->state->labels;
     int ret;
@@ -1958,7 +1953,7 @@ int rrdset_contains_label_key(RRDSET *st, char *key, uint32_t key_hash)
         return 0;
 
     netdata_rwlock_rdlock(&labels->labels_rwlock);
-    ret = label_list_contains_key(labels->head, key, key_hash);
+    ret = label_list_contains_keylist(labels->head, keylist);
     netdata_rwlock_unlock(&labels->labels_rwlock);
 
     return ret;

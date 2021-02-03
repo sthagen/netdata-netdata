@@ -307,7 +307,6 @@ RRDHOST *rrdhost_create(const char *hostname,
         }
         else
             error_report("Host machine GUID %s is not valid", host->machine_guid);
-        host->compaction_id = 0;
         char dbenginepath[FILENAME_MAX + 1];
         int ret;
 
@@ -758,6 +757,7 @@ void rrdhost_system_info_free(struct rrdhost_system_info *system_info) {
         freez(system_info->virt_detection);
         freez(system_info->container);
         freez(system_info->container_detection);
+        freez(system_info->is_k8s_node);
         freez(system_info);
     }
 }
@@ -981,6 +981,10 @@ static struct label *rrdhost_load_auto_labels(void)
     if (localhost->system_info->virt_detection)
         label_list =
             add_label_to_list(label_list, "_virt_detection", localhost->system_info->virt_detection, LABEL_SOURCE_AUTO);
+
+    if (localhost->system_info->is_k8s_node)
+        label_list =
+            add_label_to_list(label_list, "_is_k8s_node", localhost->system_info->is_k8s_node, LABEL_SOURCE_AUTO);
 
     label_list = add_label_to_list(
         label_list, "_is_parent", (localhost->next || configured_as_parent()) ? "true" : "false", LABEL_SOURCE_AUTO);
@@ -1522,6 +1526,10 @@ int rrdhost_set_system_info_variable(struct rrdhost_system_info *system_info, ch
     else if(!strcmp(name, "NETDATA_SYSTEM_CONTAINER_DETECTION")){
         freez(system_info->container_detection);
         system_info->container_detection = strdupz(value);
+    }
+    else if(!strcmp(name, "NETDATA_HOST_IS_K8S_NODE")){
+        freez(system_info->is_k8s_node);
+        system_info->is_k8s_node = strdupz(value);
     }
     else if (!strcmp(name, "NETDATA_SYSTEM_CPU_VENDOR"))
         return res;

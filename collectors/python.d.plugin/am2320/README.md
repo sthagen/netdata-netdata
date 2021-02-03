@@ -6,7 +6,7 @@ sidebar_label: "AM2320"
 
 # AM2320 sensor monitoring with netdata
 
-Displays a graph of the temperature and humity from a AM2320 sensor.
+Displays a graph of the temperature and humidity from a AM2320 sensor.
 
 ## Requirements
  - Adafruit Circuit Python AM2320 library
@@ -28,10 +28,10 @@ cd /etc/netdata   # Replace this path with your Netdata config directory, if dif
 sudo ./edit-config python.d/am2320.conf
 ```
 
-Raspbery Pi Instructions:
+Raspberry Pi Instructions:
 
 Hardware install:
-Connect the am2320 to the Raspbery Pi I2C pins
+Connect the am2320 to the Raspberry Pi I2C pins
 
 Raspberry Pi 3B/4 Pins:
 
@@ -50,3 +50,5 @@ Software install:
 - save the file.
 - restart the netdata service.
 - check the dashboard.
+
+[![analytics](https://www.google-analytics.com/collect?v=1&aip=1&t=pageview&_s=1&ds=github&dr=https%3A%2F%2Fgithub.com%2Fnetdata%2Fnetdata&dl=https%3A%2F%2Fmy-netdata.io%2Fgithub%2Fcollectors%2Fpython.d.plugin%2Fam2320%2FREADME&_u=MAC~&cid=5792dfd7-8dc4-476b-af31-da2fdb9f93d2&tid=UA-64295674-3)]()

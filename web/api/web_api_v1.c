@@ -501,15 +501,11 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     if (context && !chart) {
         RRDSET *st1;
         uint32_t context_hash = simple_hash(context);
-        uint32_t key_hash;
-
-        if (chart_label_key)
-            key_hash = simple_hash(chart_label_key);
 
         rrdhost_rdlock(host);
         rrdset_foreach_read(st1, host) {
             if (st1->hash_context == context_hash && !strcmp(st1->context, context) &&
-                (!chart_label_key || rrdset_contains_label_key(st1, chart_label_key, key_hash)))
+                (!chart_label_key || rrdset_contains_label_keylist(st1, chart_label_key)))
                 build_context_param_list(&context_param_list, st1);
         }
         rrdhost_unlock(host);
@@ -937,6 +933,8 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
         buffer_sprintf(wb, "\t\"container_os_version_id\": \"%s\",\n", host->system_info->container_os_version_id);
     if (host->system_info->container_os_detection)
         buffer_sprintf(wb, "\t\"container_os_detection\": \"%s\",\n", host->system_info->container_os_detection);
+    if (host->system_info->is_k8s_node)
+        buffer_sprintf(wb, "\t\"is_k8s_node\": \"%s\",\n", host->system_info->is_k8s_node);
 
     buffer_sprintf(wb, "\t\"kernel_name\": \"%s\",\n", (host->system_info->kernel_name) ? host->system_info->kernel_name : "");
     buffer_sprintf(wb, "\t\"kernel_version\": \"%s\",\n", (host->system_info->kernel_version) ? host->system_info->kernel_version : "");

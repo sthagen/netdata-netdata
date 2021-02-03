@@ -1,6 +1,6 @@
 <!--
 title: "Agent claiming"
-description: "Agent claiming allows a Netdata Agent, running on a distributed node, to securely connect to Netdata Cloud. A Space's administrator creates a claiming token, which is used to add an Agent to their Space via the Agent-Cloud link."
+description: "Agent claiming allows a Netdata Agent, running on a distributed node, to securely connect to Netdata Cloud via the encrypted Agent-Cloud link (ACLK)."
 custom_edit_url: https://github.com/netdata/netdata/edit/master/claim/README.md
 -->
 
@@ -304,7 +304,7 @@ This node no longer has access to the credentials it was claimed with and cannot
 You will still be able to see this node in your War Rooms in an **unreachable** state.
 
 If you want to reclaim this node into a different Space, you need to create a new identity by adding `-id=$(uuidgen)` to
-the claiming script parameters. Make sure that you have the `uuidgen-runtime` packagen installed, as it is used to run the command `uuidgen`. For example, using the default claiming script:
+the claiming script parameters. Make sure that you have the `uuidgen-runtime` package installed, as it is used to run the command `uuidgen`. For example, using the default claiming script:
 
 ```bash
 sudo netdata-claim.sh -token=TOKEN -rooms=ROOM1,ROOM2 -url=https://app.netdata.cloud -id=$(uuidgen)

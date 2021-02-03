@@ -7,7 +7,7 @@ custom_edit_url: https://github.com/netdata/netdata/edit/master/docs/export/exte
 # Export metrics to external time-series databases
 
 Netdata allows you to export metrics to external time-series databases with the [exporting
-engine](/exporting/README.md). This system uses a number of **connectors** to intiate connections to [more than
+engine](/exporting/README.md). This system uses a number of **connectors** to initiate connections to [more than
 thirty](#supported-databases) supported databases, including InfluxDB, Prometheus, Graphite, ElasticSearch, and much
 more. 
 
@@ -56,6 +56,7 @@ documentation and the [enabling a connector](/docs/export/enable-connector.md) d
 -   **OpenTSDB**: [OpenTSDB](/exporting/opentsdb/README.md), [Prometheus remote
     write](/exporting/prometheus/remote_write/README.md)
 -   **PostgreSQL**: [Prometheus remote write](/exporting/prometheus/remote_write/README.md)
+    via [PostgreSQL Prometheus Adapter](https://github.com/CrunchyData/postgresql-prometheus-adapter)
 -   **Prometheus**: [Prometheus scraper](/exporting/prometheus/README.md)
 -   **TimescaleDB**: [Prometheus remote write](/exporting/prometheus/remote_write/README.md),
     [netdata-timescale-relay](/exporting/TIMESCALE.md)

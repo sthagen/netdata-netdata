@@ -1,8 +1,6 @@
 <!--
----
 title: "Email"
 custom_edit_url: https://github.com/netdata/netdata/edit/master/health/notifications/email/README.md
----
 -->
 
 # Email
@@ -57,7 +55,7 @@ sendmail="/usr/bin/msmtp"
 (sudo) su -s /bin/bash netdata
 ```
 - Configure `~/.msmtprc` as shown [in the documentation](https://marlam.de/msmtp/documentation/).
-- Finaly set the appropriate permissions on the `.msmtprc` file :
+- Finally set the appropriate permissions on the `.msmtprc` file :
 ```sh
 chmod 600 ~/.msmtprc
 ```

@@ -576,7 +576,7 @@ void aclk_add_collector(RRDHOST *host, const char *plugin_name, const char *modu
 
     COLLECTOR_LOCK;
 
-    tmp_collector = _add_collector(host->hostname, plugin_name, module_name);
+    tmp_collector = _add_collector(host->machine_guid, plugin_name, module_name);
 
     if (unlikely(tmp_collector->count != 1)) {
         COLLECTOR_UNLOCK;
@@ -609,7 +609,7 @@ void aclk_del_collector(RRDHOST *host, const char *plugin_name, const char *modu
 
     COLLECTOR_LOCK;
 
-    tmp_collector = _del_collector(host->hostname, plugin_name, module_name);
+    tmp_collector = _del_collector(host->machine_guid, plugin_name, module_name);
 
     if (unlikely(!tmp_collector || tmp_collector->count)) {
         COLLECTOR_UNLOCK;
@@ -639,7 +639,7 @@ static void aclk_graceful_disconnect()
     // Send a graceful disconnect message
     BUFFER *b = buffer_create(512);
     aclk_create_header(b, "disconnect", NULL, 0, 0, aclk_shared_state.version_neg);
-    buffer_strcat(b, ",\n\t\"payload\": \"graceful\"}\n");
+    buffer_strcat(b, ",\n\t\"payload\": \"graceful\"}");
     aclk_send_message(ACLK_METADATA_TOPIC, (char*)buffer_tostring(b), NULL);
     buffer_free(b);
 
