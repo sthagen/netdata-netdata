@@ -62,6 +62,7 @@ static void aclk_query_free(struct aclk_query *this_query)
         freez(this_query->query);
     if(this_query->data && this_query->cmd == ACLK_CMD_CLOUD_QUERY_2) {
         struct aclk_cloud_req_v2 *del = (struct aclk_cloud_req_v2 *)this_query->data;
+        freez(del->query_endpoint);
         freez(del->data);
         freez(del);
     }
@@ -629,6 +630,12 @@ static int aclk_process_query(struct aclk_query_thread *t_info)
         aclk_metrics_per_sample.queries_dispatched++;
         aclk_queries_per_thread[t_info->idx]++;
         ACLK_STATS_UNLOCK;
+
+        if (likely(getrusage_called_this_tick[t_info->idx] < MAX_GETRUSAGE_CALLS_PER_TICK)) {
+            getrusage(RUSAGE_THREAD, &rusage_per_thread[t_info->idx]);
+            getrusage_called_this_tick[t_info->idx]++;
+        }
+
     }
 
     aclk_query_free(this_query);
