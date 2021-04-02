@@ -215,6 +215,7 @@ USAGE: ${PROGRAM} [options]
   --disable-ebpf             Disable eBPF Kernel plugin (Default: enabled)
   --disable-cloud            Disable all Netdata Cloud functionality.
   --require-cloud            Fail the install if it can't build Netdata Cloud support.
+  --aclk-ng                  Forces build of ACLK Next Generation which is fallback by default.
   --enable-plugin-freeipmi   Enable the FreeIPMI plugin. Default: enable it when libipmimonitoring is available.
   --disable-plugin-freeipmi
   --disable-https            Explicitly disable TLS support
@@ -319,6 +320,10 @@ while [ -n "${1}" ]; do
     "--disable-go") NETDATA_DISABLE_GO=1 ;;
     "--enable-ebpf") NETDATA_DISABLE_EBPF=0 ;;
     "--disable-ebpf") NETDATA_DISABLE_EBPF=1 NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--disable-ebpf/} --disable-ebpf" ;;
+    "--aclk-ng")
+      NETDATA_ACLK_NG=1
+      NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS//--with-aclk-ng/} --with-aclk-ng"
+      ;;
     "--disable-cloud")
       if [ -n "${NETDATA_REQUIRE_CLOUD}" ]; then
         echo "Cloud explicitly enabled, ignoring --disable-cloud."
@@ -567,8 +572,8 @@ copy_libmosquitto() {
 }
 
 bundle_libmosquitto() {
-  if [ -n "${NETDATA_DISABLE_CLOUD}" ]; then
-    echo "Skipping cloud"
+  if [ -n "${NETDATA_DISABLE_CLOUD}" ] || [ -n "${NETDATA_ACLK_NG}" ]; then
+    echo "Skipping libmosquitto"
     return 0
   fi
 
@@ -664,7 +669,7 @@ copy_libwebsockets() {
 }
 
 bundle_libwebsockets() {
-  if [ -n "${NETDATA_DISABLE_CLOUD}" ] || [ -n "${USE_SYSTEM_LWS}" ]; then
+  if [ -n "${NETDATA_DISABLE_CLOUD}" ] || [ -n "${USE_SYSTEM_LWS}" ] || [ -n "${NETDATA_ACLK_NG}" ]; then
     return 0
   fi
 
@@ -1313,12 +1318,14 @@ if [ "${UID}" -eq 0 ]; then
 
   if [ -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/perf.plugin" ]; then
     run chown root:${NETDATA_GROUP} "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/perf.plugin"
-    run chmod 4750 "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/perf.plugin"
+    run chmod 0750 "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/perf.plugin"
+    run sh -c "setcap cap_perfmon+ep \"${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/perf.plugin\" || setcap cap_sys_admin+ep \"${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/perf.plugin\""
   fi
 
   if [ -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/slabinfo.plugin" ]; then
     run chown root:${NETDATA_GROUP} "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/slabinfo.plugin"
-    run chmod 4750 "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/slabinfo.plugin"
+    run chmod 0750 "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/slabinfo.plugin"
+    run setcap cap_dac_read_search+ep "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/slabinfo.plugin"
   fi
 
   if [ -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/ioping" ]; then
@@ -1611,11 +1618,23 @@ remove_old_ebpf() {
 
   # Added to remove eBPF programs with name pattern: NAME_VERSION.SUBVERSION.PATCH 
   if [ -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/pnetdata_ebpf_process.3.10.0.o" ]; then
-    echo >&2 "Removing old eBPF programs"
+    echo >&2 "Removing old eBPF programs with patch."
     rm -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/rnetdata_ebpf"*.?.*.*.o
     rm -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/pnetdata_ebpf"*.?.*.*.o
   fi
 
+  # Remove old eBPF program to store new eBPF program inside subdirectory
+  if [ -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/pnetdata_ebpf_process.3.10.o" ]; then
+    echo >&2 "Removing old eBPF programs installed in old directory."
+    rm -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/rnetdata_ebpf"*.?.*.o
+    rm -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/pnetdata_ebpf"*.?.*.o
+  fi
+
+  # Remove old reject list from previous directory
+  if [ -f "${NETDATA_PREFIX}/usr/lib/netdata/conf.d/ebpf_kernel_reject_list.txt" ]; then
+    echo >&2 "Removing old ebpf_kernel_reject_list.txt."
+    rm -f "${NETDATA_PREFIX}/usr/lib/netdata/conf.d/ebpf_kernel_reject_list.txt"
+  fi
 }
 
 install_ebpf() {
@@ -1652,7 +1671,16 @@ install_ebpf() {
   # chown everything to root:netdata before we start copying out of our package
   run chown -R root:netdata "${tmp}"
 
-  run cp -a -v "${tmp}"/*netdata_ebpf_*.o "${NETDATA_PREFIX}"/usr/libexec/netdata/plugins.d
+  if [ ! -d "${NETDATA_PREFIX}"/usr/libexec/netdata/plugins.d/ebpf.d ]; then
+    mkdir "${NETDATA_PREFIX}"/usr/libexec/netdata/plugins.d/ebpf.d
+    RET=$?
+    if [ "${RET}" != "0" ]; then
+      rm -rf "${tmp}"
+      return 1
+    fi
+  fi
+
+  run cp -a -v "${tmp}"/*netdata_ebpf_*.o "${NETDATA_PREFIX}"/usr/libexec/netdata/plugins.d/ebpf.d
 
   rm -rf "${tmp}"
 

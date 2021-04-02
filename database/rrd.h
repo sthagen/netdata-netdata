@@ -34,12 +34,24 @@ struct pg_cache_page_index;
 #include "rrdcalc.h"
 #include "rrdcalctemplate.h"
 #include "../streaming/rrdpush.h"
+
+#ifndef ACLK_NG
 #include "../aclk/legacy/aclk_rrdhost_state.h"
+#else
+#include "aclk/aclk.h"
+#endif
+
+enum {
+    CONTEXT_FLAGS_ARCHIVE = 0x01,
+    CONTEXT_FLAGS_CHART   = 0x02,
+    CONTEXT_FLAGS_CONTEXT = 0x04
+};
 
 struct context_param {
     RRDDIM *rd;
     time_t first_entry_t;
     time_t last_entry_t;
+    uint8_t flags;
 };
 
 #define META_CHART_UPDATED 1
@@ -130,7 +142,7 @@ extern const char *rrd_algorithm_name(RRD_ALGORITHM algorithm);
 // RRD FAMILY
 
 struct rrdfamily {
-    avl avl;
+    avl_t avl;
 
     const char *family;
     uint32_t hash_family;
@@ -235,7 +247,7 @@ struct rrddim {
     // ------------------------------------------------------------------------
     // binary indexing structures
 
-    avl avl;                                        // the binary index - this has to be first member!
+    avl_t avl;                                      // the binary index - this has to be first member!
 
     // ------------------------------------------------------------------------
     // the dimension definition
@@ -336,6 +348,18 @@ union rrddim_collect_handle {
 
 // ----------------------------------------------------------------------------
 // iterator state for RRD dimension data queries
+
+#ifdef ENABLE_DBENGINE
+struct rrdeng_query_handle {
+    struct rrdeng_page_descr *descr;
+    struct rrdengine_instance *ctx;
+    struct pg_cache_page_index *page_index;
+    time_t next_page_time;
+    time_t now;
+    unsigned position;
+};
+#endif
+
 struct rrddim_query_handle {
     RRDDIM *rd;
     time_t start_time;
@@ -347,14 +371,7 @@ struct rrddim_query_handle {
             uint8_t finished;
         } slotted;                         // state the legacy code uses
 #ifdef ENABLE_DBENGINE
-        struct rrdeng_query_handle {
-            struct rrdeng_page_descr *descr;
-            struct rrdengine_instance *ctx;
-            struct pg_cache_page_index *page_index;
-            time_t next_page_time;
-            time_t now;
-            unsigned position;
-        } rrdeng; // state the database engine uses
+        struct rrdeng_query_handle rrdeng; // state the database engine uses
 #endif
     };
 };
@@ -365,9 +382,9 @@ struct rrddim_query_handle {
 struct rrddim_volatile {
 #ifdef ENABLE_DBENGINE
     uuid_t *rrdeng_uuid;                 // database engine metric UUID
-    uuid_t *metric_uuid;                 // global UUID for this metric (unique_across hosts)
     struct pg_cache_page_index *page_index;
 #endif
+    uuid_t *metric_uuid;                 // global UUID for this metric (unique_across hosts)
     union rrddim_collect_handle handle;
     // ------------------------------------------------------------------------
     // function pointers that handle data collection
@@ -469,8 +486,8 @@ struct rrdset {
     // ------------------------------------------------------------------------
     // binary indexing structures
 
-    avl avl;                                        // the index, with key the id - this has to be first!
-    avl avlname;                                    // the index, with key the name
+    avl_t avl;                                      // the index, with key the id - this has to be first!
+    avl_t avlname;                                  // the index, with key the name
 
     // ------------------------------------------------------------------------
     // the set configuration
@@ -523,7 +540,10 @@ struct rrdset {
     size_t counter;                                 // the number of times we added values to this database
     size_t counter_done;                            // the number of times rrdset_done() has been called
 
-    time_t last_accessed_time;                      // the last time this RRDSET has been accessed
+    union {
+        time_t last_accessed_time;                  // the last time this RRDSET has been accessed
+        time_t last_entry_t;                        // the last_entry_t computed for transient RRDSET
+    };
     time_t upstream_resync_time;                    // the timestamp up to which we should resync clock upstream
 
     char *plugin_name;                              // the name of the plugin that generated this
@@ -722,7 +742,7 @@ struct rrdhost_system_info {
 };
 
 struct rrdhost {
-    avl avl;                                        // the index of hosts
+    avl_t avl;                                      // the index of hosts
 
     // ------------------------------------------------------------------------
     // host information
@@ -851,8 +871,8 @@ struct rrdhost {
 
 #ifdef ENABLE_DBENGINE
     struct rrdengine_instance *rrdeng_ctx;          // DB engine instance for this host
-    uuid_t  host_uuid;                              // Global GUID for this host
 #endif
+    uuid_t  host_uuid;                              // Global GUID for this host
 
 #ifdef ENABLE_HTTPS
     struct netdata_ssl ssl;                         //Structure used to encrypt the connection
@@ -999,13 +1019,13 @@ extern void rrdhost_free_all(void);
 extern void rrdhost_save_all(void);
 extern void rrdhost_cleanup_all(void);
 
-extern void rrdhost_cleanup_orphan_hosts_nolock(RRDHOST *protected);
+extern void rrdhost_cleanup_orphan_hosts_nolock(RRDHOST *protected_host);
 extern void rrdhost_system_info_free(struct rrdhost_system_info *system_info);
 extern void rrdhost_free(RRDHOST *host);
 extern void rrdhost_save_charts(RRDHOST *host);
 extern void rrdhost_delete_charts(RRDHOST *host);
 
-extern int rrdhost_should_be_removed(RRDHOST *host, RRDHOST *protected, time_t now);
+extern int rrdhost_should_be_removed(RRDHOST *host, RRDHOST *protected_host, time_t now);
 
 extern void rrdset_update_heterogeneous_flag(RRDSET *st);
 
@@ -1053,7 +1073,7 @@ extern void rrdset_isnot_obsolete(RRDSET *st);
 
 // checks if the RRDSET should be offered to viewers
 #define rrdset_is_available_for_viewers(st) (rrdset_flag_check(st, RRDSET_FLAG_ENABLED) && !rrdset_flag_check(st, RRDSET_FLAG_HIDDEN) && !rrdset_flag_check(st, RRDSET_FLAG_OBSOLETE) && !rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions && (st)->rrd_memory_mode != RRD_MEMORY_MODE_NONE)
-#define rrdset_is_available_for_backends(st) (rrdset_flag_check(st, RRDSET_FLAG_ENABLED) && !rrdset_flag_check(st, RRDSET_FLAG_OBSOLETE) && !rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions)
+#define rrdset_is_available_for_exporting_and_alarms(st) (rrdset_flag_check(st, RRDSET_FLAG_ENABLED) && !rrdset_flag_check(st, RRDSET_FLAG_OBSOLETE) && !rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions)
 #define rrdset_is_archived(st) (rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions)
 
 // get the total duration in seconds of the round robin database
@@ -1281,8 +1301,8 @@ extern int rrdfamily_compare(void *a, void *b);
 extern RRDFAMILY *rrdfamily_create(RRDHOST *host, const char *id);
 extern void rrdfamily_free(RRDHOST *host, RRDFAMILY *rc);
 
-#define rrdset_index_add(host, st) (RRDSET *)avl_insert_lock(&((host)->rrdset_root_index), (avl *)(st))
-#define rrdset_index_del(host, st) (RRDSET *)avl_remove_lock(&((host)->rrdset_root_index), (avl *)(st))
+#define rrdset_index_add(host, st) (RRDSET *)avl_insert_lock(&((host)->rrdset_root_index), (avl_t *)(st))
+#define rrdset_index_del(host, st) (RRDSET *)avl_remove_lock(&((host)->rrdset_root_index), (avl_t *)(st))
 extern RRDSET *rrdset_index_del_name(RRDHOST *host, RRDSET *st);
 
 extern void rrdset_free(RRDSET *st);
@@ -1312,7 +1332,7 @@ extern void set_host_properties(
 
 #ifdef ENABLE_DBENGINE
 #include "database/engine/rrdengineapi.h"
-#include "sqlite/sqlite_functions.h"
 #endif
+#include "sqlite/sqlite_functions.h"
 
 #endif /* NETDATA_RRD_H */

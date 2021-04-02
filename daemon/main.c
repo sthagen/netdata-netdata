@@ -50,6 +50,7 @@ void netdata_cleanup_and_exit(int ret) {
         rrdeng_exit(&multidb_ctx);
 #endif
     }
+    sql_close_database();
 
     // unlink the pid
     if(pidfile[0]) {
@@ -80,7 +81,7 @@ struct netdata_static_thread static_threads[] = {
     NETDATA_PLUGIN_HOOK_IDLEJITTER
     NETDATA_PLUGIN_HOOK_STATSD
 
-#ifdef ENABLE_ACLK
+#if defined(ENABLE_ACLK) || defined(ACLK_NG)
     NETDATA_ACLK_HOOK
 #endif
 
@@ -1256,6 +1257,10 @@ int main(int argc, char **argv) {
                         else if(strcmp(optarg, "buildinfo") == 0) {
                             printf("Version: %s %s\n", program_name, program_version);
                             print_build_info();
+                            return 0;
+                        }
+                        else if(strcmp(optarg, "buildinfojson") == 0) {
+                            print_build_info_json();
                             return 0;
                         }
                         else {

@@ -148,6 +148,7 @@ accepts the following values: ​
 -   `return`: In the `return` mode, the eBPF collector monitors the same kernel functions as `entry`, but also creates
     new charts for the return of these functions, such as errors. Monitoring function returns can help in debugging
     software, such as failing to close file descriptors or creating zombie processes.
+-   `update every`:  Number of seconds used for eBPF to send data for Netdata.   
     
 #### Integration with `apps.plugin`
 
@@ -186,16 +187,45 @@ If you want to _disable_ the integration with `apps.plugin` along with the above
    apps = yes
 ```
 
-### `[ebpf programs]`
+#### `[ebpf programs]`
 
 The eBPF collector enables and runs the following eBPF programs by default:
 
+-   `cachestat`: Netdata's eBPF data collector creates charts about the memory page cache. When the integration with
+    [`apps.plugin`](/collectors/apps.plugin/README.md) is enabled, this collector creates charts for the whole host _and_
+    for each application.
 -   `process`: This eBPF program creates charts that show information about process creation, VFS IO, and files removed.
     When in `return` mode, it also creates charts showing errors when these operations are executed.
 -   `network viewer`: This eBPF program creates charts with information about `TCP` and `UDP` functions, including the
     bandwidth consumed by each.
+-   `sync`: Montitor calls for syscalls sync(2), fsync(2), fdatasync(2), syncfs(2), msync(2), and sync_file_range(2).
 
-### `[network connections]`
+## Thread configuration
+
+You can configure each thread of the eBPF data collector by editing either the `cachestat.conf`, `process.conf`, 
+or `network.conf` files. Use [`edit-config`](/docs/configure/nodes.md) from your Netdata config directory:
+
+```bash
+cd /etc/netdata/   # Replace with your Netdata configuration directory, if not /etc/netdata/
+./edit-config ebpf.d/process.conf
+```
+
+### Configuration files
+
+The following configuration files are available:
+
+- `cachestat.conf`: Configuration for the `cachestat` thread.
+- `process.conf`: Configuration for the `process` thread.
+- `network.conf`: Configuration for the `network viewer` thread. This config file overwrites the global options and
+  also lets you specify which network the eBPF collector monitors.
+- `sync.conf`: Configuration for the `sync` thread.
+
+### Network configuration
+
+The network configuration has specific options to configure which network(s) the eBPF collector monitors. These options
+are divided in the following sections:
+
+#### `[network connections]`
 
 You can configure the information shown on `outbound` and `inbound` charts with the settings in this section. 
 
@@ -232,7 +262,7 @@ The dimensions for the traffic charts are created using the destination IPs of t
 changed setting `resolve hostname ips = yes` and restarting Netdata, after this Netdata will create dimensions using
 the `hostnames` every time that is possible to resolve IPs to their hostnames.
 
-### `[service name]`
+#### `[service name]`
 
 Netdata uses the list of services in `/etc/services` to plot network connection charts. If this file does not contain the
 name for a particular service you use in your infrastructure, you will need to add it to the `[service name]` section.
@@ -243,6 +273,21 @@ service in network connection charts, and thus see the name of the service inste
 ```conf
 [service name]
     19999 = Netdata
+```
+
+### Sync configuration
+
+The sync configuration has specific options to disable monitoring for syscalls, as default option all syscalls are 
+monitored.
+
+```conf
+[syscalls]
+    sync = yes
+    msync = yes
+    fsync = yes
+    fdatasync = yes
+    syncfs = yes
+    sync_file_range = yes
 ```
 
 ## Troubleshooting

@@ -21,7 +21,7 @@ PKG_CLOUD_CONFIG="$HOME/.package_cloud_configuration.cfg"
 TOP_LEVEL=$(basename "$(git rev-parse --show-toplevel)")
 CWD=$(git rev-parse --show-cdup)
 if [ -n "$CWD" ] || [ ! "${TOP_LEVEL}" == "netdata" ]; then
-    echo "Run as .travis/package_management/$(basename "$0") from top level directory of netdata git repository"
+    echo "Run as .github/scripts/$(basename "$0") from top level directory of netdata git repository"
     echo "Docker build process aborted"
     exit 1
 fi
@@ -29,7 +29,7 @@ fi
 # Install dependency if not there
 if ! command -v package_cloud > /dev/null 2>&1; then
 	echo "No package cloud gem found, installing"
-	gem install -V package_cloud || (echo "Package cloud installation failed. you might want to check if required dependencies are there (ruby gcc gcc-c++ ruby-devel)" && exit 1)
+	sudo gem install -V package_cloud || (echo "Package cloud installation failed. you might want to check if required dependencies are there (ruby gcc gcc-c++ ruby-devel)" && exit 1)
 else
 	echo "Found package_cloud gem, continuing"
 fi

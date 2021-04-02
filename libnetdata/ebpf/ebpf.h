@@ -8,6 +8,15 @@
 
 #define NETDATA_DEBUGFS "/sys/kernel/debug/tracing/"
 
+// Config files
+#define EBPF_GLOBAL_SECTION "global"
+#define EBPF_CFG_LOAD_MODE "ebpf load mode"
+#define EBPF_CFG_LOAD_MODE_DEFAULT "entry"
+#define EBPF_CFG_LOAD_MODE_RETURN "return"
+
+#define EBPF_CFG_UPDATE_EVERY "update every"
+#define EBPF_CFG_APPLICATION "apps"
+
 /**
  * The next magic number is got doing the following math:
  *  294960 = 4*65536 + 11*256 + 0
@@ -30,6 +39,13 @@
  * 2048 = 8*256 + 0
  */
 #define NETDATA_RH_8 2048
+
+/**
+ *  Kernel 5.11
+ *
+ *  330240 = 5*65536 + 11*256
+ */
+#define NETDATA_EBPF_KERNEL_5_11 330496
 
 /**
  *  Kernel 5.10
@@ -61,6 +77,9 @@
 
 #define VERSION_STRING_LEN 256
 #define EBPF_KERNEL_REJECT_LIST_FILE "ebpf_kernel_reject_list.txt"
+
+extern char *ebpf_user_config_dir;
+extern char *ebpf_stock_config_dir;
 
 typedef struct ebpf_data {
     int *map_fd;
@@ -102,5 +121,10 @@ extern struct bpf_link **ebpf_load_program(char *plugins_dir,
                              char *kernel_string,
                              struct bpf_object **obj,
                              int *map_fd);
+
+extern void ebpf_mount_config_name(char *filename, size_t length, char *path, char *config);
+extern int ebpf_load_config(struct config *config, char *filename);
+extern void ebpf_update_module_using_config(ebpf_module_t *modules, struct config *cfg);
+extern void ebpf_update_module(ebpf_module_t *em, struct config *cfg, char *cfg_file);
 
 #endif /* NETDATA_EBPF_H */

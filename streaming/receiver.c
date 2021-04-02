@@ -261,6 +261,14 @@ static int rrdpush_receive(struct receiver_state *rpt)
     mode = rrd_memory_mode_id(appconfig_get(&stream_config, rpt->key, "default memory mode", rrd_memory_mode_name(mode)));
     mode = rrd_memory_mode_id(appconfig_get(&stream_config, rpt->machine_guid, "memory mode", rrd_memory_mode_name(mode)));
 
+#ifndef ENABLE_DBENGINE
+    if (unlikely(mode == RRD_MEMORY_MODE_DBENGINE)) {
+        close(rpt->fd);
+        log_stream_connection(rpt->client_ip, rpt->client_port, rpt->key, rpt->machine_guid, rpt->hostname, "REJECTED -- DBENGINE MEMORY MODE NOT SUPPORTED");
+        return 1;
+    }
+#endif
+
     health_enabled = appconfig_get_boolean_ondemand(&stream_config, rpt->key, "health enabled by default", health_enabled);
     health_enabled = appconfig_get_boolean_ondemand(&stream_config, rpt->machine_guid, "health enabled", health_enabled);
 
@@ -440,7 +448,7 @@ static int rrdpush_receive(struct receiver_state *rpt)
 
     cd.version = rpt->stream_version;
 
-#ifdef ENABLE_ACLK
+#if defined(ENABLE_ACLK) && !defined(ACLK_NG)
     // in case we have cloud connection we inform cloud
     // new slave connected
     if (netdata_cloud_setting)
@@ -454,7 +462,7 @@ static int rrdpush_receive(struct receiver_state *rpt)
     error("STREAM %s [receive from [%s]:%s]: disconnected (completed %zu updates).", rpt->hostname, rpt->client_ip,
           rpt->client_port, count);
 
-#ifdef ENABLE_ACLK
+#if defined(ENABLE_ACLK) && !defined(ACLK_NG)
     // in case we have cloud connection we inform cloud
     // new slave connected
     if (netdata_cloud_setting)

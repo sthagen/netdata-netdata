@@ -31,7 +31,7 @@ RRDHOST *rrdhost_find_by_guid(const char *guid, uint32_t hash) {
     strncpyz(tmp.machine_guid, guid, GUID_LEN);
     tmp.hash_machine_guid = (hash)?hash:simple_hash(tmp.machine_guid);
 
-    return (RRDHOST *)avl_search_lock(&(rrdhost_root_index), (avl *) &tmp);
+    return (RRDHOST *)avl_search_lock(&(rrdhost_root_index), (avl_t *) &tmp);
 }
 
 RRDHOST *rrdhost_find_by_hostname(const char *hostname, uint32_t hash) {
@@ -53,8 +53,8 @@ RRDHOST *rrdhost_find_by_hostname(const char *hostname, uint32_t hash) {
     return NULL;
 }
 
-#define rrdhost_index_add(rrdhost) (RRDHOST *)avl_insert_lock(&(rrdhost_root_index), (avl *)(rrdhost))
-#define rrdhost_index_del(rrdhost) (RRDHOST *)avl_remove_lock(&(rrdhost_root_index), (avl *)(rrdhost))
+#define rrdhost_index_add(rrdhost) (RRDHOST *)avl_insert_lock(&(rrdhost_root_index), (avl_t *)(rrdhost))
+#define rrdhost_index_del(rrdhost) (RRDHOST *)avl_remove_lock(&(rrdhost_root_index), (avl_t *)(rrdhost))
 
 
 // ----------------------------------------------------------------------------
@@ -298,15 +298,16 @@ RRDHOST *rrdhost_create(const char *hostname,
         return NULL;
     }
 
+    if (likely(!uuid_parse(host->machine_guid, host->host_uuid))) {
+        int rc = sql_store_host(&host->host_uuid, hostname, registry_hostname, update_every, os, timezone, tags);
+        if (unlikely(rc))
+            error_report("Failed to store machine GUID to the database");
+    }
+    else
+        error_report("Host machine GUID %s is not valid", host->machine_guid);
+
     if (host->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
 #ifdef ENABLE_DBENGINE
-        if (likely(!uuid_parse(host->machine_guid, host->host_uuid))) {
-            int rc = sql_store_host(&host->host_uuid, hostname, registry_hostname, update_every, os, timezone, tags);
-            if (unlikely(rc))
-                error_report("Failed to store machine GUID to the database");
-        }
-        else
-            error_report("Host machine GUID %s is not valid", host->machine_guid);
         char dbenginepath[FILENAME_MAX + 1];
         int ret;
 
@@ -333,6 +334,11 @@ RRDHOST *rrdhost_create(const char *hostname,
 
 #else
         fatal("RRD_MEMORY_MODE_DBENGINE is not supported in this platform.");
+#endif
+    }
+    else {
+#ifdef ENABLE_DBENGINE
+        host->rrdeng_ctx = &multidb_ctx;
 #endif
     }
 
@@ -582,8 +588,8 @@ RRDHOST *rrdhost_find_or_create(
 
     return host;
 }
-inline int rrdhost_should_be_removed(RRDHOST *host, RRDHOST *protected, time_t now) {
-    if(host != protected
+inline int rrdhost_should_be_removed(RRDHOST *host, RRDHOST *protected_host, time_t now) {
+    if(host != protected_host
        && host != localhost
        && rrdhost_flag_check(host, RRDHOST_FLAG_ORPHAN)
        && host->receiver
@@ -594,14 +600,14 @@ inline int rrdhost_should_be_removed(RRDHOST *host, RRDHOST *protected, time_t n
     return 0;
 }
 
-void rrdhost_cleanup_orphan_hosts_nolock(RRDHOST *protected) {
+void rrdhost_cleanup_orphan_hosts_nolock(RRDHOST *protected_host) {
     time_t now = now_realtime_sec();
 
     RRDHOST *host;
 
 restart_after_removal:
     rrdhost_foreach_write(host) {
-        if(rrdhost_should_be_removed(host, protected, now)) {
+        if(rrdhost_should_be_removed(host, protected_host, now)) {
             info("Host '%s' with machine guid '%s' is obsolete - cleaning up.", host->hostname, host->machine_guid);
 
             if (rrdhost_flag_check(host, RRDHOST_FLAG_DELETE_ORPHAN_HOST)
@@ -629,11 +635,11 @@ int rrd_init(char *hostname, struct rrdhost_system_info *system_info) {
     if (gap_when_lost_iterations_above < 1)
         gap_when_lost_iterations_above = 1;
 
-#ifdef ENABLE_DBENGINE
     if (unlikely(sql_init_database())) {
-        return 1;
+        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+            return 1;
+        info("Skipping SQLITE metadata initialization since memory mode is not db engine");
     }
-#endif
 
     health_init();
 

@@ -17,6 +17,7 @@
 static struct disk {
     char *disk;             // the name of the disk (sda, sdb, etc, after being looked up)
     char *device;           // the device of the disk (before being looked up)
+    uint32_t hash;
     unsigned long major;
     unsigned long minor;
     int sector_size;
@@ -72,6 +73,9 @@ static struct disk {
 
     RRDSET *st_backlog;
     RRDDIM *rd_backlog_backlog;
+
+    RRDSET *st_busy;
+    RRDDIM *rd_busy_busy;
 
     RRDSET *st_util;
     RRDDIM *rd_util_utilization;
@@ -390,7 +394,7 @@ static inline int get_disk_name_from_path(const char *path, char *result, size_t
                 continue;
             }
 
-            if(major(sb.st_rdev) != major || minor(sb.st_rdev) != minor) {
+            if(major(sb.st_rdev) != major || minor(sb.st_rdev) != minor || strcmp(basename(filename), disk)) {
                 //info("DEVICE-MAPPER ('%s', %lu:%lu): filename '%s' does not match %lu:%lu.", disk, major, minor, filename, (unsigned long)major(sb.st_rdev), (unsigned long)minor(sb.st_rdev));
                 continue;
             }
@@ -544,13 +548,17 @@ static struct disk *get_disk(unsigned long major, unsigned long minor, char *dis
 
     struct disk *d;
 
+    uint32_t hash = simple_hash(disk);
+
     // search for it in our RAM list.
     // this is sequential, but since we just walk through
     // and the number of disks / partitions in a system
     // should not be that many, it should be acceptable
-    for(d = disk_root; d ; d = d->next)
-        if(unlikely(d->major == major && d->minor == minor))
+    for(d = disk_root; d ; d = d->next){
+        if (unlikely(
+                d->major == major && d->minor == minor && d->hash == hash && !strcmp(d->device, disk)))
             return d;
+    }
 
     // not found
     // create a new disk structure
@@ -558,6 +566,7 @@ static struct disk *get_disk(unsigned long major, unsigned long minor, char *dis
 
     d->disk = get_disk_name(major, minor, disk);
     d->device = strdupz(disk);
+    d->hash = simple_hash(d->device);
     d->major = major;
     d->minor = minor;
     d->type = DISK_TYPE_UNKNOWN; // Default type. Changed later if not correct.
@@ -624,12 +633,12 @@ static struct disk *get_disk(unsigned long major, unsigned long minor, char *dis
     // check if we can find its mount point
 
     // mountinfo_find() can be called with NULL disk_mountinfo_root
-    struct mountinfo *mi = mountinfo_find(disk_mountinfo_root, d->major, d->minor);
+    struct mountinfo *mi = mountinfo_find(disk_mountinfo_root, d->major, d->minor, d->device);
     if(unlikely(!mi)) {
         // mountinfo_free_all can be called with NULL
         mountinfo_free_all(disk_mountinfo_root);
         disk_mountinfo_root = mountinfo_read(0);
-        mi = mountinfo_find(disk_mountinfo_root, d->major, d->minor);
+        mi = mountinfo_find(disk_mountinfo_root, d->major, d->minor, d->device);
     }
 
     if(unlikely(mi))
@@ -942,13 +951,6 @@ int do_proc_diskstats(int update_every, usec_t dt) {
         // I/O completion time and the backlog that may be accumulating.
         backlog_ms      = str2ull(procfile_lineword(ff, l, 13)); // rq_ticks
 
-
-        // --------------------------------------------------------------------------
-        // remove slashes from disk names
-        char *s;
-        for(s = disk; *s ;s++)
-            if(*s == '/') *s = '_';
-
         // --------------------------------------------------------------------------
         // get a disk structure for the disk
 
@@ -1094,7 +1096,7 @@ int do_proc_diskstats(int update_every, usec_t dt) {
 
                 rrdset_flag_set(d->st_backlog, RRDSET_FLAG_DETAIL);
 
-                d->rd_backlog_backlog = rrddim_add(d->st_backlog, "backlog", NULL, 1, 10, RRD_ALGORITHM_INCREMENTAL);
+                d->rd_backlog_backlog = rrddim_add(d->st_backlog, "backlog", NULL, 1, 1, RRD_ALGORITHM_INCREMENTAL);
             }
             else rrdset_next(d->st_backlog);
 
@@ -1107,6 +1109,34 @@ int do_proc_diskstats(int update_every, usec_t dt) {
         if(d->do_util == CONFIG_BOOLEAN_YES || (d->do_util == CONFIG_BOOLEAN_AUTO &&
                                                 (busy_ms || netdata_zero_metrics_enabled == CONFIG_BOOLEAN_YES))) {
             d->do_util = CONFIG_BOOLEAN_YES;
+
+            if(unlikely(!d->st_busy)) {
+                d->st_busy = rrdset_create_localhost(
+                        "disk_busy"
+                        , d->device
+                        , d->disk
+                        , family
+                        , "disk.busy"
+                        , "Disk Busy Time"
+                        , "milliseconds"
+                        , PLUGIN_PROC_NAME
+                        , PLUGIN_PROC_MODULE_DISKSTATS_NAME
+                        , NETDATA_CHART_PRIO_DISK_BUSY
+                        , update_every
+                        , RRDSET_TYPE_AREA
+                );
+
+                rrdset_flag_set(d->st_busy, RRDSET_FLAG_DETAIL);
+
+                d->rd_busy_busy =
+                    rrddim_add(d->st_busy, "busy", NULL, 1, 1, RRD_ALGORITHM_INCREMENTAL);
+            }
+            else rrdset_next(d->st_busy);
+
+            last_busy_ms = rrddim_set_by_pointer(d->st_busy, d->rd_busy_busy, busy_ms);
+            rrdset_done(d->st_busy);
+
+        // --------------------------------------------------------------------
 
             if(unlikely(!d->st_util)) {
                 d->st_util = rrdset_create_localhost(
@@ -1126,11 +1156,15 @@ int do_proc_diskstats(int update_every, usec_t dt) {
 
                 rrdset_flag_set(d->st_util, RRDSET_FLAG_DETAIL);
 
-                d->rd_util_utilization = rrddim_add(d->st_util, "utilization", NULL, 1, 10, RRD_ALGORITHM_INCREMENTAL);
+                d->rd_util_utilization = rrddim_add(d->st_util, "utilization", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
             }
             else rrdset_next(d->st_util);
 
-            last_busy_ms = rrddim_set_by_pointer(d->st_util, d->rd_util_utilization, busy_ms);
+            collected_number disk_utilization = (busy_ms - last_busy_ms) / (10 * update_every);
+            if (disk_utilization > 100)
+                disk_utilization = 100;
+
+            rrddim_set_by_pointer(d->st_util, d->rd_util_utilization, disk_utilization);
             rrdset_done(d->st_util);
         }
 

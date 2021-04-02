@@ -481,10 +481,14 @@ set(SLABINFO_PLUGIN_FILES
 set(EBPF_PROCESS_PLUGIN_FILES
         collectors/ebpf.plugin/ebpf.c
         collectors/ebpf.plugin/ebpf.h
+        collectors/ebpf.plugin/ebpf_cachestat.c
+        collectors/ebpf.plugin/ebpf_cachestat.h
         collectors/ebpf.plugin/ebpf_process.c
         collectors/ebpf.plugin/ebpf_process.h
         collectors/ebpf.plugin/ebpf_socket.c
         collectors/ebpf.plugin/ebpf_socket.h
+        collectors/ebpf.plugin/ebpf_sync.c
+        collectors/ebpf.plugin/ebpf_sync.h
         collectors/ebpf.plugin/ebpf_apps.c
         collectors/ebpf.plugin/ebpf_apps.h
         )

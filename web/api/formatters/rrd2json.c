@@ -2,7 +2,28 @@
 
 #include "web/api/web_api_v1.h"
 
-static inline void free_temp_rrddim(RRDDIM *temp_rd)
+static inline void free_single_rrdrim(RRDDIM *temp_rd, int archive_mode)
+{
+    if (unlikely(!temp_rd))
+        return;
+
+    freez((char *)temp_rd->id);
+    freez((char *)temp_rd->name);
+
+    if (unlikely(archive_mode)) {
+        temp_rd->rrdset->counter--;
+        if (!temp_rd->rrdset->counter) {
+            freez((char *)temp_rd->rrdset->name);
+            freez(temp_rd->rrdset->context);
+            freez(temp_rd->rrdset);
+        }
+    }
+    freez(temp_rd->state->metric_uuid);
+    freez(temp_rd->state);
+    freez(temp_rd);
+}
+
+static inline void free_rrddim_list(RRDDIM *temp_rd, int archive_mode)
 {
     if (unlikely(!temp_rd))
         return;
@@ -10,14 +31,7 @@ static inline void free_temp_rrddim(RRDDIM *temp_rd)
     RRDDIM *t;
     while (temp_rd) {
         t = temp_rd->next;
-        freez((char *)temp_rd->id);
-        freez((char *)temp_rd->name);
-#ifdef ENABLE_DBENGINE
-        if (temp_rd->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
-            freez(temp_rd->state->metric_uuid);
-#endif
-        freez(temp_rd->state);
-        freez(temp_rd);
+        free_single_rrdrim(temp_rd, archive_mode);
         temp_rd = t;
     }
 }
@@ -27,7 +41,7 @@ void free_context_param_list(struct context_param **param_list)
     if (unlikely(!param_list || !*param_list))
         return;
 
-    free_temp_rrddim(((*param_list)->rd));
+    free_rrddim_list(((*param_list)->rd), (*param_list)->flags & CONTEXT_FLAGS_ARCHIVE);
     freez((*param_list));
     *param_list = NULL;
 }
@@ -36,21 +50,17 @@ void rebuild_context_param_list(struct context_param *context_param_list, time_t
 {
     RRDDIM *temp_rd = context_param_list->rd;
     RRDDIM *new_rd_list = NULL, *t;
+    int is_archived = (context_param_list->flags & CONTEXT_FLAGS_ARCHIVE);
     while (temp_rd) {
         t = temp_rd->next;
-        if (rrdset_last_entry_t(temp_rd->rrdset) >= after_requested) {
+        RRDSET *st = temp_rd->rrdset;
+        time_t last_entry_t = is_archived ? st->last_entry_t : rrdset_last_entry_t(st);
+
+        if (last_entry_t >= after_requested) {
             temp_rd->next = new_rd_list;
             new_rd_list = temp_rd;
-        } else {
-            freez((char *)temp_rd->id);
-            freez((char *)temp_rd->name);
-#ifdef ENABLE_DBENGINE
-            if (temp_rd->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
-                freez(temp_rd->state->metric_uuid);
-#endif
-            freez(temp_rd->state);
-            freez(temp_rd);
-        }
+        } else
+            free_single_rrdrim(temp_rd, is_archived);
         temp_rd = t;
     }
     context_param_list->rd = new_rd_list;
@@ -65,6 +75,7 @@ void build_context_param_list(struct context_param **param_list, RRDSET *st)
         *param_list = mallocz(sizeof(struct context_param));
         (*param_list)->first_entry_t = LONG_MAX;
         (*param_list)->last_entry_t = 0;
+        (*param_list)->flags = CONTEXT_FLAGS_CONTEXT;
         (*param_list)->rd = NULL;
     }
 
@@ -214,9 +225,9 @@ int rrdset2anything_api_v1(
         , struct context_param *context_param_list
         , char *chart_label_key
 ) {
-    time_t last_accessed_time = now_realtime_sec();
-    st->last_accessed_time = last_accessed_time;
 
+    if (context_param_list && !(context_param_list->flags & CONTEXT_FLAGS_ARCHIVE))
+        st->last_accessed_time = now_realtime_sec();
 
     RRDR *r = rrd2rrdr(st, points, after, before, group_method, group_time, options, dimensions?buffer_tostring(dimensions):NULL, context_param_list);
     if(!r) {
@@ -238,7 +249,7 @@ int rrdset2anything_api_v1(
     case DATASOURCE_SSV:
         if(options & RRDR_OPTION_JSON_WRAP) {
             wb->contenttype = CT_APPLICATION_JSON;
-            rrdr_json_wrapper_begin(r, wb, format, options, 1, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 1, context_param_list, chart_label_key);
             rrdr2ssv(r, wb, options, "", " ", "");
             rrdr_json_wrapper_end(r, wb, format, options, 1);
         }
@@ -251,7 +262,7 @@ int rrdset2anything_api_v1(
     case DATASOURCE_SSV_COMMA:
         if(options & RRDR_OPTION_JSON_WRAP) {
             wb->contenttype = CT_APPLICATION_JSON;
-            rrdr_json_wrapper_begin(r, wb, format, options, 1, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 1, context_param_list, chart_label_key);
             rrdr2ssv(r, wb, options, "", ",", "");
             rrdr_json_wrapper_end(r, wb, format, options, 1);
         }
@@ -264,7 +275,7 @@ int rrdset2anything_api_v1(
     case DATASOURCE_JS_ARRAY:
         if(options & RRDR_OPTION_JSON_WRAP) {
             wb->contenttype = CT_APPLICATION_JSON;
-            rrdr_json_wrapper_begin(r, wb, format, options, 0, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 0, context_param_list, chart_label_key);
             rrdr2ssv(r, wb, options, "[", ",", "]");
             rrdr_json_wrapper_end(r, wb, format, options, 0);
         }
@@ -277,7 +288,7 @@ int rrdset2anything_api_v1(
     case DATASOURCE_CSV:
         if(options & RRDR_OPTION_JSON_WRAP) {
             wb->contenttype = CT_APPLICATION_JSON;
-            rrdr_json_wrapper_begin(r, wb, format, options, 1, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 1, context_param_list, chart_label_key);
             rrdr2csv(r, wb, format, options, "", ",", "\\n", "", temp_rd);
             rrdr_json_wrapper_end(r, wb, format, options, 1);
         }
@@ -290,7 +301,7 @@ int rrdset2anything_api_v1(
     case DATASOURCE_CSV_MARKDOWN:
         if(options & RRDR_OPTION_JSON_WRAP) {
             wb->contenttype = CT_APPLICATION_JSON;
-            rrdr_json_wrapper_begin(r, wb, format, options, 1, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 1, context_param_list, chart_label_key);
             rrdr2csv(r, wb, format, options, "", "|", "\\n", "", temp_rd);
             rrdr_json_wrapper_end(r, wb, format, options, 1);
         }
@@ -303,7 +314,7 @@ int rrdset2anything_api_v1(
     case DATASOURCE_CSV_JSON_ARRAY:
         wb->contenttype = CT_APPLICATION_JSON;
         if(options & RRDR_OPTION_JSON_WRAP) {
-            rrdr_json_wrapper_begin(r, wb, format, options, 0, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 0, context_param_list, chart_label_key);
             buffer_strcat(wb, "[\n");
             rrdr2csv(r, wb, format, options + RRDR_OPTION_LABEL_QUOTES, "[", ",", "]", ",\n", temp_rd);
             buffer_strcat(wb, "\n]");
@@ -320,7 +331,7 @@ int rrdset2anything_api_v1(
     case DATASOURCE_TSV:
         if(options & RRDR_OPTION_JSON_WRAP) {
             wb->contenttype = CT_APPLICATION_JSON;
-            rrdr_json_wrapper_begin(r, wb, format, options, 1, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 1, context_param_list, chart_label_key);
             rrdr2csv(r, wb, format, options, "", "\t", "\\n", "", temp_rd);
             rrdr_json_wrapper_end(r, wb, format, options, 1);
         }
@@ -333,7 +344,7 @@ int rrdset2anything_api_v1(
     case DATASOURCE_HTML:
         if(options & RRDR_OPTION_JSON_WRAP) {
             wb->contenttype = CT_APPLICATION_JSON;
-            rrdr_json_wrapper_begin(r, wb, format, options, 1, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 1, context_param_list, chart_label_key);
             buffer_strcat(wb, "<html>\\n<center>\\n<table border=\\\"0\\\" cellpadding=\\\"5\\\" cellspacing=\\\"5\\\">\\n");
             rrdr2csv(r, wb, format, options, "<tr><td>", "</td><td>", "</td></tr>\\n", "", temp_rd);
             buffer_strcat(wb, "</table>\\n</center>\\n</html>\\n");
@@ -351,9 +362,9 @@ int rrdset2anything_api_v1(
         wb->contenttype = CT_APPLICATION_X_JAVASCRIPT;
 
         if(options & RRDR_OPTION_JSON_WRAP)
-            rrdr_json_wrapper_begin(r, wb, format, options, 0, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 0, context_param_list, chart_label_key);
 
-        rrdr2json(r, wb, options, 1, temp_rd);
+        rrdr2json(r, wb, options, 1, context_param_list);
 
         if(options & RRDR_OPTION_JSON_WRAP)
             rrdr_json_wrapper_end(r, wb, format, options, 0);
@@ -363,9 +374,9 @@ int rrdset2anything_api_v1(
         wb->contenttype = CT_APPLICATION_JSON;
 
         if(options & RRDR_OPTION_JSON_WRAP)
-            rrdr_json_wrapper_begin(r, wb, format, options, 0, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 0, context_param_list, chart_label_key);
 
-        rrdr2json(r, wb, options, 1, temp_rd);
+        rrdr2json(r, wb, options, 1, context_param_list);
 
         if(options & RRDR_OPTION_JSON_WRAP)
             rrdr_json_wrapper_end(r, wb, format, options, 0);
@@ -374,9 +385,9 @@ int rrdset2anything_api_v1(
     case DATASOURCE_JSONP:
         wb->contenttype = CT_APPLICATION_X_JAVASCRIPT;
         if(options & RRDR_OPTION_JSON_WRAP)
-            rrdr_json_wrapper_begin(r, wb, format, options, 0, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 0, context_param_list, chart_label_key);
 
-        rrdr2json(r, wb, options, 0, temp_rd);
+        rrdr2json(r, wb, options, 0, context_param_list);
 
         if(options & RRDR_OPTION_JSON_WRAP)
             rrdr_json_wrapper_end(r, wb, format, options, 0);
@@ -387,9 +398,9 @@ int rrdset2anything_api_v1(
         wb->contenttype = CT_APPLICATION_JSON;
 
         if(options & RRDR_OPTION_JSON_WRAP)
-            rrdr_json_wrapper_begin(r, wb, format, options, 0, temp_rd, chart_label_key);
+            rrdr_json_wrapper_begin(r, wb, format, options, 0, context_param_list, chart_label_key);
 
-        rrdr2json(r, wb, options, 0, temp_rd);
+        rrdr2json(r, wb, options, 0, context_param_list);
 
         if(options & RRDR_OPTION_JSON_WRAP)
             rrdr_json_wrapper_end(r, wb, format, options, 0);

@@ -31,6 +31,9 @@
 
 #include "ebpf_apps.h"
 
+#define NETDATA_EBPF_OLD_CONFIG_FILE "ebpf.conf"
+#define NETDATA_EBPF_CONFIG_FILE "ebpf.d.conf"
+
 typedef struct netdata_syscall_stat {
     unsigned long bytes;               // total number of bytes
     uint64_t call;                     // total number of calls
@@ -70,8 +73,12 @@ typedef struct netdata_error_report {
 } netdata_error_report_t;
 
 extern ebpf_module_t ebpf_modules[];
-#define EBPF_MODULE_PROCESS_IDX 0
-#define EBPF_MODULE_SOCKET_IDX 1
+enum ebpf_module_indexes {
+    EBPF_MODULE_PROCESS_IDX,
+    EBPF_MODULE_SOCKET_IDX,
+    EBPF_MODULE_CACHESTAT_IDX,
+    EBPF_MODULE_SYNC_IDX
+};
 
 // Copied from musl header
 #ifndef offsetof
@@ -84,6 +91,9 @@ extern ebpf_module_t ebpf_modules[];
 
 // Chart defintions
 #define NETDATA_EBPF_FAMILY "ebpf"
+#define NETDATA_EBPF_CHART_TYPE_LINE "line"
+#define NETDATA_EBPF_CHART_TYPE_STACKED "stacked"
+#define NETDATA_EBPF_MEMORY_GROUP "mem"
 
 // Log file
 #define NETDATA_DEVELOPER_LOG_FILE "developer.log"
@@ -146,6 +156,7 @@ extern void ebpf_create_chart(char *type,
                               char *units,
                               char *family,
                               char *context,
+                              char *charttype,
                               int order,
                               void (*ncd)(void *, int),
                               void *move,
@@ -168,6 +179,7 @@ extern void ebpf_create_charts_on_apps(char *name,
                                        char *title,
                                        char *units,
                                        char *family,
+                                       char *charttype,
                                        int order,
                                        char *algorithm,
                                        struct target *root);
@@ -176,11 +188,9 @@ extern void write_end_chart();
 
 extern void ebpf_cleanup_publish_syscall(netdata_publish_syscall_t *nps);
 
-#define EBPF_GLOBAL_SECTION "global"
 #define EBPF_PROGRAMS_SECTION "ebpf programs"
-#define EBPF_NETWORK_VIEWER_SECTION "network connections"
-#define EBPF_SERVICE_NAME_SECTION "service name"
 
+#define EBPF_COMMON_DIMENSION_PERCENTAGE "%"
 #define EBPF_COMMON_DIMENSION_CALL "calls/s"
 #define EBPF_COMMON_DIMENSION_BITS "kilobits/s"
 #define EBPF_COMMON_DIMENSION_BYTES "bytes/s"
@@ -188,22 +198,23 @@ extern void ebpf_cleanup_publish_syscall(netdata_publish_syscall_t *nps);
 #define EBPF_COMMON_DIMENSION_PACKETS "packets"
 
 // Common variables
-extern char *ebpf_user_config_dir;
-extern char *ebpf_stock_config_dir;
 extern int debug_enabled;
 extern struct pid_stat *root_of_pids;
 extern char *ebpf_algorithms[];
-
-// Socket functions and variables
-// Common functions
-extern void ebpf_process_create_apps_charts(struct ebpf_module *em, void *ptr);
-extern void ebpf_socket_create_apps_charts(struct ebpf_module *em, void *ptr);
-extern collected_number get_value_from_structure(char *basis, size_t offset);
+extern struct config collector_config;
 extern struct pid_stat *root_of_pids;
 extern ebpf_process_stat_t *global_process_stat;
 extern size_t all_pids_count;
 extern int update_every;
 extern uint32_t finalized_threads;
+
+// Socket functions and variables
+// Common functions
+extern void ebpf_process_create_apps_charts(struct ebpf_module *em, void *ptr);
+extern void ebpf_socket_create_apps_charts(struct ebpf_module *em, void *ptr);
+extern void ebpf_cachestat_create_apps_charts(struct ebpf_module *em, void *root);
+extern void ebpf_one_dimension_write_charts(char *family, char *chart, char *dim, long long v1);
+extern collected_number get_value_from_structure(char *basis, size_t offset);
 
 #define EBPF_MAX_SYNCHRONIZATION_TIME 300
 
