@@ -1,20 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "aclk_tx_msgs.h"
-#include "../daemon/common.h"
+#include "daemon/common.h"
 #include "aclk_util.h"
 #include "aclk_stats.h"
+#include "aclk.h"
 
 #ifndef __GNUC__
 #pragma region aclk_tx_msgs helper functions
 #endif
 
+// version for aclk legacy (old cloud arch)
+#define ACLK_VERSION 2
+
 static void aclk_send_message_subtopic(mqtt_wss_client client, json_object *msg, enum aclk_topics subtopic)
 {
     uint16_t packet_id;
     const char *str = json_object_to_json_string_ext(msg, JSON_C_TO_STRING_PLAIN);
+    const char *topic = aclk_get_topic(subtopic);
 
-    mqtt_wss_publish_pid(client, aclk_get_topic(subtopic), str, strlen(str),  MQTT_WSS_PUB_QOS1, &packet_id);
+    if (unlikely(!topic)) {
+        error("Couldn't get topic. Aborting mesage send");
+        return;
+    }
+
+    mqtt_wss_publish_pid(client, topic, str, strlen(str),  MQTT_WSS_PUB_QOS1, &packet_id);
 #ifdef NETDATA_INTERNAL_CHECKS
     aclk_stats_msg_published(packet_id);
 #endif
@@ -26,12 +36,49 @@ static void aclk_send_message_subtopic(mqtt_wss_client client, json_object *msg,
 #endif
 }
 
+static uint16_t aclk_send_bin_message_subtopic_pid(mqtt_wss_client client, char *msg, size_t msg_len, enum aclk_topics subtopic, const char *msgname)
+{
+#ifndef ACLK_LOG_CONVERSATION_DIR
+    UNUSED(msgname);
+#endif
+    uint16_t packet_id;
+    const char *topic = aclk_get_topic(subtopic);
+
+    if (unlikely(!topic)) {
+        error("Couldn't get topic. Aborting message send.");
+        return 0;
+    }
+
+    mqtt_wss_publish_pid(client, topic, msg, msg_len,  MQTT_WSS_PUB_QOS1, &packet_id);
+#ifdef NETDATA_INTERNAL_CHECKS
+    aclk_stats_msg_published(packet_id);
+#endif
+#ifdef ACLK_LOG_CONVERSATION_DIR
+#define FN_MAX_LEN 1024
+    char filename[FN_MAX_LEN];
+    snprintf(filename, FN_MAX_LEN, ACLK_LOG_CONVERSATION_DIR "/%010d-tx-%s.bin", ACLK_GET_CONV_LOG_NEXT(), msgname);
+    FILE *fptr;
+    if (fptr = fopen(filename,"w")) {
+        fwrite(msg, msg_len, 1, fptr);
+        fclose(fptr);
+    }
+#endif
+
+    return packet_id;
+}
+
 static uint16_t aclk_send_message_subtopic_pid(mqtt_wss_client client, json_object *msg, enum aclk_topics subtopic)
 {
     uint16_t packet_id;
     const char *str = json_object_to_json_string_ext(msg, JSON_C_TO_STRING_PLAIN);
+    const char *topic = aclk_get_topic(subtopic);
 
-    mqtt_wss_publish_pid(client, aclk_get_topic(subtopic), str, strlen(str),  MQTT_WSS_PUB_QOS1, &packet_id);
+    if (unlikely(!topic)) {
+        error("Couldn't get topic. Aborting mesage send");
+        return 0;
+    }
+
+    mqtt_wss_publish_pid(client, topic, str, strlen(str),  MQTT_WSS_PUB_QOS1, &packet_id);
 #ifdef NETDATA_INTERNAL_CHECKS
     aclk_stats_msg_published(packet_id);
 #endif
@@ -199,9 +246,9 @@ void aclk_send_info_metadata(mqtt_wss_client client, int metadata_submitted, RRD
     // a fake on_connect message then use the real timestamp to indicate it is within the existing
     // session.
     if (metadata_submitted)
-        msg = create_hdr("update", msg_id, 0, 0, aclk_shared_state.version_neg);
+        msg = create_hdr("update", msg_id, 0, 0, ACLK_VERSION);
     else
-        msg = create_hdr("connect", msg_id, aclk_session_sec, aclk_session_us, aclk_shared_state.version_neg);
+        msg = create_hdr("connect", msg_id, aclk_session_sec, aclk_session_us, ACLK_VERSION);
 
     payload = json_object_new_object();
     json_object_object_add(msg, "payload", payload);
@@ -241,9 +288,9 @@ void aclk_send_alarm_metadata(mqtt_wss_client client, int metadata_submitted)
     // session.
 
     if (metadata_submitted)
-        msg = create_hdr("connect_alarms", msg_id, 0, 0, aclk_shared_state.version_neg);
+        msg = create_hdr("connect_alarms", msg_id, 0, 0, ACLK_VERSION);
     else
-        msg = create_hdr("connect_alarms", msg_id, aclk_session_sec, aclk_session_us, aclk_shared_state.version_neg);
+        msg = create_hdr("connect_alarms", msg_id, aclk_session_sec, aclk_session_us, ACLK_VERSION);
 
     payload = json_object_new_object();
     json_object_object_add(msg, "payload", payload);
@@ -263,39 +310,6 @@ void aclk_send_alarm_metadata(mqtt_wss_client client, int metadata_submitted)
     json_object_put(msg);
     freez(msg_id);
     buffer_free(local_buffer);
-}
-
-void aclk_hello_msg(mqtt_wss_client client)
-{
-    json_object *tmp, *msg;
-
-    char *msg_id = create_uuid();
-
-    ACLK_SHARED_STATE_LOCK;
-    aclk_shared_state.version_neg = 0;
-    aclk_shared_state.version_neg_wait_till = now_monotonic_usec() + USEC_PER_SEC * VERSION_NEG_TIMEOUT;
-    ACLK_SHARED_STATE_UNLOCK;
-
-    //Hello message is versioned separatelly from the rest of the protocol
-    msg = create_hdr("hello", msg_id, 0, 0, ACLK_VERSION_NEG_VERSION);
-
-    tmp = json_object_new_int(ACLK_VERSION_MIN);
-    json_object_object_add(msg, "min-version", tmp);
-
-    tmp = json_object_new_int(ACLK_VERSION_MAX);
-    json_object_object_add(msg, "max-version", tmp);
-
-#ifdef ACLK_NG
-    tmp = json_object_new_string("Next Generation");
-#else
-    tmp = json_object_new_string("Legacy");
-#endif
-    json_object_object_add(msg, "aclk-implementation", tmp);
-
-    aclk_send_message_subtopic(client, msg, ACLK_TOPICID_METADATA);
-
-    json_object_put(msg);
-    freez(msg_id);
 }
 
 void aclk_http_msg_v2(mqtt_wss_client client, const char *topic, const char *msg_id, usec_t t_exec, usec_t created, int http_code, const char *payload, size_t payload_len)
@@ -340,7 +354,7 @@ void aclk_chart_msg(mqtt_wss_client client, RRDHOST *host, const char *chart)
         return;
     }
 
-    msg = create_hdr("chart", NULL, 0, 0, aclk_shared_state.version_neg);
+    msg = create_hdr("chart", NULL, 0, 0, ACLK_VERSION);
     json_object_object_add(msg, "payload", payload);
 
     aclk_send_message_subtopic(client, msg, ACLK_TOPICID_CHART);
@@ -352,11 +366,10 @@ void aclk_chart_msg(mqtt_wss_client client, RRDHOST *host, const char *chart)
 void aclk_alarm_state_msg(mqtt_wss_client client, json_object *msg)
 {
     // we create header here on purpose (and not send message with it already as `msg` param)
-    // one is version_neg is guaranteed to be done here
-    // other are timestamps etc. which in ACLK legacy would be wrong (because ACLK legacy
+    // timestamps etc. which in ACLK legacy would be wrong (because ACLK legacy
     // send message with timestamps already to Query Queue they would be incorrect at time
     // when query queue would get to send them)
-    json_object *obj = create_hdr("status-change", NULL, 0, 0, aclk_shared_state.version_neg);
+    json_object *obj = create_hdr("status-change", NULL, 0, 0, ACLK_VERSION);
     json_object_object_add(obj, "payload", msg);
 
     aclk_send_message_subtopic(client, obj, ACLK_TOPICID_ALARMS);
@@ -388,6 +401,85 @@ int aclk_send_app_layer_disconnect(mqtt_wss_client client, const char *message)
     pid = aclk_send_message_subtopic_pid(client, msg, ACLK_TOPICID_METADATA);
     json_object_put(msg);
     return pid;
+}
+
+// new protobuf msgs
+uint16_t aclk_send_agent_connection_update(mqtt_wss_client client, int reachable) {
+    size_t len;
+    uint16_t pid;
+    update_agent_connection_t conn = {
+        .reachable = (reachable ? 1 : 0),
+        .lwt = 0,
+        .session_id = aclk_session_newarch
+    };
+
+    rrdhost_aclk_state_lock(localhost);
+    if (unlikely(!localhost->aclk_state.claimed_id)) {
+        error("Internal error. Should not come here if not claimed");
+        rrdhost_aclk_state_unlock(localhost);
+        return 0;
+    }
+    conn.claim_id = localhost->aclk_state.claimed_id;
+
+    char *msg = generate_update_agent_connection(&len, &conn);
+    rrdhost_aclk_state_unlock(localhost);
+
+    if (!msg) {
+        error("Error generating agent::v1::UpdateAgentConnection payload");
+        return 0;
+    }
+
+    pid = aclk_send_bin_message_subtopic_pid(client, msg, len, ACLK_TOPICID_AGENT_CONN, "UpdateAgentConnection");
+    freez(msg);
+    return pid;
+}
+
+char *aclk_generate_lwt(size_t *size) {
+    update_agent_connection_t conn = {
+        .reachable = 0,
+        .lwt = 1,
+        .session_id = aclk_session_newarch
+    };
+
+    rrdhost_aclk_state_lock(localhost);
+    if (unlikely(!localhost->aclk_state.claimed_id)) {
+        error("Internal error. Should not come here if not claimed");
+        rrdhost_aclk_state_unlock(localhost);
+        return NULL;
+    }
+    conn.claim_id = localhost->aclk_state.claimed_id;
+
+    char *msg = generate_update_agent_connection(size, &conn);
+    rrdhost_aclk_state_unlock(localhost);
+
+    if (!msg)
+        error("Error generating agent::v1::UpdateAgentConnection payload for LWT");
+
+    return msg;
+}
+
+void aclk_generate_node_registration(mqtt_wss_client client, node_instance_creation_t *node_creation) {
+    size_t len;
+    char *msg = generate_node_instance_creation(&len, node_creation);
+    if (!msg) {
+        error("Error generating nodeinstance::create::v1::CreateNodeInstance");
+        return;
+    }
+
+    aclk_send_bin_message_subtopic_pid(client, msg, len, ACLK_TOPICID_CREATE_NODE, "CreateNodeInstance");
+    freez(msg);
+}
+
+void aclk_generate_node_state_update(mqtt_wss_client client, node_instance_connection_t *node_connection) {
+    size_t len;
+    char *msg = generate_node_instance_connection(&len, node_connection);
+    if (!msg) {
+        error("Error generating nodeinstance::v1::UpdateNodeInstanceConnection");
+        return;
+    }
+
+    aclk_send_bin_message_subtopic_pid(client, msg, len, ACLK_TOPICID_NODE_CONN, "UpdateNodeInstanceConnection");
+    freez(msg);
 }
 
 #ifndef __GNUC__

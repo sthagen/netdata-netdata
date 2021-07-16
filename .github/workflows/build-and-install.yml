@@ -5,6 +5,8 @@ on:
     branches:
       - master
   pull_request:
+env:
+  DO_NOT_TRACK: 1
 jobs:
   static-build:
     name: Build (x86_64)
@@ -23,13 +25,14 @@ jobs:
     name: Build & Install
     strategy:
       fail-fast: false
+      max-parallel: 8
       matrix:
         distro:
           - 'alpine:edge'
+          - 'alpine:3.14'
           - 'alpine:3.13'
           - 'alpine:3.12'
           - 'alpine:3.11'
-          - 'alpine:3.10'
           - 'archlinux:latest'
           - 'centos:8'
           - 'centos:7'
@@ -38,8 +41,8 @@ jobs:
           - 'debian:9'
           - 'fedora:34'
           - 'fedora:33'
-          - 'fedora:32'
           - 'opensuse/leap:15.2'
+          - 'opensuse/leap:15.3'
           - 'opensuse/tumbleweed:latest'
           - 'ubuntu:21.04'
           - 'ubuntu:20.10'
@@ -50,6 +53,9 @@ jobs:
           - distro: 'alpine:edge'
             pre: 'apk add -U bash'
             rmjsonc: 'apk del json-c-dev'
+          - distro: 'alpine:3.14'
+            pre: 'apk add -U bash'
+            rmjsonc: 'apk del json-c-dev'
           - distro: 'alpine:3.13'
             pre: 'apk add -U bash'
             rmjsonc: 'apk del json-c-dev'
@@ -57,9 +63,6 @@ jobs:
             pre: 'apk add -U bash'
             rmjsonc: 'apk del json-c-dev'
           - distro: 'alpine:3.11'
-            pre: 'apk add -U bash'
-            rmjsonc: 'apk del json-c-dev'
-          - distro: 'alpine:3.10'
             pre: 'apk add -U bash'
             rmjsonc: 'apk del json-c-dev'
 
@@ -80,10 +83,10 @@ jobs:
             rmjsonc: 'dnf remove -y json-c-devel'
           - distro: 'fedora:33'
             rmjsonc: 'dnf remove -y json-c-devel'
-          - distro: 'fedora:32'
-            rmjsonc: 'dnf remove -y json-c-devel'
 
           - distro: 'opensuse/leap:15.2'
+            rmjsonc: 'zypper rm -y libjson-c-devel'
+          - distro: 'opensuse/leap:15.3'
             rmjsonc: 'zypper rm -y libjson-c-devel'
           - distro: 'opensuse/tumbleweed:latest'
             rmjsonc: 'zypper rm -y libjson-c-devel'
@@ -148,7 +151,7 @@ jobs:
               yum -y groupinstall 'Development Tools' &&
               yum -y install libcurl-devel openssl-devel libuuid-devel
             build_kinesis: >-
-              git clone https://github.com/aws/aws-sdk-cpp.git &&
+              git clone --branch 1.8.186 --depth 1 https://github.com/aws/aws-sdk-cpp.git &&
               cmake -DCMAKE_INSTALL_PREFIX=/usr
               -DBUILD_ONLY=kinesis
               ./aws-sdk-cpp &&
@@ -160,7 +163,7 @@ jobs:
               DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential &&
               DEBIAN_FRONTEND=noninteractive apt-get install -y libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libpulse-dev
             build_kinesis: >-
-              git clone https://github.com/aws/aws-sdk-cpp.git &&
+              git clone --branch 1.8.186 --depth 1 https://github.com/aws/aws-sdk-cpp.git &&
               cmake -DCMAKE_INSTALL_PREFIX=/usr
               -DBUILD_ONLY=kinesis
               ./aws-sdk-cpp &&
@@ -172,7 +175,7 @@ jobs:
               dnf -y groupinstall 'Development Tools' &&
               dnf -y install libcurl-devel openssl-devel libuuid-devel
             build_kinesis: >-
-              git clone https://github.com/aws/aws-sdk-cpp.git &&
+              git clone --branch 1.8.186 --depth 1 https://github.com/aws/aws-sdk-cpp.git &&
               cmake -DCMAKE_INSTALL_PREFIX=/usr
               -DBUILD_ONLY=kinesis
               ./aws-sdk-cpp &&
@@ -184,7 +187,7 @@ jobs:
               DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential &&
               DEBIAN_FRONTEND=noninteractive apt-get install -y libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libpulse-dev
             build_kinesis: >-
-              git clone https://github.com/aws/aws-sdk-cpp.git &&
+              git clone --branch 1.8.186 --depth 1 https://github.com/aws/aws-sdk-cpp.git &&
               cmake -DCMAKE_INSTALL_PREFIX=/usr
               -DBUILD_ONLY=kinesis
               ./aws-sdk-cpp &&
@@ -210,5 +213,5 @@ jobs:
             ./build-kinesis.sh &&
             ./netdata-installer.sh --dont-wait --dont-start-it --enable-backend-kinesis
         run: |
-          docker run -w /netdata test \
+          docker run -e DO_NOT_TRACK=1 -w /netdata test \
             /bin/sh -c "$RUNCMD"

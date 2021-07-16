@@ -160,7 +160,18 @@ static enum cgroups_type cgroups_try_detect_version()
     if(!cgroups2_available)
         return CGROUPS_V1;
 
-    // 2. check systemd compiletime setting
+#if defined CGROUP2_SUPER_MAGIC
+    // 2. check filesystem type for the default mountpoint
+    char filename[FILENAME_MAX + 1];
+    snprintfz(filename, FILENAME_MAX, "%s%s", netdata_configured_host_prefix, "/sys/fs/cgroup");
+    struct statfs fsinfo;
+    if (!statfs(filename, &fsinfo)) {
+        if (fsinfo.f_type == CGROUP2_SUPER_MAGIC)
+            return CGROUPS_V2;
+    }
+#endif
+
+    // 3. check systemd compiletime setting
     if ((systemd_setting = cgroups_detect_systemd("systemd --version")) == SYSTEMD_CGROUP_ERR)
         systemd_setting = cgroups_detect_systemd(SYSTEMD_CMD_RHEL);
 
@@ -174,7 +185,7 @@ static enum cgroups_type cgroups_try_detect_version()
         return CGROUPS_V1;
     }
 
-    // 3. if we are unified as on Fedora (default cgroups2 only mode)
+    // 4. if we are unified as on Fedora (default cgroups2 only mode)
     //    check kernel command line flag that can override that setting
     f = fopen("/proc/cmdline", "r");
     if (!f) {
@@ -1299,6 +1310,12 @@ static inline char *cgroup_chart_id_strdupz(const char *s) {
 
     char *r = strdupz(s);
     netdata_fix_chart_id(r);
+
+    // dots are used to distinguish chart type and id in streaming, so we should replace them
+    for (char *d = r; *d; d++) {
+        if (*d == '.')
+            *d = '-';
+    }
 
     return r;
 }
@@ -3996,9 +4013,10 @@ static void cgroup_main_cleanup(void *ptr) {
         uv_mutex_unlock(&discovery_thread.mutex);
     }
 
+    info("waiting for discovery thread to finish...");
+    
     while (!discovery_thread.exited && max > 0) {
         max -= step;
-        info("waiting for discovery thread to finish...");
         sleep_usec(step);
     }
 
@@ -4077,7 +4095,7 @@ void *cgroups_main(void *ptr) {
                         , NULL
                         , "cgroups"
                         , NULL
-                        , "NetData CGroups Plugin CPU usage"
+                        , "Netdata CGroups Plugin CPU usage"
                         , "milliseconds/s"
                         , PLUGIN_CGROUPS_NAME
                         , "stats"

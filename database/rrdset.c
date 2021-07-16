@@ -175,6 +175,8 @@ int rrdset_set_name(RRDSET *st, const char *name) {
     if(unlikely(rrdset_index_add_name(host, st) != st))
         error("RRDSET: INTERNAL ERROR: attempted to index duplicate chart name '%s'", st->name);
 
+    rrdset_flag_clear(st, RRDSET_FLAG_EXPORTING_SEND);
+    rrdset_flag_clear(st, RRDSET_FLAG_EXPORTING_IGNORE);
     rrdset_flag_clear(st, RRDSET_FLAG_BACKEND_SEND);
     rrdset_flag_clear(st, RRDSET_FLAG_BACKEND_IGNORE);
     rrdset_flag_clear(st, RRDSET_FLAG_UPSTREAM_SEND);
@@ -450,7 +452,7 @@ void rrdset_delete_custom(RRDSET *st, int db_rotated) {
 #ifdef ENABLE_ACLK
     if ((netdata_cloud_setting) && (db_rotated || RRD_MEMORY_MODE_DBENGINE != st->rrd_memory_mode)) {
         aclk_del_collector(st->rrdhost, st->plugin_name, st->module_name);
-        aclk_update_chart(st->rrdhost, st->id, ACLK_CMD_CHARTDEL);
+        st->rrdhost->obsolete_count++;
     }
 #endif
 
@@ -858,6 +860,8 @@ RRDSET *rrdset_create_custom(
     rrdset_flag_clear(st, RRDSET_FLAG_DETAIL);
     rrdset_flag_clear(st, RRDSET_FLAG_DEBUG);
     rrdset_flag_clear(st, RRDSET_FLAG_OBSOLETE);
+    rrdset_flag_clear(st, RRDSET_FLAG_EXPORTING_SEND);
+    rrdset_flag_clear(st, RRDSET_FLAG_EXPORTING_IGNORE);
     rrdset_flag_clear(st, RRDSET_FLAG_BACKEND_SEND);
     rrdset_flag_clear(st, RRDSET_FLAG_BACKEND_IGNORE);
     rrdset_flag_clear(st, RRDSET_FLAG_UPSTREAM_SEND);
@@ -928,7 +932,14 @@ RRDSET *rrdset_create_custom(
 
     store_active_chart(st->chart_uuid);
 
+#ifdef ENABLE_ACLK
+    host->obsolete_count = 0;
+#endif
     rrdhost_cleanup_obsolete_charts(host);
+#ifdef ENABLE_ACLK
+    if (host->obsolete_count)
+        aclk_update_chart(st->rrdhost, "dummy-chart", 0);
+#endif
 
     rrdhost_unlock(host);
 #ifdef ENABLE_ACLK
@@ -1373,7 +1384,7 @@ void rrdset_done(RRDSET *st) {
 #ifdef ENABLE_ACLK
     if (unlikely(rrdset_flag_check(st, RRDSET_FLAG_ACLK))) {
         rrdset_flag_clear(st, RRDSET_FLAG_ACLK);
-        aclk_update_chart(st->rrdhost, st->id, ACLK_CMD_CHART);
+        aclk_update_chart(st->rrdhost, st->id, 1);
     }
 #endif
 
@@ -1875,7 +1886,7 @@ after_second_database_work:
                         uint8_t can_delete_metric = rd->state->collect_ops.finalize(rd);
                         if (can_delete_metric) {
                             /* This metric has no data and no references */
-                            delete_dimension_uuid(rd->state->metric_uuid);
+                            delete_dimension_uuid(&rd->state->metric_uuid);
                         } else {
                             /* Do not delete this dimension */
                             last = rd;

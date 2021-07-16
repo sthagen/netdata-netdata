@@ -8,15 +8,20 @@ on:
     branches:
       - master
 
+env:
+  DO_NOT_TRACK: 1
+
 jobs:
   source-build:
     name: Install, Build & Update
     strategy:
       fail-fast: false
+      max-parallel: 8
       matrix:
         distro:
-          - 'alpine:3.12'
+          - 'alpine:3.14'
           - 'alpine:3.13'
+          - 'alpine:3.12'
           - 'archlinux:latest'
           - 'centos:7'
           - 'centos:8'
@@ -31,9 +36,11 @@ jobs:
           - 'ubuntu:20.10'
           - 'ubuntu:21.04'
         include:
-          - distro: 'alpine:3.12'
+          - distro: 'alpine:3.14'
             pre: 'apk add -U bash'
           - distro: 'alpine:3.13'
+            pre: 'apk add -U bash'
+          - distro: 'alpine:3.12'
             pre: 'apk add -U bash'
           - distro: 'debian:9'
             pre: 'apt-get update'
@@ -78,7 +85,7 @@ jobs:
         run: |
           echo $PRE > ./prep-cmd.sh
           docker build . -f .github/dockerfiles/Dockerfile.build_test -t test --build-arg BASE=${{ matrix.distro }}
-          docker run --network host -w /netdata test \
+          docker run -e DO_NOT_TRACK=1 --network host -w /netdata test \
               /bin/sh -c '/netdata/packaging/installer/kickstart.sh --dont-wait \
               && /netdata/packaging/installer/netdata-updater.sh --not-running-from-cron --no-updater-self-update \
               && bash /netdata/.github/scripts/check-updater.sh'

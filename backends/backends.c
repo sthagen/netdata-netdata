@@ -26,6 +26,7 @@
 //
 
 const char *global_backend_prefix = "netdata";
+const char *global_backend_send_charts_matching = "*";
 int global_backend_update_every = 10;
 BACKEND_OPTIONS global_backend_options = BACKEND_SOURCE_DATA_AVERAGE | BACKEND_OPTION_SEND_NAMES;
 const char *global_backend_source = NULL;
@@ -517,7 +518,10 @@ void *backends_main(void *ptr) {
     else
         global_backend_options &= ~BACKEND_OPTION_SEND_NAMES;
 
-    charts_pattern = simple_pattern_create(config_get(CONFIG_SECTION_BACKEND, "send charts matching", "*"), NULL, SIMPLE_PATTERN_EXACT);
+    charts_pattern = simple_pattern_create(
+        global_backend_send_charts_matching = config_get(CONFIG_SECTION_BACKEND, "send charts matching", "*"),
+        NULL,
+        SIMPLE_PATTERN_EXACT);
     hosts_pattern  = simple_pattern_create(config_get(CONFIG_SECTION_BACKEND, "send hosts matching", "localhost *"), NULL, SIMPLE_PATTERN_EXACT);
 
 #if ENABLE_PROMETHEUS_REMOTE_WRITE
@@ -690,7 +694,7 @@ void *backends_main(void *ptr) {
     rrddim_add(chart_latency, "latency",   NULL,  1, 1000, RRD_ALGORITHM_ABSOLUTE);
     */
 
-    RRDSET *chart_rusage = rrdset_create_localhost("netdata", "backend_thread_cpu", NULL, "backend", NULL, "NetData Backend Thread CPU usage", "milliseconds/s", "backends", NULL, 130630, global_backend_update_every, RRDSET_TYPE_STACKED);
+    RRDSET *chart_rusage = rrdset_create_localhost("netdata", "backend_thread_cpu", NULL, "backend", NULL, "Netdata Backend Thread CPU usage", "milliseconds/s", "backends", NULL, 130630, global_backend_update_every, RRDSET_TYPE_STACKED);
     rrddim_add(chart_rusage, "user",   NULL, 1, 1000, RRD_ALGORITHM_INCREMENTAL);
     rrddim_add(chart_rusage, "system", NULL, 1, 1000, RRD_ALGORITHM_INCREMENTAL);
 

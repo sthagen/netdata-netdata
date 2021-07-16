@@ -26,20 +26,15 @@ struct rrdengine_instance;
 struct pg_cache_page_index;
 #endif
 
-#include "../daemon/common.h"
+#include "daemon/common.h"
 #include "web/api/queries/query.h"
 #include "rrdvar.h"
 #include "rrdsetvar.h"
 #include "rrddimvar.h"
 #include "rrdcalc.h"
 #include "rrdcalctemplate.h"
-#include "../streaming/rrdpush.h"
-
-#ifndef ACLK_NG
-#include "../aclk/legacy/aclk_rrdhost_state.h"
-#else
-#include "aclk/aclk.h"
-#endif
+#include "streaming/rrdpush.h"
+#include "aclk/aclk_rrdhost_state.h"
 
 enum {
     CONTEXT_FLAGS_ARCHIVE = 0x01,
@@ -384,7 +379,7 @@ struct rrddim_volatile {
     uuid_t *rrdeng_uuid;                 // database engine metric UUID
     struct pg_cache_page_index *page_index;
 #endif
-    uuid_t *metric_uuid;                 // global UUID for this metric (unique_across hosts)
+    uuid_t metric_uuid;                 // global UUID for this metric (unique_across hosts)
     union rrddim_collect_handle handle;
     // ------------------------------------------------------------------------
     // function pointers that handle data collection
@@ -454,8 +449,8 @@ typedef enum rrdset_flags {
                                               // (the master data set should be the one that has the same family and is not detail)
     RRDSET_FLAG_DEBUG               = 1 << 2, // enables or disables debugging for a chart
     RRDSET_FLAG_OBSOLETE            = 1 << 3, // this is marked by the collector/module as obsolete
-    RRDSET_FLAG_BACKEND_SEND        = 1 << 4, // if set, this chart should be sent to backends
-    RRDSET_FLAG_BACKEND_IGNORE      = 1 << 5, // if set, this chart should not be sent to backends
+    RRDSET_FLAG_EXPORTING_SEND      = 1 << 4, // if set, this chart should be sent to Prometheus web API
+    RRDSET_FLAG_EXPORTING_IGNORE    = 1 << 5, // if set, this chart should not be sent to Prometheus web API
     RRDSET_FLAG_UPSTREAM_SEND       = 1 << 6, // if set, this chart should be sent upstream (streaming)
     RRDSET_FLAG_UPSTREAM_IGNORE     = 1 << 7, // if set, this chart should not be sent upstream (streaming)
     RRDSET_FLAG_UPSTREAM_EXPOSED    = 1 << 8, // if set, we have sent this chart definition to netdata parent (streaming)
@@ -468,7 +463,9 @@ typedef enum rrdset_flags {
     // No new values have been collected for this chart since agent start or it was marked RRDSET_FLAG_OBSOLETE at
     // least rrdset_free_obsolete_time seconds ago.
     RRDSET_FLAG_ARCHIVED            = 1 << 15,
-    RRDSET_FLAG_ACLK                = 1 << 16
+    RRDSET_FLAG_ACLK                = 1 << 16,
+    RRDSET_FLAG_BACKEND_SEND        = 1 << 17, // if set, this chart should be sent to backends
+    RRDSET_FLAG_BACKEND_IGNORE      = 1 << 18 // if set, this chart should not be sent to backends
 } RRDSET_FLAGS;
 
 #ifdef HAVE_C___ATOMIC
@@ -666,6 +663,10 @@ struct alarm_entry {
 
     char *family;
 
+    char *classification;
+    char *component;
+    char *type;
+
     char *exec;
     char *recipient;
     time_t exec_run_timestamp;
@@ -739,6 +740,7 @@ struct rrdhost_system_info {
     char *container;
     char *container_detection;
     char *is_k8s_node;
+    uint16_t hops;
 };
 
 struct rrdhost {
@@ -758,6 +760,13 @@ struct rrdhost {
     const char *os;                                 // the O/S type of the host
     const char *tags;                               // tags for this host
     const char *timezone;                           // the timezone of the host
+
+#ifdef ENABLE_ACLK
+    long    obsolete_count;
+#endif
+
+    const char *abbrev_timezone;                    // the abbriviated timezone of the host
+    int32_t utc_offset;                             // the offset in seconds from utc
 
     RRDHOST_FLAGS flags;                            // flags about this RRDHOST
     RRDHOST_FLAGS *exporting_flags;                 // array of flags for exporting connector instances
@@ -873,6 +882,7 @@ struct rrdhost {
     struct rrdengine_instance *rrdeng_ctx;          // DB engine instance for this host
 #endif
     uuid_t  host_uuid;                              // Global GUID for this host
+    uuid_t  *node_id;                               // Cloud node_id
 
 #ifdef ENABLE_HTTPS
     struct netdata_ssl ssl;                         //Structure used to encrypt the connection
@@ -928,6 +938,8 @@ extern RRDHOST *rrdhost_find_or_create(
         , const char *guid
         , const char *os
         , const char *timezone
+        , const char *abbrev_timezone
+        , int32_t utc_offset
         , const char *tags
         , const char *program_name
         , const char *program_version
@@ -948,6 +960,8 @@ extern void rrdhost_update(RRDHOST *host
     , const char *guid
     , const char *os
     , const char *timezone
+    , const char *abbrev_timezone
+    , int32_t utc_offset
     , const char *tags
     , const char *program_name
     , const char *program_version
@@ -1315,17 +1329,17 @@ extern void rrdset_delete_obsolete_dimensions(RRDSET *st);
 extern void rrdhost_cleanup_obsolete_charts(RRDHOST *host);
 extern RRDHOST *rrdhost_create(
     const char *hostname, const char *registry_hostname, const char *guid, const char *os, const char *timezone,
-    const char *tags, const char *program_name, const char *program_version, int update_every, long entries,
-    RRD_MEMORY_MODE memory_mode, unsigned int health_enabled, unsigned int rrdpush_enabled, char *rrdpush_destination,
-    char *rrdpush_api_key, char *rrdpush_send_charts_matching, struct rrdhost_system_info *system_info,
+    const char *abbrev_timezone, int32_t utc_offset,const char *tags, const char *program_name, const char *program_version,
+    int update_every, long entries, RRD_MEMORY_MODE memory_mode, unsigned int health_enabled, unsigned int rrdpush_enabled,
+    char *rrdpush_destination, char *rrdpush_api_key, char *rrdpush_send_charts_matching, struct rrdhost_system_info *system_info,
     int is_localhost); //TODO: Remove , int is_archived);
 
 #endif /* NETDATA_RRD_INTERNALS */
 
 extern void set_host_properties(
     RRDHOST *host, int update_every, RRD_MEMORY_MODE memory_mode, const char *hostname, const char *registry_hostname,
-    const char *guid, const char *os, const char *tags, const char *tzone, const char *program_name,
-    const char *program_version);
+    const char *guid, const char *os, const char *tags, const char *tzone, const char *abbrev_tzone, int32_t utc_offset,
+    const char *program_name, const char *program_version);
 
 // ----------------------------------------------------------------------------
 // RRD DB engine declarations

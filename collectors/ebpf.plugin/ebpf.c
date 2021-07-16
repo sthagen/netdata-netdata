@@ -76,20 +76,54 @@ pthread_cond_t collect_data_cond_var;
 
 ebpf_module_t ebpf_modules[] = {
     { .thread_name = "process", .config_name = "process", .enabled = 0, .start_routine = ebpf_process_thread,
-      .update_time = 1, .global_charts = 1, .apps_charts = 1, .mode = MODE_ENTRY,
-      .optional = 0, .apps_routine = ebpf_process_create_apps_charts },
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = ebpf_process_create_apps_charts, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &process_config,
+      .config_file = NETDATA_PROCESS_CONFIG_FILE},
     { .thread_name = "socket", .config_name = "socket", .enabled = 0, .start_routine = ebpf_socket_thread,
-      .update_time = 1, .global_charts = 1, .apps_charts = 1, .mode = MODE_ENTRY,
-      .optional = 0, .apps_routine = ebpf_socket_create_apps_charts  },
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = ebpf_socket_create_apps_charts, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &socket_config,
+      .config_file = NETDATA_NETWORK_CONFIG_FILE},
     { .thread_name = "cachestat", .config_name = "cachestat", .enabled = 0, .start_routine = ebpf_cachestat_thread,
-        .update_time = 1, .global_charts = 1, .apps_charts = 1, .mode = MODE_ENTRY,
-        .optional = 0, .apps_routine = ebpf_cachestat_create_apps_charts  },
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = ebpf_cachestat_create_apps_charts, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &cachestat_config,
+      .config_file = NETDATA_CACHESTAT_CONFIG_FILE},
     { .thread_name = "sync", .config_name = "sync", .enabled = 0, .start_routine = ebpf_sync_thread,
-        .update_time = 1, .global_charts = 1, .apps_charts = 1, .mode = MODE_ENTRY,
-        .optional = 0, .apps_routine = NULL  },
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = NULL, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &sync_config,
+      .config_file = NETDATA_SYNC_CONFIG_FILE},
+    { .thread_name = "dc", .config_name = "dc", .enabled = 0, .start_routine = ebpf_dcstat_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = ebpf_dcstat_create_apps_charts, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &dcstat_config,
+      .config_file = NETDATA_DIRECTORY_DCSTAT_CONFIG_FILE},
+    { .thread_name = "swap", .config_name = "swap", .enabled = 0, .start_routine = ebpf_swap_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = ebpf_swap_create_apps_charts, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &swap_config,
+      .config_file = NETDATA_DIRECTORY_SWAP_CONFIG_FILE},
+    { .thread_name = "vfs", .config_name = "swap", .enabled = 0, .start_routine = ebpf_vfs_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = ebpf_vfs_create_apps_charts, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &vfs_config,
+      .config_file = NETDATA_DIRECTORY_VFS_CONFIG_FILE },
+    { .thread_name = "filesystem", .config_name = "filesystem", .enabled = 0, .start_routine = ebpf_filesystem_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = NULL, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &fs_config,
+      .config_file = NETDATA_SYNC_CONFIG_FILE},
+    { .thread_name = "disk", .config_name = "disk", .enabled = 0, .start_routine = ebpf_disk_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = NULL, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &disk_config,
+      .config_file = NETDATA_SYNC_CONFIG_FILE},
     { .thread_name = NULL, .enabled = 0, .start_routine = NULL, .update_time = 1,
-      .global_charts = 0, .apps_charts = 1, .mode = MODE_ENTRY,
-      .optional = 0, .apps_routine = NULL },
+      .global_charts = 0, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = NULL, .maps = NULL, .pid_map_size = 0, .names = NULL,
+      .cfg = NULL, .config_name = NULL},
 };
 
 // Link with apps.plugin
@@ -140,6 +174,24 @@ static void ebpf_exit(int sig)
         ebpf_modules[EBPF_MODULE_CACHESTAT_IDX].enabled = 0;
         clean_cachestat_pid_structures();
         freez(cachestat_pid);
+    }
+
+    if (ebpf_modules[EBPF_MODULE_DCSTAT_IDX].enabled) {
+        ebpf_modules[EBPF_MODULE_DCSTAT_IDX].enabled = 0;
+        clean_dcstat_pid_structures();
+        freez(dcstat_pid);
+    }
+
+    if (ebpf_modules[EBPF_MODULE_SWAP_IDX].enabled) {
+        ebpf_modules[EBPF_MODULE_SWAP_IDX].enabled = 0;
+        clean_swap_pid_structures();
+        freez(swap_pid);
+    }
+
+    if (ebpf_modules[EBPF_MODULE_VFS_IDX].enabled) {
+        ebpf_modules[EBPF_MODULE_VFS_IDX].enabled = 0;
+        clean_vfs_pid_structures();
+        freez(vfs_pid);
     }
 
     /*
@@ -349,6 +401,33 @@ void ebpf_write_chart_cmd(char *type, char *id, char *title, char *units, char *
 }
 
 /**
+ * Write chart cmd on standard output
+ *
+ * @param type      chart type
+ * @param id        chart id
+ * @param title     chart title
+ * @param units     units label
+ * @param family    group name used to attach the chart on dashboard
+ * @param charttype chart type
+ * @param context   chart context
+ * @param order     chart order
+ */
+void ebpf_write_chart_obsolete(char *type, char *id, char *title, char *units, char *family,
+                               char *charttype, char *context, int order)
+{
+    printf("CHART %s.%s '' '%s' '%s' '%s' '%s' '%s' %d %d 'obsolete'\n",
+           type,
+           id,
+           title,
+           units,
+           (family)?family:"",
+           (context)?context:"",
+           (charttype)?charttype:"",
+           order,
+           update_every);
+}
+
+/**
  * Write the dimension command on standard output
  *
  * @param name the dimension name
@@ -433,6 +512,31 @@ void ebpf_create_charts_on_apps(char *id, char *title, char *units, char *family
         if (unlikely(w->exposed))
             fprintf(stdout, "DIMENSION %s '' %s 1 1\n", w->name, algorithm);
     }
+}
+
+/**
+ * Call the necessary functions to create a name.
+ *
+ *  @param family     family name
+ *  @param name       chart name
+ *  @param hist0      histogram values
+ *  @param dimensions dimension values.
+ *  @param end        number of bins that will be sent to Netdata.
+ *
+ * @return It returns a variable tha maps the charts that did not have zero values.
+ */
+void write_histogram_chart(char *family, char *name, const netdata_idx_t *hist, char **dimensions, uint32_t end)
+{
+    write_begin_chart(family, name);
+
+    uint32_t i;
+    for (i = 0; i < end; i++) {
+        write_chart_dimension(dimensions[i], (long long) hist[i]);
+    }
+
+    write_end_chart();
+
+    fflush(stdout);
 }
 
 /*****************************************************************
@@ -582,6 +686,12 @@ void ebpf_print_help()
             "\n"
             " --cachestat or -c   Enable charts related to process run time.\n"
             "\n"
+            " --dcstat or -d      Enable charts related to directory cache.\n"
+            "\n"
+            " --disk or -k        Enable charts related to disk monitoring.\n"
+            "\n"
+            " --filesystem or -i  Enable chart related to filesystem run time.\n"
+            "\n"
             " --net or -n         Enable network viewer charts.\n"
             "\n"
             " --process or -p     Enable charts related to process run time.\n"
@@ -589,6 +699,10 @@ void ebpf_print_help()
             " --return or -r      Run the collector in return mode.\n"
             "\n",
             " --sync or -s        Enable chart related to sync run time.\n"
+            "\n"
+            " --swap or -w        Enable chart related to swap run time.\n"
+            "\n"
+            " --vfs or -f         Enable chart related to vfs run time.\n"
             "\n"
             VERSION,
             (year >= 116) ? year + 1900 : 2020);
@@ -774,6 +888,22 @@ static void ebpf_update_interval()
 }
 
 /**
+ * Update PID table size
+ *
+ * Update default size with value from user
+ */
+static void ebpf_update_table_size()
+{
+    int i;
+    uint32_t value = (uint32_t) appconfig_get_number(&collector_config, EBPF_GLOBAL_SECTION,
+                                                    EBPF_CFG_PID_SIZE, ND_EBPF_DEFAULT_PID_SIZE);
+    for (i = 0; ebpf_modules[i].thread_name; i++) {
+        ebpf_modules[i].pid_map_size = value;
+    }
+}
+
+
+/**
  * Read collector values
  *
  * @param disable_apps variable to store information related to apps.
@@ -792,6 +922,8 @@ static void read_collector_values(int *disable_apps)
     how_to_load(value);
 
     ebpf_update_interval();
+
+    ebpf_update_table_size();
 
     // This is kept to keep compatibility
     uint32_t enabled = appconfig_get_boolean(&collector_config, EBPF_GLOBAL_SECTION, "disable apps",
@@ -851,6 +983,41 @@ static void read_collector_values(int *disable_apps)
 
     if (enabled) {
         ebpf_enable_chart(EBPF_MODULE_SYNC_IDX, *disable_apps);
+        started++;
+    }
+
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "dcstat",
+                                    CONFIG_BOOLEAN_NO);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_DCSTAT_IDX, *disable_apps);
+        started++;
+    }
+
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "swap",
+                                    CONFIG_BOOLEAN_NO);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_SWAP_IDX, *disable_apps);
+        started++;
+    }
+
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "vfs",
+                                    CONFIG_BOOLEAN_NO);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_VFS_IDX, *disable_apps);
+        started++;
+    }
+
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "filesystem",
+                                    CONFIG_BOOLEAN_NO);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_FILESYSTEM_IDX, *disable_apps);
+        started++;
+    }
+
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "disk",
+                                    CONFIG_BOOLEAN_NO);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_DISK_IDX, *disable_apps);
         started++;
     }
 
@@ -932,15 +1099,20 @@ static void parse_args(int argc, char **argv)
     int freq = 0;
     int option_index = 0;
     static struct option long_options[] = {
-        {"help",      no_argument,    0,  'h' },
-        {"version",   no_argument,    0,  'v' },
-        {"global",    no_argument,    0,  'g' },
-        {"all",       no_argument,    0,  'a' },
-        {"cachestat", no_argument,    0,  'c' },
-        {"net",       no_argument,    0,  'n' },
-        {"process",   no_argument,    0,  'p' },
-        {"return",    no_argument,    0,  'r' },
-        {"sync",      no_argument,    0,  's' },
+        {"help",       no_argument,    0,  'h' },
+        {"version",    no_argument,    0,  'v' },
+        {"global",     no_argument,    0,  'g' },
+        {"all",        no_argument,    0,  'a' },
+        {"cachestat",  no_argument,    0,  'c' },
+        {"dcstat",     no_argument,    0,  'd' },
+        {"disk",       no_argument,    0,  'k' },
+        {"filesystem", no_argument,    0,  'i' },
+        {"net",        no_argument,    0,  'n' },
+        {"process",    no_argument,    0,  'p' },
+        {"return",     no_argument,    0,  'r' },
+        {"sync",       no_argument,    0,  's' },
+        {"swap",       no_argument,    0,  'w' },
+        {"vfs",        no_argument,    0,  'f' },
         {0, 0, 0, 0}
     };
 
@@ -955,7 +1127,7 @@ static void parse_args(int argc, char **argv)
     }
 
     while (1) {
-        int c = getopt_long(argc, argv, "hvgcanprs", long_options, &option_index);
+        int c = getopt_long(argc, argv, "hvgacdnprsw", long_options, &option_index);
         if (c == -1)
             break;
 
@@ -993,6 +1165,31 @@ static void parse_args(int argc, char **argv)
 #endif
                 break;
             }
+            case 'd': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_DCSTAT_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info(
+                    "EBPF enabling \"DCSTAT\" charts, because it was started with the option \"--dcstat\" or \"-d\".");
+#endif
+                break;
+            }
+            case 'i': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_FILESYSTEM_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info("EBPF enabling \"filesystem\" chart, because it was started with the option \"--filesystem\" or \"-i\".");
+#endif
+                break;
+            }
+            case 'k': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_DISK_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info("EBPF enabling \"disk\" chart, because it was started with the option \"--disk\" or \"-k\".");
+#endif
+                break;
+            }
             case 'n': {
                 enabled = 1;
                 ebpf_enable_chart(EBPF_MODULE_SOCKET_IDX, disable_apps);
@@ -1025,6 +1222,22 @@ static void parse_args(int argc, char **argv)
 #endif
                 break;
             }
+            case 'w': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_SWAP_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info("EBPF enabling \"swap\" chart, because it was started with the option \"--swap\" or \"-w\".");
+#endif
+                break;
+            }
+            case 'f': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_VFS_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info("EBPF enabling \"vfs\" chart, because it was started with the option \"--vfs\" or \"-f\".");
+#endif
+                break;
+            }
             default: {
                 break;
             }
@@ -1037,7 +1250,7 @@ static void parse_args(int argc, char **argv)
 
     if (load_collector_config(ebpf_user_config_dir, &disable_apps)) {
         info(
-            "Does not have a configuration file inside `%s/ebpf.conf. It will try to load stock file.",
+            "Does not have a configuration file inside `%s/ebpf.d.conf. It will try to load stock file.",
             ebpf_user_config_dir);
         if (load_collector_config(ebpf_stock_config_dir, &disable_apps)) {
             info("Does not have a stock file. It is starting with default options.");
@@ -1055,20 +1268,15 @@ static void parse_args(int argc, char **argv)
 #endif
     }
 
-    if (disable_apps)
-        return;
-
     // Load apps_groups.conf
     if (ebpf_read_apps_groups_conf(
             &apps_groups_default_target, &apps_groups_root_target, ebpf_user_config_dir, "groups")) {
-        info(
-            "Cannot read process groups configuration file '%s/apps_groups.conf'. Will try '%s/apps_groups.conf'",
-            ebpf_user_config_dir, ebpf_stock_config_dir);
+        info("Cannot read process groups configuration file '%s/apps_groups.conf'. Will try '%s/apps_groups.conf'",
+             ebpf_user_config_dir, ebpf_stock_config_dir);
         if (ebpf_read_apps_groups_conf(
                 &apps_groups_default_target, &apps_groups_root_target, ebpf_stock_config_dir, "groups")) {
-            error(
-                "Cannot read process groups '%s/apps_groups.conf'. There are no internal defaults. Failing.",
-                ebpf_stock_config_dir);
+            error("Cannot read process groups '%s/apps_groups.conf'. There are no internal defaults. Failing.",
+                  ebpf_stock_config_dir);
             thread_finished++;
             ebpf_exit(1);
         }
@@ -1083,6 +1291,149 @@ static void parse_args(int argc, char **argv)
  *****************************************************************/
 
 /**
+ * Update PID file
+ *
+ * Update the content of PID file
+ *
+ * @param filename is the full name of the file.
+ * @param pid that identifies the process
+ */
+static void ebpf_update_pid_file(char *filename, pid_t pid)
+{
+    FILE *fp = fopen(filename, "w");
+    if (!fp)
+        return;
+
+    fprintf(fp, "%d", pid);
+    fclose(fp);
+}
+
+/**
+ * Get Process Name
+ *
+ * Get process name from /proc/PID/status
+ *
+ * @param pid that identifies the process
+ */
+static char *ebpf_get_process_name(pid_t pid)
+{
+    char *name = NULL;
+    char filename[FILENAME_MAX + 1];
+    snprintfz(filename, FILENAME_MAX, "/proc/%d/status", pid);
+
+    procfile *ff = procfile_open(filename, " \t", PROCFILE_FLAG_DEFAULT);
+    if(unlikely(!ff)) {
+        error("Cannot open %s", filename);
+        return name;
+    }
+
+    ff = procfile_readall(ff);
+    if(unlikely(!ff))
+        return name;
+
+    unsigned long i, lines = procfile_lines(ff);
+    for(i = 0; i < lines ; i++) {
+        char *cmp = procfile_lineword(ff, i, 0);
+        if (!strcmp(cmp, "Name:")) {
+            name = strdupz(procfile_lineword(ff, i, 1));
+            break;
+        }
+    }
+
+    procfile_close(ff);
+
+    return name;
+}
+
+/**
+ * Read Previous PID
+ *
+ * @param filename is the full name of the file.
+ *
+ * @return It returns the PID used during previous execution on success or 0 otherwise
+ */
+static pid_t ebpf_read_previous_pid(char *filename)
+{
+    FILE *fp = fopen(filename, "r");
+    if (!fp)
+        return 0;
+
+    char buffer[64];
+    size_t length = fread(buffer, sizeof(*buffer), 63, fp);
+    pid_t old_pid = 0;
+    if (length) {
+        if (length > 63)
+            length = 63;
+
+        buffer[length] = '\0';
+        old_pid = (pid_t)str2uint32_t(buffer);
+    }
+    fclose(fp);
+
+    return old_pid;
+}
+
+/**
+ * Kill previous process
+ *
+ * Kill previous process whether it was not closed.
+ *
+ * @param filename is the full name of the file.
+ * @param pid that identifies the process
+ */
+static void ebpf_kill_previous_process(char *filename, pid_t pid)
+{
+    pid_t old_pid =  ebpf_read_previous_pid(filename);
+    if (!old_pid)
+        return;
+
+    // Process is not running
+    char *prev_name =  ebpf_get_process_name(old_pid);
+    if (!prev_name)
+        return;
+
+    char *current_name =  ebpf_get_process_name(pid);
+
+    if (!strcmp(prev_name, current_name))
+        kill(old_pid, SIGKILL);
+
+    freez(prev_name);
+    freez(current_name);
+
+    // wait few microseconds before start new plugin
+    sleep_usec(USEC_PER_MS * 300);
+}
+
+/**
+ * Manage PID
+ *
+ * This function kills another instance of eBPF whether it is necessary and update the file content.
+ *
+ * @param pid that identifies the process
+ */
+static void ebpf_manage_pid(pid_t pid)
+{
+    char filename[FILENAME_MAX + 1];
+    snprintfz(filename, FILENAME_MAX, "%s%s/ebpf.d/ebpf.pid", netdata_configured_host_prefix, ebpf_plugin_dir);
+
+    ebpf_kill_previous_process(filename, pid);
+    ebpf_update_pid_file(filename, pid);
+}
+
+/**
+ * Load collector config
+ *
+ * @param lmode  the mode that will be used for them.
+ */
+static inline void ebpf_load_thread_config()
+{
+    int i;
+    for (i = 0; ebpf_modules[i].thread_name; i++) {
+        ebpf_update_module(&ebpf_modules[i]);
+    }
+}
+
+/**
  * Entry point
  *
  * @param argc the number of arguments
@@ -1094,6 +1445,8 @@ int main(int argc, char **argv)
 {
     set_global_variables();
     parse_args(argc, argv);
+    ebpf_load_thread_config();
+    ebpf_manage_pid(getpid());
 
     running_on_kernel = get_kernel_version(kernel_string, 63);
     if (!has_condition_to_run(running_on_kernel)) {
@@ -1151,6 +1504,16 @@ int main(int argc, char **argv)
             NULL, NULL, ebpf_modules[EBPF_MODULE_CACHESTAT_IDX].start_routine},
         {"EBPF SYNC" , NULL, NULL, 1,
             NULL, NULL, ebpf_modules[EBPF_MODULE_SYNC_IDX].start_routine},
+        {"EBPF DCSTAT" , NULL, NULL, 1,
+            NULL, NULL, ebpf_modules[EBPF_MODULE_DCSTAT_IDX].start_routine},
+        {"EBPF SWAP" , NULL, NULL, 1,
+            NULL, NULL, ebpf_modules[EBPF_MODULE_SWAP_IDX].start_routine},
+        {"EBPF VFS" , NULL, NULL, 1,
+            NULL, NULL, ebpf_modules[EBPF_MODULE_VFS_IDX].start_routine},
+        {"EBPF FILESYSTEM" , NULL, NULL, 1,
+            NULL, NULL, ebpf_modules[EBPF_MODULE_FILESYSTEM_IDX].start_routine},
+        {"EBPF DISK" , NULL, NULL, 1,
+            NULL, NULL, ebpf_modules[EBPF_MODULE_DISK_IDX].start_routine},
         {NULL          , NULL, NULL, 0,
           NULL, NULL, NULL}
     };

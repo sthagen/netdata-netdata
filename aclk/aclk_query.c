@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include "aclk_query.h"
 #include "aclk_stats.h"
 #include "aclk_query_queue.h"
@@ -15,20 +17,20 @@ pthread_mutex_t query_lock_wait = PTHREAD_MUTEX_INITIALIZER;
 typedef struct aclk_query_handler {
     aclk_query_type_t type;
     char *name; // for logging purposes
-    int(*fnc)(mqtt_wss_client client, aclk_query_t query);
+    int(*fnc)(struct aclk_query_thread *query_thr, aclk_query_t query);
 } aclk_query_handler;
 
-static int info_metadata(mqtt_wss_client client, aclk_query_t query)
+static int info_metadata(struct aclk_query_thread *query_thr, aclk_query_t query)
 {
-    aclk_send_info_metadata(client,
+    aclk_send_info_metadata(query_thr->client,
         !query->data.metadata_info.initial_on_connect,
         query->data.metadata_info.host);
     return 0;
 }
 
-static int alarms_metadata(mqtt_wss_client client, aclk_query_t query)
+static int alarms_metadata(struct aclk_query_thread *query_thr, aclk_query_t query)
 {
-    aclk_send_alarm_metadata(client,
+    aclk_send_alarm_metadata(query_thr->client,
         !query->data.metadata_info.initial_on_connect);
     return 0;
 }
@@ -53,11 +55,33 @@ static usec_t aclk_web_api_v1_request(RRDHOST *host, struct web_client *w, char 
     return t;
 }
 
-static int http_api_v2(mqtt_wss_client client, aclk_query_t query)
+static RRDHOST *node_id_2_rrdhost(const char *node_id)
+{
+    int res;
+    uuid_t node_id_bin, host_id_bin;
+    char host_id[UUID_STR_LEN];
+    if (uuid_parse(node_id, node_id_bin)) {
+        error("Couldn't parse UUID %s", node_id);
+        return NULL;
+    }
+    if ((res = get_host_id(&node_id_bin, &host_id_bin))) {
+        error("node not found rc=%d", res);
+        return NULL;
+    }
+    uuid_unparse_lower(host_id_bin, host_id);
+    return rrdhost_find_by_guid(host_id, 0);
+}
+
+#define NODE_ID_QUERY "/node/"
+// TODO this function should be quarantied and written nicely
+// lots of skeletons from initial ACLK Legacy impl.
+// quick and dirty from the start
+static int http_api_v2(struct aclk_query_thread *query_thr, aclk_query_t query)
 {
     int retval = 0;
     usec_t t;
     BUFFER *local_buffer = NULL;
+    RRDHOST *query_host = localhost;
 
 #ifdef NETDATA_WITH_ZLIB
     int z_ret;
@@ -74,6 +98,24 @@ static int http_api_v2(mqtt_wss_client client, aclk_query_t query)
     w->cookie2[0] = 0;      // Simulate web_client_create_on_fd()
     w->acl = 0x1f;
 
+    if (!strncmp(query->data.http_api_v2.query, NODE_ID_QUERY, strlen(NODE_ID_QUERY))) {
+        char *node_uuid = query->data.http_api_v2.query + strlen(NODE_ID_QUERY);
+        char nodeid[UUID_STR_LEN];
+        if (strlen(node_uuid) < (UUID_STR_LEN - 1)) {
+            error("URL requests node_id but there is not enough chars following");
+            retval = 1;
+            goto cleanup;
+        }
+        strncpyz(nodeid, node_uuid, UUID_STR_LEN - 1);
+
+        query_host = node_id_2_rrdhost(nodeid);
+        if (!query_host) {
+            error("Host with node_id \"%s\" not found! Query Ignored!", node_uuid);
+            retval = 1;
+            goto cleanup;
+        }
+    }
+
     char *mysep = strchr(query->data.http_api_v2.query, '?');
     if (mysep) {
         url_decode_r(w->decoded_query_string, mysep, NETDATA_WEB_REQUEST_URL_SIZE + 1);
@@ -84,7 +126,11 @@ static int http_api_v2(mqtt_wss_client client, aclk_query_t query)
     mysep = strrchr(query->data.http_api_v2.query, '/');
 
     // execute the query
-    t = aclk_web_api_v1_request(localhost, w, mysep ? mysep + 1 : "noop");
+    w->tv_in = query->created_tv;
+    now_realtime_timeval(&w->tv_ready);
+    t = aclk_web_api_v1_request(query_host, w, mysep ? mysep + 1 : "noop");
+    size_t size = (w->mode == WEB_CLIENT_MODE_FILECOPY) ? w->response.rlen : w->response.data->len;
+    size_t sent = size;
 
 #ifdef NETDATA_WITH_ZLIB
     // check if gzip encoding can and should be used
@@ -133,7 +179,6 @@ static int http_api_v2(mqtt_wss_client client, aclk_query_t query)
     }
 #endif
 
-    now_realtime_timeval(&w->tv_ready);
     w->response.data->date = w->tv_ready.tv_sec;
     web_client_build_http_header(w);
     local_buffer = buffer_create(NETDATA_WEB_RESPONSE_INITIAL_SIZE);
@@ -147,6 +192,7 @@ static int http_api_v2(mqtt_wss_client client, aclk_query_t query)
             buffer_need_bytes(local_buffer, w->response.data->len);
             memcpy(&local_buffer->buffer[local_buffer->len], w->response.data->buffer, w->response.data->len);
             local_buffer->len += w->response.data->len;
+            sent = sent - size + w->response.data->len;
         } else {
 #endif
             buffer_strcat(local_buffer, w->response.data->buffer);
@@ -155,7 +201,26 @@ static int http_api_v2(mqtt_wss_client client, aclk_query_t query)
 #endif
     }
 
-    aclk_http_msg_v2(client, query->callback_topic, query->msg_id, t, query->created, w->response.code, local_buffer->buffer, local_buffer->len);
+    // send msg.
+    aclk_http_msg_v2(query_thr->client, query->callback_topic, query->msg_id, t, query->created, w->response.code, local_buffer->buffer, local_buffer->len);
+
+    // log.
+    struct timeval tv;
+    now_realtime_timeval(&tv);
+    log_access("%llu: %d '[ACLK]:%d' '%s' (sent/all = %zu/%zu bytes %0.0f%%, prep/sent/total = %0.2f/%0.2f/%0.2f ms) %d '%s'",
+        w->id
+        , gettid()
+        , query_thr->idx
+        , "DATA"
+        , sent
+        , size
+        , size > sent ? -(((size - sent) / (double)size) * 100.0) : ((size > 0) ? (((sent - size ) / (double)size) * 100.0) : 0.0)
+        , dt_usec(&w->tv_ready, &w->tv_in) / 1000.0
+        , dt_usec(&tv, &w->tv_ready) / 1000.0
+        , dt_usec(&tv, &w->tv_in) / 1000.0
+        , w->response.code
+        , strip_control_characters(query->data.http_api_v2.query)
+    );
 
 cleanup:
 #ifdef NETDATA_WITH_ZLIB
@@ -171,17 +236,33 @@ cleanup:
     return retval;
 }
 
-static int chart_query(mqtt_wss_client client, aclk_query_t query)
+static int chart_query(struct aclk_query_thread *query_thr, aclk_query_t query)
 {
-    aclk_chart_msg(client, query->data.chart_add_del.host, query->data.chart_add_del.chart_name);
+    aclk_chart_msg(query_thr->client, query->data.chart_add_del.host, query->data.chart_add_del.chart_name);
     return 0;
 }
 
-static int alarm_state_update_query(mqtt_wss_client client, aclk_query_t query)
+static int alarm_state_update_query(struct aclk_query_thread *query_thr, aclk_query_t query)
 {
-    aclk_alarm_state_msg(client, query->data.alarm_update);
+    aclk_alarm_state_msg(query_thr->client, query->data.alarm_update);
     // aclk_alarm_state_msg frees the json object including the header it generates
     query->data.alarm_update = NULL;
+    return 0;
+}
+
+static int register_node(struct aclk_query_thread *query_thr, aclk_query_t query) {
+    // TODO create a pending registrations list
+    // with some timeouts to detect registration requests that
+    // go unanswered from the cloud
+    aclk_generate_node_registration(query_thr->client, &query->data.node_creation);
+    return 0;
+}
+
+static int node_state_update(struct aclk_query_thread *query_thr, aclk_query_t query) {
+    // TODO create a pending registrations list
+    // with some timeouts to detect registration requests that
+    // go unanswered from the cloud
+    aclk_generate_node_state_update(query_thr->client, &query->data.node_update);
     return 0;
 }
 
@@ -192,21 +273,23 @@ aclk_query_handler aclk_query_handlers[] = {
     { .type = METADATA_ALARMS,    .name = "alarms metadata",     .fnc = alarms_metadata          },
     { .type = CHART_NEW,          .name = "chart new",           .fnc = chart_query              },
     { .type = CHART_DEL,          .name = "chart delete",        .fnc = info_metadata            },
+    { .type = REGISTER_NODE,      .name = "register node",       .fnc = register_node            },
+    { .type = NODE_STATE_UPDATE,  .name = "node state update",   .fnc = node_state_update        },
     { .type = UNKNOWN,            .name = NULL,                  .fnc = NULL                     }
 };
 
 
-static void aclk_query_process_msg(struct aclk_query_thread *info, aclk_query_t query)
+static void aclk_query_process_msg(struct aclk_query_thread *query_thr, aclk_query_t query)
 {
     for (int i = 0; aclk_query_handlers[i].type != UNKNOWN; i++) {
         if (aclk_query_handlers[i].type == query->type) {
             debug(D_ACLK, "Processing Queued Message of type: \"%s\"", aclk_query_handlers[i].name);
-            aclk_query_handlers[i].fnc(info->client, query);
+            aclk_query_handlers[i].fnc(query_thr, query);
             aclk_query_free(query);
             if (aclk_stats_enabled) {
                 ACLK_STATS_LOCK;
                 aclk_metrics_per_sample.queries_dispatched++;
-                aclk_queries_per_thread[info->idx]++;
+                aclk_queries_per_thread[query_thr->idx]++;
                 ACLK_STATS_UNLOCK;
             }
             return;
@@ -217,11 +300,11 @@ static void aclk_query_process_msg(struct aclk_query_thread *info, aclk_query_t 
 
 /* Processes messages from queue. Compete for work with other threads
  */
-int aclk_query_process_msgs(struct aclk_query_thread *info)
+int aclk_query_process_msgs(struct aclk_query_thread *query_thr)
 {
     aclk_query_t query;
     while ((query = aclk_queue_pop()))
-        aclk_query_process_msg(info, query);
+        aclk_query_process_msg(query_thr, query);
 
     return 0;
 }
@@ -231,32 +314,14 @@ int aclk_query_process_msgs(struct aclk_query_thread *info)
  */
 void *aclk_query_main_thread(void *ptr)
 {
-    struct aclk_query_thread *info = ptr;
-    while (!netdata_exit) {
-        ACLK_SHARED_STATE_LOCK;
-        if (unlikely(!aclk_shared_state.version_neg)) {
-            if (!aclk_shared_state.version_neg_wait_till || aclk_shared_state.version_neg_wait_till > now_monotonic_usec()) {
-                ACLK_SHARED_STATE_UNLOCK;
-                info("Waiting for ACLK Version Negotiation message from Cloud");
-                sleep(1);
-                continue;
-            }
-            errno = 0;
-            error("ACLK version negotiation failed. No reply to \"hello\" with \"version\" from cloud in time of %ds."
-                " Reverting to default ACLK version of %d.", VERSION_NEG_TIMEOUT, ACLK_VERSION_MIN);
-            aclk_shared_state.version_neg = ACLK_VERSION_MIN;
-// When ACLK v3 is implemented you will need this
-//            aclk_set_rx_handlers(aclk_shared_state.version_neg);
-        }
-        ACLK_SHARED_STATE_UNLOCK;
+    struct aclk_query_thread *query_thr = ptr;
 
-        aclk_query_process_msgs(info);
+    while (!netdata_exit) {
+        aclk_query_process_msgs(query_thr);
 
         QUERY_THREAD_LOCK;
-
         if (unlikely(pthread_cond_wait(&query_cond_wait, &query_lock_wait)))
             sleep_usec(USEC_PER_SEC * 1);
-
         QUERY_THREAD_UNLOCK;
     }
     return NULL;

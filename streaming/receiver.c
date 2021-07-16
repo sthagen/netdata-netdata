@@ -11,6 +11,7 @@ void destroy_receiver_state(struct receiver_state *rpt) {
     freez(rpt->machine_guid);
     freez(rpt->os);
     freez(rpt->timezone);
+    freez(rpt->abbrev_timezone);
     freez(rpt->tags);
     freez(rpt->client_ip);
     freez(rpt->client_port);
@@ -49,7 +50,7 @@ static void rrdpush_receiver_thread_cleanup(void *ptr) {
     }
 }
 
-#include "../collectors/plugins.d/pluginsd_parser.h"
+#include "collectors/plugins.d/pluginsd_parser.h"
 
 PARSER_RC streaming_timestamp(char **words, void *user, PLUGINSD_ACTION *plugins_action)
 {
@@ -130,6 +131,9 @@ PARSER_RC streaming_claimed_id(char **words, void *user, PLUGINSD_ACTION *plugin
     if (host->aclk_state.claimed_id)
         freez(host->aclk_state.claimed_id);
     host->aclk_state.claimed_id = strcmp(words[2], "NULL") ? strdupz(words[2]) : NULL;
+
+    store_claim_id(&host->host_uuid, host->aclk_state.claimed_id ? &uuid : NULL);
+
     rrdhost_aclk_state_unlock(host);
 
     rrdpush_claimed_id(host);
@@ -304,6 +308,8 @@ static int rrdpush_receive(struct receiver_state *rpt)
                 , rpt->machine_guid
                 , rpt->os
                 , rpt->timezone
+                , rpt->abbrev_timezone
+                , rpt->utc_offset
                 , rpt->tags
                 , rpt->program_name
                 , rpt->program_version
@@ -448,11 +454,11 @@ static int rrdpush_receive(struct receiver_state *rpt)
 
     cd.version = rpt->stream_version;
 
-#if defined(ENABLE_ACLK) && !defined(ACLK_NG)
+#if defined(ENABLE_ACLK)
     // in case we have cloud connection we inform cloud
     // new slave connected
     if (netdata_cloud_setting)
-        aclk_host_state_update(rpt->host, ACLK_CMD_CHILD_CONNECT);
+        aclk_host_state_update(rpt->host, 1);
 #endif
 
     size_t count = streaming_parser(rpt, &cd, fp);
@@ -462,11 +468,11 @@ static int rrdpush_receive(struct receiver_state *rpt)
     error("STREAM %s [receive from [%s]:%s]: disconnected (completed %zu updates).", rpt->hostname, rpt->client_ip,
           rpt->client_port, count);
 
-#if defined(ENABLE_ACLK) && !defined(ACLK_NG)
+#if defined(ENABLE_ACLK)
     // in case we have cloud connection we inform cloud
     // new slave connected
     if (netdata_cloud_setting)
-        aclk_host_state_update(rpt->host, ACLK_CMD_CHILD_DISCONNECT);
+        aclk_host_state_update(rpt->host, 0);
 #endif
 
     // During a shutdown there is cleanup code in rrdhost that will cancel the sender thread

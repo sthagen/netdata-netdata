@@ -15,6 +15,8 @@ on:
       version:
         name: Package version
         required: false
+env:
+  DO_NOT_TRACK: 1
 jobs:
   build:
     name: Build
@@ -37,14 +39,15 @@ jobs:
           - {distro: ubuntu, version: "21.04", pkgclouddistro: ubuntu/hirsute, format: deb, base_image: ubuntu, platform: linux/amd64, arch: amd64}
           - {distro: centos, version: "7", pkgclouddistro: el/7, format: rpm, base_image: centos, platform: linux/amd64, arch: amd64}
           - {distro: centos, version: "8", pkgclouddistro: el/8, format: rpm, base_image: centos, platform: linux/amd64, arch: amd64}
-          - {distro: fedora, version: "32", pkgclouddistro: fedora/32, format: rpm, base_image: fedora, platform: linux/amd64, arch: amd64}
           - {distro: fedora, version: "33", pkgclouddistro: fedora/33, format: rpm, base_image: fedora, platform: linux/amd64, arch: amd64}
           - {distro: fedora, version: "34", pkgclouddistro: fedora/34, format: rpm, base_image: fedora, platform: linux/amd64, arch: amd64}
           - {distro: opensuse, version: "15.2", pkgclouddistro: opensuse/15.2, format: rpm, base_image: opensuse/leap, platform: linux/amd64, arch: amd64}
+          - {distro: opensuse, version: "15.3", pkgclouddistro: opensuse/15.3, format: rpm, base_image: opensuse/leap, platform: linux/amd64, arch: amd64}
       # We intentiaonally disable the fail-fast behavior so that a
       # build failure for one version doesn't prevent us from publishing
       # successfully built and tested packages for another version.
       fail-fast: false
+      max-parallel: 8
     steps:
       - name: Checkout PR # Checkout the PR if it's a PR.
         if: github.event_name == 'pull_request'
@@ -112,7 +115,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          docker run --platform ${{ matrix.platform }} -v $PWD/artifacts:/artifacts local/package-builder:${{ matrix.distro }}${{ matrix.version }}
+          docker run -e DO_NOT_TRACK=1 --platform ${{ matrix.platform }} -v $PWD/artifacts:/artifacts local/package-builder:${{ matrix.distro }}${{ matrix.version }}
       - name: Upload
         if: github.event_name == 'workflow_dispatch'
         shell: bash

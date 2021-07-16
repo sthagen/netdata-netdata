@@ -30,8 +30,8 @@ data is encrypted by TLS while it is in transit. We use the RSA keypair created 
 identity of the Agent when it connects to the Cloud. While the data does flow through Netdata Cloud servers on its way
 from Agents to the browser, we do not store or log it.
 
-You can claim a node during the Cloud onboarding process, or after you created a Space by clicking on the **USER's
-Space** dropdown, then **Manage claimed nodes**.
+You can claim a node during the Netdata Cloud onboarding process, or after you created a Space by clicking on **Claim
+Nodes** in the [Spaces management area](https://learn.netdata.cloud/docs/cloud/spaces#manage-spaces).
 
 There are two important notes regarding claiming:
 
@@ -209,7 +209,7 @@ Netdata to `/opt/netdata`, use `/opt/netdata/bin/netdata-claim.sh` to run the cl
 
 If you are using an unsupported package, such as a third-party `.deb`/`.rpm` package provided by your distribution,
 please remove that package and reinstall using our [recommended kickstart
-script](/docs/get/README.md#install-the-netdata-agent).
+script](/docs/get-started.mdx#install-on-linux-with-one-line-installer-recommended).
 
 #### Claiming on older distributions (Ubuntu 14.04, Debian 8, CentOS 6)
 

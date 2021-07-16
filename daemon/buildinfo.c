@@ -2,19 +2,14 @@
 
 #include <stdio.h>
 #include "./config.h"
+#include "common.h"
 
 // Optional features
 
 #ifdef ENABLE_ACLK
 #define FEAT_CLOUD 1
 #define FEAT_CLOUD_MSG ""
-#ifdef ACLK_NG
-#define ACLK_IMPL "Next Generation"
 #else
-#define ACLK_IMPL "Legacy"
-#endif
-#else
-#define ACLK_IMPL ""
 #ifdef DISABLE_CLOUD
 #define FEAT_CLOUD 0
 #define FEAT_CLOUD_MSG "(by user request)"
@@ -68,29 +63,29 @@
 #define FEAT_LIBCAP 0
 #endif
 
-#ifndef ACLK_NG
-#ifdef ACLK_NO_LIBMOSQ
-#define FEAT_MOSQUITTO 0
-#else
-#define FEAT_MOSQUITTO 1
-#endif
+#ifndef ACLK_LEGACY_DISABLED
+    #ifdef ACLK_NO_LIBMOSQ
+        #define FEAT_MOSQUITTO 0
+    #else
+        #define FEAT_MOSQUITTO 1
+    #endif
 
-#ifdef ACLK_NO_LWS
-#define FEAT_LWS 0
-#define FEAT_LWS_MSG ""
-#else
-#ifdef ENABLE_ACLK
-#include <libwebsockets.h>
-#endif
-#ifdef BUNDLED_LWS
-#define FEAT_LWS 1
-#define FEAT_LWS_MSG "static"
-#else
-#define FEAT_LWS 1
-#define FEAT_LWS_MSG "shared-lib"
-#endif
-#endif
-#endif /* ACLK_NG */
+    #ifdef ACLK_NO_LWS
+        #define FEAT_LWS 0
+        #define FEAT_LWS_MSG ""
+    #else
+        #ifdef ACLK_LEGACY
+            #include <libwebsockets.h>
+        #endif
+        #ifdef BUNDLED_LWS
+            #define FEAT_LWS 1
+            #define FEAT_LWS_MSG "static"
+        #else
+            #define FEAT_LWS 1
+            #define FEAT_LWS_MSG "shared-lib"
+        #endif
+    #endif
+#endif /* ACLK_LEGACY_DISABLED */
 
 #ifdef NETDATA_WITH_ZLIB
 #define FEAT_ZLIB 1
@@ -198,6 +193,18 @@
 #define FEAT_REMOTE_WRITE 0
 #endif
 
+#ifdef ACLK_NG
+#define FEAT_ACLK_NG 1
+#else
+#define FEAT_ACLK_NG 0
+#endif
+
+#ifdef ACLK_LEGACY
+#define FEAT_ACLK_LEGACY 1
+#else
+#define FEAT_ACLK_LEGACY 0
+#endif
+
 #define FEAT_YES_NO(x) ((x) ? "YES" : "NO")
 
 void print_build_info(void) {
@@ -207,9 +214,8 @@ void print_build_info(void) {
     printf("    dbengine:                %s\n", FEAT_YES_NO(FEAT_DBENGINE));
     printf("    Native HTTPS:            %s\n", FEAT_YES_NO(FEAT_NATIVE_HTTPS));
     printf("    Netdata Cloud:           %s %s\n", FEAT_YES_NO(FEAT_CLOUD), FEAT_CLOUD_MSG);
-#if FEAT_CLOUD == 1
-    printf("    Cloud Implementation:    %s\n", ACLK_IMPL);
-#endif
+    printf("    ACLK Next Generation:    %s\n", FEAT_YES_NO(FEAT_ACLK_NG));
+    printf("    ACLK Legacy:             %s\n", FEAT_YES_NO(FEAT_ACLK_LEGACY));
     printf("    TLS Host Verification:   %s\n", FEAT_YES_NO(FEAT_TLS_HOST_VERIFY));
 
     printf("Libraries:\n");
@@ -218,8 +224,8 @@ void print_build_info(void) {
     printf("    libcap:                  %s\n", FEAT_YES_NO(FEAT_LIBCAP));
     printf("    libcrypto:               %s\n", FEAT_YES_NO(FEAT_CRYPTO));
     printf("    libm:                    %s\n", FEAT_YES_NO(FEAT_LIBM));
-#ifndef ACLK_NG
-#if defined(ENABLE_ACLK)
+#ifndef ACLK_LEGACY_DISABLED
+#if defined(ACLK_LEGACY)
     printf("    LWS:                     %s %s v%d.%d.%d\n", FEAT_YES_NO(FEAT_LWS), FEAT_LWS_MSG, LWS_LIBRARY_VERSION_MAJOR, LWS_LIBRARY_VERSION_MINOR, LWS_LIBRARY_VERSION_PATCH);
 #else
     printf("    LWS:                     %s %s\n", FEAT_YES_NO(FEAT_LWS), FEAT_LWS_MSG);
@@ -265,9 +271,9 @@ void print_build_info_json(void) {
 #else
     printf("    \"cloud-disabled\": false,\n");
 #endif
-#if FEAT_CLOUD == 1
-    printf("    \"cloud-implementation\": \"%s\",\n", ACLK_IMPL);
-#endif
+    printf("    \"aclk-ng\": \"%s\",\n", FEAT_JSON_BOOL(FEAT_ACLK_NG));
+    printf("    \"aclk-legacy\": \"%s\",\n", FEAT_JSON_BOOL(FEAT_ACLK_LEGACY));
+
     printf("    \"tls-host-verify\": %s\n",   FEAT_JSON_BOOL(FEAT_TLS_HOST_VERIFY));
     printf("  },\n");
 
@@ -312,3 +318,51 @@ void print_build_info_json(void) {
     printf("  }\n");
     printf("}\n");
 };
+
+//return a list of enabled features for use in analytics
+//find a way to have proper |
+void analytics_build_info(BUFFER *b) {
+    if(FEAT_DBENGINE)        buffer_strcat (b, "dbengine");
+    if(FEAT_NATIVE_HTTPS)    buffer_strcat (b, "|Native HTTPS");
+    if(FEAT_CLOUD)           buffer_strcat (b, "|Netdata Cloud");
+    if(FEAT_ACLK_NG)         buffer_strcat (b, "|ACLK Next Generation");
+    if(FEAT_ACLK_LEGACY)     buffer_strcat (b, "|ACLK Legacy");
+    if(FEAT_TLS_HOST_VERIFY) buffer_strcat (b, "|TLS Host Verification");
+
+    if(FEAT_JEMALLOC)        buffer_strcat (b, "|jemalloc");
+    if(FEAT_JSONC)           buffer_strcat (b, "|JSON-C");
+    if(FEAT_LIBCAP)          buffer_strcat (b, "|libcap");
+    if(FEAT_CRYPTO)          buffer_strcat (b, "|libcrypto");
+    if(FEAT_LIBM)            buffer_strcat (b, "|libm");
+
+#ifndef ACLK_LEGACY_DISABLED
+#if defined(ENABLE_ACLK) && defined(ACLK_LEGACY)
+    {
+        char buf[20];
+        snprintfz(buf, 19, "|LWS v%d.%d.%d", LWS_LIBRARY_VERSION_MAJOR, LWS_LIBRARY_VERSION_MINOR, LWS_LIBRARY_VERSION_PATCH);
+        if(FEAT_LWS)         buffer_strcat(b, buf);
+    }
+#else
+    if(FEAT_LWS)            buffer_strcat(b, "|LWS");
+#endif
+    if(FEAT_MOSQUITTO)      buffer_strcat(b, "|mosquitto");
+#endif
+    if(FEAT_TCMALLOC)       buffer_strcat(b, "|tcalloc");
+    if(FEAT_ZLIB)           buffer_strcat(b, "|zlib");
+
+    if(FEAT_APPS_PLUGIN)    buffer_strcat(b, "|apps");
+    if(FEAT_CGROUP_NET)     buffer_strcat(b, "|cgroup Network Tracking");
+    if(FEAT_CUPS)           buffer_strcat(b, "|CUPS");
+    if(FEAT_EBPF)           buffer_strcat(b, "|EBPF");
+    if(FEAT_IPMI)           buffer_strcat(b, "|IPMI");
+    if(FEAT_NFACCT)         buffer_strcat(b, "|NFACCT");
+    if(FEAT_PERF)           buffer_strcat(b, "|perf");
+    if(FEAT_SLABINFO)       buffer_strcat(b, "|slabinfo");
+    if(FEAT_XEN)            buffer_strcat(b, "|Xen");
+    if(FEAT_XEN_VBD_ERROR)  buffer_strcat(b, "|Xen VBD Error Tracking");
+
+    if(FEAT_KINESIS)        buffer_strcat(b, "|AWS Kinesis");
+    if(FEAT_PUBSUB)         buffer_strcat(b, "|GCP PubSub");
+    if(FEAT_MONGO)          buffer_strcat(b, "|MongoDB");
+    if(FEAT_REMOTE_WRITE)   buffer_strcat(b, "|Prometheus Remote Write");
+}

@@ -11,9 +11,10 @@ performance issue affects your node or the applications it runs.
 
 ## Netdata Cloud
 
-A War Room's [alarms indicator](https://learn.netdata.cloud/docs/cloud/war-rooms#indicators) displays the number of active `critical` (red) and
-`warning` (yellow) alerts for the nodes in this War Room. Click on either the critical or warning badges to open a
-pre-filtered modal displaying only those types of [active alarms](https://learn.netdata.cloud/docs/cloud/monitoring/alarms).
+A War Room's [alarms indicator](https://learn.netdata.cloud/docs/cloud/war-rooms#indicators) displays the number of
+active `critical` (red) and `warning` (yellow) alerts for the nodes in this War Room. Click on either the critical or
+warning badges to open a pre-filtered modal displaying only those types of [active
+alarms](https://learn.netdata.cloud/docs/cloud/alerts-notifications/view-active-alerts).
 
 ![The Alarms panel in Netdata
 Cloud](https://user-images.githubusercontent.com/1153921/108564747-d2bfbb00-72c0-11eb-97b9-5863ad3324eb.png)
@@ -37,8 +38,10 @@ Cloud](https://user-images.githubusercontent.com/1153921/108564813-f08d2000-72c0
 
 ## Local Netdata Agent dashboard
 
-Find the bell 🔔 icon in the top navigation to bring up a modal that shows currently raised alarms, all running alarms,
-and the alarms log. Here is an example of a raised `system.cpu` alarm, followed by the full list and alarm log:
+Find the alarms icon ![Alarms
+icon](https://raw.githubusercontent.com/netdata/netdata-ui/98e31799c1ec0983f433537ff16d2ac2b0d994aa/src/components/icon/assets/alarm.svg)
+in the top navigation to bring up a modal that shows currently raised alarms, all running alarms, and the alarms log.
+Here is an example of a raised `system.cpu` alarm, followed by the full list and alarm log:
 
 ![Animated GIF of looking at raised alarms and the alarm
 log](https://user-images.githubusercontent.com/1153921/80842482-8c289500-8bb6-11ea-9791-600cfdbe82ce.gif)

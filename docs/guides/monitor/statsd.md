@@ -22,14 +22,15 @@ In general, the process for creating a StatsD collector can be summarized in 2 s
 
 - Run an experiment by sending StatsD metrics to Netdata, without any prior configuration. This will create a chart per metric (called private charts) and will help you verify that everything works as expected from the application side of things.
     - Make sure to reload the dashboard tab **after** you start sending data to Netdata.
-- Create a configuration file for your app using [edit-config](https://learn.netdata.cloud/guides/step-by-step/step-04): `sudo ./edit-config statsd.d/myapp.conf`
+- Create a configuration file for your app using [edit-config](/docs/configure/nodes.md): `sudo ./edit-config
+  statsd.d/myapp.conf`
     - Each app will have it's own section in the right-hand menu.
 
 Now, let's see the above process in detail.
 
 ## Prerequisites
 
-- A node with the [Netdata Agent](https://learn.netdata.cloud/docs/get#install-the-netdata-agent) installed.
+- A node with the [Netdata](/docs/get-started.mdx) installed.
 - An application to instrument. For this guide, that will be [k6](https://k6.io/docs/getting-started/installation).
 
 ## Understanding the metrics
@@ -215,7 +216,7 @@ To enable this StatsD configuration, [restart Netdata](/docs/configure/start-sto
 
 ## Final touches
 
-At this point, you have used StatsD to gather metrics for k6, creating a whole new section in your Netdata dashboard in the process. Uil can further customize the icon of the particular section, as well as the description for each chart.
+At this point, you have used StatsD to gather metrics for k6, creating a whole new section in your Netdata dashboard in the process. Moreover, you can further customize the icon of the particular section, as well as the description for each chart.
 
 To edit the section, please follow the Netdata [documentation](https://learn.netdata.cloud/docs/agent/web/gui#customizing-the-local-dashboard).
 

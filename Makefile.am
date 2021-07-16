@@ -3,6 +3,9 @@
 AUTOMAKE_OPTIONS = foreign subdir-objects 1.11
 ACLOCAL_AMFLAGS = -I build/m4
 
+nodist_netdata_SOURCES=$(NULL)
+BUILT_SOURCES=$(NULL)
+
 MAINTAINERCLEANFILES = \
     config.log config.status \
     $(srcdir)/Makefile.in \
@@ -37,11 +40,8 @@ EXTRA_DIST = \
     build/m4/tcmalloc.m4 \
     build/m4/ax_c__generic.m4 \
     README.md \
-    CONTRIBUTORS.md \
-    CODE_OF_CONDUCT.md \
     LICENSE \
     REDISTRIBUTED.md \
-    CONTRIBUTING.md \
     $(NULL)
 
 SUBDIRS = \
@@ -57,18 +57,16 @@ dist_noinst_DATA = \
     contrib \
     docs \
     mqtt_websockets \
+    aclk/aclk-schemas \
     netdata.cppcheck \
     netdata.spec \
     package.json \
-    packaging/bundle-dashboard.sh \
     packaging/bundle-ebpf.sh \
     packaging/bundle-judy.sh \
     packaging/bundle-libbpf.sh \
     packaging/bundle-lws.sh \
     packaging/bundle-mosquitto.sh \
     packaging/check-kernel-config.sh \
-    packaging/dashboard.checksums \
-    packaging/dashboard.version \
     packaging/ebpf.checksums \
     packaging/ebpf.version \
     packaging/go.d.checksums \
@@ -120,11 +118,7 @@ SUBDIRS += \
     spawn \
     $(NULL)
 
-if ACLK_NG
-SUBDIRS += \
-    mqtt_websockets \
-    $(NULL)
-else
+if ENABLE_ACLK
 SUBDIRS += \
     aclk/legacy \
     $(NULL)
@@ -297,12 +291,22 @@ EBPF_PLUGIN_FILES = \
     collectors/ebpf.plugin/ebpf.c \
     collectors/ebpf.plugin/ebpf_cachestat.c \
     collectors/ebpf.plugin/ebpf_cachestat.h \
+    collectors/ebpf.plugin/ebpf_dcstat.c \
+    collectors/ebpf.plugin/ebpf_dcstat.h \
+    collectors/ebpf.plugin/ebpf_disk.c \
+    collectors/ebpf.plugin/ebpf_disk.h \
+    collectors/ebpf.plugin/ebpf_filesystem.c \
+    collectors/ebpf.plugin/ebpf_filesystem.h \
     collectors/ebpf.plugin/ebpf_process.c \
     collectors/ebpf.plugin/ebpf_process.h \
     collectors/ebpf.plugin/ebpf_socket.c \
     collectors/ebpf.plugin/ebpf_socket.h \
     collectors/ebpf.plugin/ebpf_sync.c \
     collectors/ebpf.plugin/ebpf_sync.h \
+    collectors/ebpf.plugin/ebpf_swap.c \
+    collectors/ebpf.plugin/ebpf_swap.h \
+    collectors/ebpf.plugin/ebpf_vfs.c \
+    collectors/ebpf.plugin/ebpf_vfs.h \
     collectors/ebpf.plugin/ebpf.h \
     collectors/ebpf.plugin/ebpf_apps.c \
     collectors/ebpf.plugin/ebpf_apps.h \
@@ -542,7 +546,7 @@ PARSER_FILES = \
     $(NULL)
 
 if ACLK_NG
-ACLK_FILES = \
+ACLK_NG_FILES = \
     aclk/aclk.c \
     aclk/aclk.h \
     aclk/aclk_util.c \
@@ -553,8 +557,6 @@ ACLK_FILES = \
     aclk/aclk_query.h \
     aclk/aclk_query_queue.c \
     aclk/aclk_query_queue.h \
-    aclk/aclk_collector_list.c \
-    aclk/aclk_collector_list.h \
     aclk/aclk_otp.c \
     aclk/aclk_otp.h \
     aclk/aclk_tx_msgs.c \
@@ -563,18 +565,69 @@ ACLK_FILES = \
     aclk/aclk_rx_msgs.h \
     aclk/https_client.c \
     aclk/https_client.h \
-    $(NULL)
-else #ACLK_NG
-ACLK_FILES = \
-    aclk/legacy/aclk_rrdhost_state.h \
-    aclk/legacy/aclk_common.c \
-    aclk/legacy/aclk_common.h \
-    aclk/legacy/aclk_stats.c \
-    aclk/legacy/aclk_stats.h \
+    mqtt_websockets/src/mqtt_wss_client.c \
+    mqtt_websockets/src/include/mqtt_wss_client.h \
+    mqtt_websockets/src/mqtt_wss_log.c \
+    mqtt_websockets/src/include/mqtt_wss_log.h \
+    mqtt_websockets/src/ws_client.c \
+    mqtt_websockets/src/include/ws_client.h \
+    mqtt_websockets/c-rbuf/src/ringbuffer.c \
+    mqtt_websockets/c-rbuf/include/ringbuffer.h \
+    mqtt_websockets/c-rbuf/src/ringbuffer_internal.h \
+    mqtt_websockets/MQTT-C/src/mqtt.c \
+    mqtt_websockets/MQTT-C/include/mqtt.h \
+    aclk/schema-wrappers/connection.cc \
+    aclk/schema-wrappers/connection.h \
+    aclk/schema-wrappers/node_connection.cc \
+    aclk/schema-wrappers/node_connection.h \
+    aclk/schema-wrappers/node_creation.cc \
+    aclk/schema-wrappers/node_creation.h \
+    aclk/schema-wrappers/schema_wrappers.h \
+    aclk/schema-wrappers/schema_wrapper_utils.h \
     $(NULL)
 
+ACLK_NG_PROTO_BUILT_FILES = aclk/aclk-schemas/proto/agent/v1/connection.pb.cc \
+    aclk/aclk-schemas/proto/agent/v1/connection.pb.h \
+    aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.pb.cc \
+    aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.pb.h \
+    aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.pb.cc \
+    aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.pb.h \
+    $(NULL)
+
+BUILT_SOURCES += $(ACLK_NG_PROTO_BUILT_FILES)
+nodist_netdata_SOURCES += $(ACLK_NG_PROTO_BUILT_FILES)
+
+aclk/aclk-schemas/proto/agent/v1/connection.pb.cc \
+aclk/aclk-schemas/proto/agent/v1/connection.pb.h: aclk/aclk-schemas/proto/agent/v1/connection.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.pb.cc \
+aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.pb.h: aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.pb.cc \
+aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.pb.h: aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+endif #ACLK_NG
+
 if ENABLE_ACLK
-ACLK_FILES += \
+ACLK_COMMON_FILES = \
+    aclk/aclk_collector_list.c \
+    aclk/aclk_collector_list.h \
+    $(NULL)
+endif
+
+ACLK_ALWAYS_BUILD_FILES = \
+    aclk/aclk_rrdhost_state.h \
+    aclk/aclk_api.c \
+    aclk/aclk_api.h \
+    aclk/aclk_proxy.c \
+    aclk/aclk_proxy.h \
+    $(NULL)
+
+if ACLK_LEGACY
+ACLK_LEGACY_FILES = \
     aclk/legacy/agent_cloud_link.c \
     aclk/legacy/agent_cloud_link.h \
     aclk/legacy/aclk_query.c \
@@ -587,9 +640,12 @@ ACLK_FILES += \
     aclk/legacy/aclk_lws_wss_client.h \
     aclk/legacy/aclk_lws_https_client.c \
     aclk/legacy/aclk_lws_https_client.h \
+    aclk/legacy/aclk_common.c \
+    aclk/legacy/aclk_common.h \
+    aclk/legacy/aclk_stats.c \
+    aclk/legacy/aclk_stats.h \
     $(NULL)
-endif #ENABLE_ACLK
-endif #ACLK_NG
+endif #ACLK_LEGACY
 
 SPAWN_PLUGIN_FILES = \
     spawn/spawn.c \
@@ -671,6 +727,8 @@ DAEMON_FILES = \
     daemon/daemon.h \
     daemon/global_statistics.c \
     daemon/global_statistics.h \
+    daemon/analytics.c \
+    daemon/analytics.h \
     daemon/main.c \
     daemon/main.h \
     daemon/signals.c \
@@ -699,7 +757,10 @@ NETDATA_FILES = \
     $(WEB_PLUGIN_FILES) \
     $(CLAIM_FILES) \
     $(PARSER_FILES) \
-    $(ACLK_FILES) \
+    $(ACLK_ALWAYS_BUILD_FILES) \
+    $(ACLK_COMMON_FILES) \
+    $(ACLK_LEGACY_FILES) \
+    $(ACLK_NG_FILES) \
     $(SPAWN_PLUGIN_FILES) \
     $(NULL)
 
@@ -741,7 +802,7 @@ NETDATA_COMMON_LIBS = \
     $(NULL)
 
 if LINK_STATIC_JSONC
-    NETDATA_COMMON_LIBS += externaldeps/jsonc/libjson-c.a
+    NETDATA_COMMON_LIBS += $(abs_top_srcdir)/externaldeps/jsonc/libjson-c.a
 endif
 
 NETDATACLI_FILES = \
@@ -754,25 +815,22 @@ NETDATACLI_FILES = \
 sbin_PROGRAMS += netdata
 netdata_SOURCES = $(NETDATA_FILES)
 
+
+netdata_LDADD = \
+    $(NETDATA_COMMON_LIBS) \
+    $(NULL)
+
 if ACLK_NG
-netdata_LDADD = \
-    mqtt_websockets/libmqttwebsockets.a \
-    $(NETDATA_COMMON_LIBS) \
-    $(NULL)
-else #ACLK_NG
-if ENABLE_ACLK
-netdata_LDADD = \
-    externaldeps/mosquitto/libmosquitto.a \
-    $(OPTIONAL_LIBCAP_LIBS) \
+    netdata_LDADD += $(OPTIONAL_PROTOBUF_LIBS)
+endif
+
+if ACLK_LEGACY
+netdata_LDADD += \
+    $(abs_top_srcdir)/externaldeps/mosquitto/libmosquitto.a \
     $(OPTIONAL_LWS_LIBS) \
-    $(NETDATA_COMMON_LIBS) \
+    $(OPTIONAL_LIBCAP_LIBS) \
     $(NULL)
-else #ENABLE_ACLK
-netdata_LDADD = \
-    $(NETDATA_COMMON_LIBS) \
-    $(NULL)
-endif #ENABLE_ACLK
-endif #ACLK_NG
+endif #ACLK_LEGACY
 
 if ENABLE_CXX_LINKER
     netdata_LINK = $(CXXLD) $(CXXFLAGS) $(LDFLAGS) -o $@
@@ -880,12 +938,15 @@ endif
 
 if ENABLE_BACKEND_PROMETHEUS_REMOTE_WRITE
     netdata_SOURCES += $(PROMETHEUS_REMOTE_WRITE_BACKEND_FILES) $(PROMETHEUS_REMOTE_WRITE_EXPORTING_FILES)
-    netdata_LDADD += $(OPTIONAL_PROMETHEUS_REMOTE_WRITE_LIBS)
-    BUILT_SOURCES = \
+    netdata_LDADD += $(OPTIONAL_PROMETHEUS_REMOTE_WRITE_LIBS) \
+        $(OPTIONAL_PROTOBUF_LIBS) \
+        $(NULL)
+    BACKEND_PROMETHEUS_BUILT_SOURCES = \
         exporting/prometheus/remote_write/remote_write.pb.cc \
         exporting/prometheus/remote_write/remote_write.pb.h \
         $(NULL)
-    nodist_netdata_SOURCES = $(BUILT_SOURCES)
+    BUILT_SOURCES += $(BACKEND_PROMETHEUS_BUILT_SOURCES)
+    nodist_netdata_SOURCES += $(BACKEND_PROMETHEUS_BUILT_SOURCES)
 
 exporting/prometheus/remote_write/remote_write.pb.cc \
 exporting/prometheus/remote_write/remote_write.pb.h: exporting/prometheus/remote_write/remote_write.proto
@@ -1014,14 +1075,17 @@ if ENABLE_UNITTESTS
     exporting_tests_exporting_engine_testdriver_LDADD = $(NETDATA_COMMON_LIBS) $(TEST_LIBS)
 if ENABLE_BACKEND_PROMETHEUS_REMOTE_WRITE
     exporting_tests_exporting_engine_testdriver_SOURCES += $(PROMETHEUS_REMOTE_WRITE_EXPORTING_FILES)
-    exporting_tests_exporting_engine_testdriver_LDADD += $(OPTIONAL_PROMETHEUS_REMOTE_WRITE_LIBS)
+    exporting_tests_exporting_engine_testdriver_LDADD += \
+        $(OPTIONAL_PROMETHEUS_REMOTE_WRITE_LIBS) \
+        $(OPTIONAL_PROTOBUF_LIBS) \
+        $(NULL)
     exporting_tests_exporting_engine_testdriver_LDFLAGS += \
         -Wl,--wrap=init_write_request \
         -Wl,--wrap=add_host_info \
         -Wl,--wrap=add_label \
         -Wl,--wrap=add_metric \
         $(NULL)
-    nodist_exporting_tests_exporting_engine_testdriver_SOURCES = $(BUILT_SOURCES)
+    nodist_exporting_tests_exporting_engine_testdriver_SOURCES = $(BACKEND_PROMETHEUS_BUILT_SOURCES)
 endif
 if ENABLE_BACKEND_KINESIS
     exporting_tests_exporting_engine_testdriver_SOURCES += $(KINESIS_EXPORTING_FILES)

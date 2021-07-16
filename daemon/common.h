@@ -3,7 +3,7 @@
 #ifndef NETDATA_COMMON_H
 #define NETDATA_COMMON_H 1
 
-#include "../libnetdata/libnetdata.h"
+#include "libnetdata/libnetdata.h"
 
 // ----------------------------------------------------------------------------
 // shortcuts for the default netdata configuration
@@ -66,11 +66,7 @@
 #include "claim/claim.h"
 
 // netdata agent cloud link
-#ifndef ACLK_NG
-#include "aclk/legacy/agent_cloud_link.h"
-#else
-#include "aclk/aclk.h"
-#endif
+#include "aclk/aclk_api.h"
 
 // global GUID map functions
 
@@ -82,6 +78,7 @@
 #include "main.h"
 #include "signals.h"
 #include "commands.h"
+#include "analytics.h"
 
 // global netdata daemon variables
 extern char *netdata_configured_hostname;
@@ -96,6 +93,8 @@ extern char *netdata_configured_lock_dir;
 extern char *netdata_configured_home_dir;
 extern char *netdata_configured_host_prefix;
 extern char *netdata_configured_timezone;
+extern char *netdata_configured_abbrev_timezone;
+extern int32_t netdata_configured_utc_offset;
 extern int netdata_zero_metrics_enabled;
 extern int netdata_anonymous_statistics_enabled;
 

@@ -4,7 +4,8 @@
 #define NETDATA_ACLK_QUERY_QUEUE_H
 
 #include "libnetdata/libnetdata.h"
-#include "../daemon/common.h"
+#include "daemon/common.h"
+#include "schema-wrappers/schema_wrappers.h"
 
 typedef enum {
     UNKNOWN,
@@ -13,7 +14,9 @@ typedef enum {
     HTTP_API_V2,
     CHART_NEW,
     CHART_DEL,
-    ALARM_STATE_UPDATE
+    ALARM_STATE_UPDATE,
+    REGISTER_NODE,
+    NODE_STATE_UPDATE
 } aclk_query_type_t;
 
 struct aclk_query_metadata {
@@ -44,6 +47,7 @@ struct aclk_query {
     char *callback_topic;
     char *msg_id;
 
+    struct timeval created_tv;
     usec_t created;
 
     aclk_query_t next;
@@ -55,6 +59,8 @@ struct aclk_query {
         struct aclk_query_metadata metadata_alarms;
         struct aclk_query_http_api_v2 http_api_v2;
         struct aclk_query_chart_add_del chart_add_del;
+        node_instance_creation_t node_creation;
+        node_instance_connection_t node_update;
         json_object *alarm_update;
     } data;
 };

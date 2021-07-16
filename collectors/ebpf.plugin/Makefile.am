@@ -33,7 +33,12 @@ dist_libconfig_DATA = \
 dist_ebpfconfig_DATA = \
     ebpf.d/ebpf_kernel_reject_list.txt \
     ebpf.d/cachestat.conf \
+    ebpf.d/dcstat.conf \
+    ebpf.d/disk.conf \
+    ebpf.d/filesystem.conf \
     ebpf.d/network.conf \
     ebpf.d/process.conf \
     ebpf.d/sync.conf \
+    ebpf.d/swap.conf \
+    ebpf.d/vfs.conf \
     $(NULL)

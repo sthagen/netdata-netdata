@@ -295,50 +295,232 @@ static int select_file(char *name, const char *program, size_t length, int mode,
     return ret;
 }
 
-struct bpf_link **ebpf_load_program(char *plugins_dir, ebpf_module_t *em, char *kernel_string, struct bpf_object **obj, int *map_fd)
+void ebpf_update_pid_table(ebpf_local_maps_t *pid, ebpf_module_t *em)
 {
-    char lpath[4096];
-    char lname[128];
-    int prog_fd;
+    pid->user_input = em->pid_map_size;
+}
 
-    int test = select_file(lname, em->thread_name, (size_t)127, em->mode, kernel_string);
-    if (test < 0 || test > 127)
-        return NULL;
+void ebpf_update_map_sizes(struct bpf_object *program, ebpf_module_t *em)
+{
+    struct bpf_map *map;
+    ebpf_local_maps_t *maps = em->maps;
+    if (!maps)
+        return;
 
-    snprintf(lpath, 4096, "%s/ebpf.d/%s", plugins_dir, lname);
-    // We are using BPF_PROG_TYPE_UNSPEC instead a specific type for bpf_prog_load to define the type
-    // according the eBPF program loaded
-    if (bpf_prog_load(lpath, BPF_PROG_TYPE_UNSPEC, obj, &prog_fd)) {
-        em->enabled = CONFIG_BOOLEAN_NO;
-        info("Cannot load program: %s", lpath);
-        return NULL;
-    } else {
-        info("The eBPF program %s was loaded with success.", em->thread_name);
+    uint32_t apps_type = NETDATA_EBPF_MAP_PID | NETDATA_EBPF_MAP_RESIZABLE;
+    bpf_map__for_each(map, program)
+    {
+        const char *map_name = bpf_map__name(map);
+        int i = 0; ;
+        while (maps[i].name) {
+            ebpf_local_maps_t *w = &maps[i];
+            if (w->type & NETDATA_EBPF_MAP_RESIZABLE) {
+                if (!strcmp(w->name, map_name)) {
+                    if (w->user_input && w->user_input != w->internal_input) {
+#ifdef NETDATA_INTERNAL_CHECKS
+                        info("Changing map %s from size %u to %u ", map_name, w->internal_input, w->user_input);
+#endif
+                        bpf_map__resize(map, w->user_input);
+                    } else if (((w->type & apps_type) == apps_type) && (!em->apps_charts)) {
+                        w->user_input = ND_EBPF_DEFAULT_MIN_PID;
+                        bpf_map__resize(map, w->user_input);
+                    }
+                }
+            }
+
+            i++;
+        }
+    }
+}
+
+size_t ebpf_count_programs(struct bpf_object *obj)
+{
+    size_t tot = 0;
+    struct bpf_program *prog;
+    bpf_object__for_each_program(prog, obj)
+    {
+        tot++;
     }
 
-    struct bpf_map *map;
+    return tot;
+}
+
+static ebpf_specify_name_t *ebpf_find_names(ebpf_specify_name_t *names, const char *prog_name)
+{
     size_t i = 0;
-    bpf_map__for_each(map, *obj)
-    {
-        map_fd[i] = bpf_map__fd(map);
+    while (names[i].program_name) {
+        if (!strcmp(prog_name, names[i].program_name))
+            return &names[i];
+
         i++;
     }
 
+    return NULL;
+}
+
+static struct bpf_link **ebpf_attach_programs(struct bpf_object *obj, size_t length, ebpf_specify_name_t *names)
+{
+    struct bpf_link **links = callocz(length , sizeof(struct bpf_link *));
+    size_t i = 0;
     struct bpf_program *prog;
-    struct bpf_link **links = callocz(NETDATA_MAX_PROBES , sizeof(struct bpf_link *));
-    i = 0;
-    bpf_object__for_each_program(prog, *obj)
+    bpf_object__for_each_program(prog, obj)
     {
         links[i] = bpf_program__attach(prog);
+        if (libbpf_get_error(links[i]) && names) {
+            const char *name = bpf_program__name(prog);
+            ebpf_specify_name_t *w = ebpf_find_names(names, name);
+            if (w) {
+                enum bpf_prog_type type = bpf_program__get_type(prog);
+                if (type == BPF_PROG_TYPE_KPROBE)
+                    links[i] = bpf_program__attach_kprobe(prog, w->retprobe, w->optional);
+            }
+        }
+
+        if (libbpf_get_error(links[i])) {
+            links[i] = NULL;
+        }
+
         i++;
     }
 
     return links;
 }
 
+static void ebpf_update_maps(ebpf_module_t *em, int *map_fd, struct bpf_object *obj)
+{
+    if (!map_fd)
+        return;
+
+    ebpf_local_maps_t *maps = em->maps;
+    struct bpf_map *map;
+    size_t i = 0;
+        bpf_map__for_each(map, obj)
+    {
+        int fd = bpf_map__fd(map);
+        if (maps) {
+            const char *map_name = bpf_map__name(map);
+            int j = 0; ;
+            while (maps[j].name) {
+                ebpf_local_maps_t *w = &maps[j];
+                if (w->map_fd == ND_EBPF_MAP_FD_NOT_INITIALIZED && !strcmp(map_name, w->name))
+                    w->map_fd = fd;
+
+                j++;
+            }
+        }
+        map_fd[i] = fd;
+        i++;
+    }
+}
+
+static void ebpf_update_controller(ebpf_module_t *em, struct bpf_object *obj)
+{
+    ebpf_local_maps_t *maps = em->maps;
+    if (!maps)
+        return;
+
+    struct bpf_map *map;
+        bpf_map__for_each(map, obj)
+    {
+        size_t i = 0;
+        while (maps[i].name) {
+            ebpf_local_maps_t *w = &maps[i];
+            if (w->map_fd != ND_EBPF_MAP_FD_NOT_INITIALIZED && (w->type & NETDATA_EBPF_MAP_CONTROLLER)) {
+                w->type &= ~NETDATA_EBPF_MAP_CONTROLLER;
+                w->type |= NETDATA_EBPF_MAP_CONTROLLER_UPDATED;
+
+                uint32_t key = NETDATA_CONTROLLER_APPS_ENABLED;
+                int value = em->apps_charts;
+                int ret = bpf_map_update_elem(w->map_fd, &key, &value, 0);
+                if (ret)
+                    error("Add key(%u) for controller table failed.", key);
+            }
+            i++;
+        }
+    }
+}
+
+struct bpf_link **ebpf_load_program(char *plugins_dir, ebpf_module_t *em, char *kernel_string,
+                                    struct bpf_object **obj, int *map_fd)
+{
+    char lpath[4096];
+    char lname[128];
+
+    int test = select_file(lname, em->thread_name, (size_t)127, em->mode, kernel_string);
+    if (test < 0 || test > 127)
+        return NULL;
+
+    snprintf(lpath, 4096, "%s/ebpf.d/%s", plugins_dir, lname);
+    *obj = bpf_object__open_file(lpath, NULL);
+    if (libbpf_get_error(obj)) {
+        error("Cannot open BPF object %s", lpath);
+        bpf_object__close(*obj);
+        return NULL;
+    }
+
+    ebpf_update_map_sizes(*obj, em);
+
+    if (bpf_object__load(*obj)) {
+        error("ERROR: loading BPF object file failed %s\n", lpath);
+        bpf_object__close(*obj);
+        return NULL;
+    }
+
+    ebpf_update_maps(em, map_fd, *obj);
+    ebpf_update_controller(em, *obj);
+
+    size_t count_programs =  ebpf_count_programs(*obj);
+
+    return ebpf_attach_programs(*obj, count_programs, em->names);
+}
+
+static char *ebpf_update_name(char *search)
+{
+    char filename[FILENAME_MAX + 1];
+    char *ret = NULL;
+    snprintfz(filename, FILENAME_MAX, "%s%s", netdata_configured_host_prefix, NETDATA_KALLSYMS);
+    procfile *ff = procfile_open(filename, " \t", PROCFILE_FLAG_DEFAULT);
+    if(unlikely(!ff)) {
+        error("Cannot open %s%s", netdata_configured_host_prefix, NETDATA_KALLSYMS);
+        return ret;
+    }
+
+    ff = procfile_readall(ff);
+    if(unlikely(!ff))
+        return ret;
+
+    unsigned long i, lines = procfile_lines(ff);
+    size_t length = strlen(search);
+    for(i = 0; i < lines ; i++) {
+        char *cmp = procfile_lineword(ff, i,2);;
+        if (!strncmp(search, cmp, length)) {
+            ret = strdupz(cmp);
+            break;
+        }
+    }
+
+    procfile_close(ff);
+
+    return ret;
+}
+
+void ebpf_update_names(ebpf_specify_name_t *opt, ebpf_module_t *em)
+{
+    int mode = em->mode;
+    em->names = opt;
+
+    size_t i = 0;
+    while (opt[i].program_name) {
+        opt[i].retprobe = (mode == MODE_RETURN);
+        opt[i].optional = ebpf_update_name(opt[i].function_to_attach);
+
+        i++;
+    }
+}
+
 //----------------------------------------------------------------------------------------------------------------------
 
-void ebpf_mount_config_name(char *filename, size_t length, char *path, char *config)
+void ebpf_mount_config_name(char *filename, size_t length, char *path, const char *config)
 {
     snprintf(filename, length, "%s/ebpf.d/%s", path, config);
 }
@@ -359,15 +541,19 @@ static netdata_run_mode_t ebpf_select_mode(char *mode)
     return MODE_ENTRY;
 }
 
-void ebpf_update_module_using_config(ebpf_module_t *modules, struct config *cfg)
+void ebpf_update_module_using_config(ebpf_module_t *modules)
 {
-    char *mode = appconfig_get(cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_LOAD_MODE, EBPF_CFG_LOAD_MODE_DEFAULT);
+    char *mode = appconfig_get(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_LOAD_MODE, EBPF_CFG_LOAD_MODE_DEFAULT);
     modules->mode = ebpf_select_mode(mode);
 
-    modules->update_time = (int)appconfig_get_number(cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_UPDATE_EVERY, 1);
+    modules->update_time = (int)appconfig_get_number(modules->cfg, EBPF_GLOBAL_SECTION,
+                                                     EBPF_CFG_UPDATE_EVERY, modules->update_time);
 
-    modules->apps_charts = appconfig_get_boolean(cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_APPLICATION,
-                                                 CONFIG_BOOLEAN_YES);
+    modules->apps_charts = appconfig_get_boolean(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_APPLICATION,
+                                                 modules->apps_charts);
+
+    modules->pid_map_size = (uint32_t)appconfig_get_number(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_PID_SIZE,
+                                                           modules->pid_map_size);
 }
 
 
@@ -380,20 +566,249 @@ void ebpf_update_module_using_config(ebpf_module_t *modules, struct config *cfg)
  * update the variables.
  *
  * @param em       the module structure
- * @param cfg      the configuration structure
- * @param cfg_file the filename to load
  */
-void ebpf_update_module(ebpf_module_t *em, struct config *cfg, char *cfg_file)
+void ebpf_update_module(ebpf_module_t *em)
 {
     char filename[FILENAME_MAX+1];
-    ebpf_mount_config_name(filename, FILENAME_MAX, ebpf_user_config_dir, cfg_file);
-    if (!ebpf_load_config(cfg, filename)) {
-        ebpf_mount_config_name(filename, FILENAME_MAX, ebpf_stock_config_dir, cfg_file);
-        if (!ebpf_load_config(cfg, filename)) {
-            error("Cannot load the ebpf configuration file %s", cfg_file);
+    ebpf_mount_config_name(filename, FILENAME_MAX, ebpf_user_config_dir, em->config_file);
+    if (!ebpf_load_config(em->cfg, filename)) {
+        ebpf_mount_config_name(filename, FILENAME_MAX, ebpf_stock_config_dir, em->config_file);
+        if (!ebpf_load_config(em->cfg, filename)) {
+            error("Cannot load the ebpf configuration file %s", em->config_file);
             return;
         }
     }
 
-    ebpf_update_module_using_config(em, cfg);
+    ebpf_update_module_using_config(em);
+}
+
+//----------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Load Address
+ *
+ * Helper used to get address from /proc/kallsym
+ *
+ * @param fa address structure
+ * @param fd file descriptor loaded inside kernel.
+ */
+void ebpf_load_addresses(ebpf_addresses_t *fa, int fd)
+{
+    if (fa->addr)
+        return ;
+
+    procfile *ff = procfile_open("/proc/kallsyms", " \t:", PROCFILE_FLAG_DEFAULT);
+    if (!ff)
+        return;
+
+    ff = procfile_readall(ff);
+    if (!ff)
+        return;
+
+    fa->hash = simple_hash(fa->function);
+
+    size_t lines = procfile_lines(ff), l;
+    for(l = 0; l < lines ;l++) {
+        char *fcnt = procfile_lineword(ff, l, 2);
+        uint32_t hash = simple_hash(fcnt);
+        if (fa->hash == hash && !strcmp(fcnt, fa->function)) {
+            char addr[128];
+            snprintf(addr, 127, "0x%s", procfile_lineword(ff, l, 0));
+            fa->addr = (unsigned long) strtoul(addr, NULL, 16);
+            uint32_t key = 0;
+            bpf_map_update_elem(fd, &key, &fa->addr, BPF_ANY);
+        }
+    }
+
+    procfile_close(ff);
+}
+
+//----------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Fill Algorithms
+ *
+ * Set one unique dimension for all vector position.
+ *
+ * @param algorithms the output vector
+ * @param length     number of elements of algorithms vector
+ * @param algortihm  algorithm used on charts.
+*/
+void ebpf_fill_algorithms(int *algorithms, size_t length, int algorithm)
+{
+    size_t i;
+    for (i = 0; i < length; i++) {
+        algorithms[i] = algorithm;
+    }
+}
+
+/**
+ * Fill Histogram dimension
+ *
+ * Fill the histogram dimension with the specified ranges
+ */
+char **ebpf_fill_histogram_dimension(size_t maximum)
+{
+    char *dimensions[] = { "us", "ms", "s"};
+    int previous_dim = 0, current_dim = 0;
+    uint32_t previous_level = 1000, current_level = 1000;
+    uint32_t previous_divisor = 1, current_divisor = 1;
+    uint32_t current = 1, previous = 0;
+    uint32_t selector;
+    char **out = callocz(maximum, sizeof(char *));
+    char range[128];
+    size_t end = maximum - 1;
+    for (selector = 0; selector < end; selector++) {
+        snprintf(range, 127, "%u%s->%u%s", previous/previous_divisor, dimensions[previous_dim],
+                 current/current_divisor, dimensions[current_dim]);
+        out[selector] = strdupz(range);
+        previous = current;
+        current <<= 1;
+
+        if (previous_dim != 2 && previous > previous_level) {
+            previous_dim++;
+
+            previous_divisor *= 1000;
+            previous_level *= 1000;
+        }
+
+        if (current_dim != 2 && current > current_level) {
+            current_dim++;
+
+            current_divisor *= 1000;
+            current_level *= 1000;
+        }
+    }
+    snprintf(range, 127, "%u%s->+Inf", previous/previous_divisor, dimensions[previous_dim]);
+    out[selector] = strdupz(range);
+
+    return out;
+}
+
+/**
+ * Histogram dimension cleanup
+ *
+ * Cleanup dimensions allocated with function ebpf_fill_histogram_dimension
+ *
+ * @param ptr
+ * @param length
+ */
+void ebpf_histogram_dimension_cleanup(char **ptr, size_t length)
+{
+    size_t i;
+    for (i = 0; i < length; i++) {
+        freez(ptr[i]);
+    }
+    freez(ptr);
+}
+
+//----------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Open tracepoint path
+ *
+ * @param filename   pointer to store the path
+ * @param length     file length
+ * @param subsys     is the name of your subsystem.
+ * @param eventname  is the name of the event to trace.
+ * @param flags      flags used with syscall open
+ *
+ * @return it returns a positive value on success and a negative otherwise.
+ */
+static inline int ebpf_open_tracepoint_path(char *filename, size_t length, char *subsys, char *eventname, int flags)
+{
+    snprintfz(filename, length, "%s/events/%s/%s/enable", NETDATA_DEBUGFS, subsys, eventname);
+    return open(filename, flags, 0);
+}
+
+/**
+ * Is tracepoint enabled
+ *
+ * Check whether the tracepoint is enabled.
+ *
+ * @param subsys     is the name of your subsystem.
+ * @param eventname  is the name of the event to trace.
+ *
+ * @return  it returns 1 when it is enabled, 0 when it is disabled and -1 on error.
+ */
+int ebpf_is_tracepoint_enabled(char *subsys, char *eventname)
+{
+    char text[FILENAME_MAX + 1];
+    int fd = ebpf_open_tracepoint_path(text, FILENAME_MAX, subsys, eventname, O_RDONLY);
+    if (fd < 0) {
+        return -1;
+    }
+
+    ssize_t length = read(fd, text, 1);
+    if (length != 1) {
+        close(fd);
+        return -1;
+    }
+    close(fd);
+
+    return (text[0] == '1') ? CONFIG_BOOLEAN_YES : CONFIG_BOOLEAN_NO;
+}
+
+/**
+ *  Change Tracing values
+ *
+ * Change value for specific tracepoint enabling or disabling it according value given.
+ *
+ * @param subsys     is the name of your subsystem.
+ * @param eventname  is the name of the event to trace.
+ * @param value      a value to enable (1) or disable (0) a tracepoint.
+ *
+ * @return It returns 0 on success and -1 otherwise
+ */
+static int ebpf_change_tracing_values(char *subsys, char *eventname, char *value)
+{
+    if (strcmp("0", value) && strcmp("1", value)) {
+        error("Invalid value given to either enable or disable a tracepoint.");
+        return -1;
+    }
+
+    char filename[1024];
+    int fd = ebpf_open_tracepoint_path(filename, 1023, subsys, eventname, O_WRONLY);
+    if (fd < 0) {
+        return -1;
+    }
+
+    ssize_t written = write(fd, value, strlen(value));
+    if (written < 0) {
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+    return 0;
+}
+
+/**
+ * Enable tracing values
+ *
+ * Enable a tracepoint on a system
+ *
+ * @param subsys     is the name of your subsystem.
+ * @param eventname  is the name of the event to trace.
+ *
+ * @return It returns 0 on success and -1 otherwise
+ */
+int ebpf_enable_tracing_values(char *subsys, char *eventname)
+{
+    return ebpf_change_tracing_values(subsys, eventname, "1");
+}
+
+/**
+ * Disable tracing values
+ *
+ * Disable tracing points enabled by collector
+ *
+ * @param subsys     is the name of your subsystem.
+ * @param eventname  is the name of the event to trace.
+ *
+ * @return It returns 0 on success and -1 otherwise
+ */
+int ebpf_disable_tracing_values(char *subsys, char *eventname)
+{
+    return ebpf_change_tracing_values(subsys, eventname, "0");
 }

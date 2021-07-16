@@ -488,12 +488,22 @@ set(EBPF_PROCESS_PLUGIN_FILES
         collectors/ebpf.plugin/ebpf.h
         collectors/ebpf.plugin/ebpf_cachestat.c
         collectors/ebpf.plugin/ebpf_cachestat.h
+        collectors/ebpf.plugin/ebpf_dcstat.c
+        collectors/ebpf.plugin/ebpf_dcstat.h
+        collectors/ebpf.plugin/ebpf_disk.c
+        collectors/ebpf.plugin/ebpf_disk.h
+        collectors/ebpf.plugin/ebpf_filesystem.c
+        collectors/ebpf.plugin/ebpf_filesystem.h
         collectors/ebpf.plugin/ebpf_process.c
         collectors/ebpf.plugin/ebpf_process.h
         collectors/ebpf.plugin/ebpf_socket.c
         collectors/ebpf.plugin/ebpf_socket.h
         collectors/ebpf.plugin/ebpf_sync.c
         collectors/ebpf.plugin/ebpf_sync.h
+        collectors/ebpf.plugin/ebpf_swap.c
+        collectors/ebpf.plugin/ebpf_swap.h
+        collectors/ebpf.plugin/ebpf_vfs.c
+        collectors/ebpf.plugin/ebpf_vfs.h
         collectors/ebpf.plugin/ebpf_apps.c
         collectors/ebpf.plugin/ebpf_apps.h
         )
@@ -722,12 +732,22 @@ set(BACKENDS_PLUGIN_FILES
 set(CLAIM_PLUGIN_FILES
         claim/claim.c
         claim/claim.h
-        aclk/legacy/aclk_rrdhost_state.h
-        aclk/legacy/aclk_common.c
-        aclk/legacy/aclk_common.h
         )
 
-set(ACLK_PLUGIN_FILES
+set(ACLK_ALWAYS_BUILD
+        aclk/aclk_rrdhost_state.h
+        aclk/aclk_api.c
+        aclk/aclk_api.h
+        aclk/aclk_proxy.c
+        aclk/aclk_proxy.h
+        )
+
+set(ACLK_COMMON_FILES
+        aclk/aclk_collector_list.c
+        aclk/aclk_collector_list.h
+        )
+
+set(ACLK_LEGACY_FILES
         aclk/legacy/agent_cloud_link.c
         aclk/legacy/agent_cloud_link.h
         aclk/legacy/aclk_query.c
@@ -742,6 +762,48 @@ set(ACLK_PLUGIN_FILES
         aclk/legacy/aclk_stats.h
         aclk/legacy/aclk_rx_msgs.c
         aclk/legacy/aclk_rx_msgs.h
+        aclk/legacy/aclk_common.c
+        aclk/legacy/aclk_common.h
+        )
+
+set(ACLK_NG_FILES
+        aclk/aclk.c
+        aclk/aclk.h
+        aclk/aclk_util.c
+        aclk/aclk_util.h
+        aclk/aclk_stats.c
+        aclk/aclk_stats.h
+        aclk/aclk_query.c
+        aclk/aclk_query.h
+        aclk/aclk_query_queue.c
+        aclk/aclk_query_queue.h
+        aclk/aclk_otp.c
+        aclk/aclk_otp.h
+        aclk/aclk_tx_msgs.c
+        aclk/aclk_tx_msgs.h
+        aclk/aclk_rx_msgs.c
+        aclk/aclk_rx_msgs.h
+        aclk/https_client.c
+        aclk/https_client.h
+        mqtt_websockets/src/mqtt_wss_client.c
+        mqtt_websockets/src/include/mqtt_wss_client.h
+        mqtt_websockets/src/mqtt_wss_log.c
+        mqtt_websockets/src/include/mqtt_wss_log.h
+        mqtt_websockets/src/ws_client.c
+        mqtt_websockets/src/include/ws_client.h
+        mqtt_websockets/c-rbuf/src/ringbuffer.c
+        mqtt_websockets/c-rbuf/include/ringbuffer.h
+        mqtt_websockets/c-rbuf/src/ringbuffer_internal.h
+        mqtt_websockets/MQTT-C/src/mqtt.c
+        mqtt_websockets/MQTT-C/include/mqtt.h
+        aclk/schema-wrappers/connection.cc
+        aclk/schema-wrappers/connection.h
+        aclk/schema-wrappers/node_connection.cc
+        aclk/schema-wrappers/node_connection.h
+        aclk/schema-wrappers/node_creation.cc
+        aclk/schema-wrappers/node_creation.h
+        aclk/schema-wrappers/schema_wrappers.h
+        aclk/schema-wrappers/schema_wrapper_utils.h
         )
 
 set(SPAWN_PLUGIN_FILES
@@ -751,7 +813,7 @@ set(SPAWN_PLUGIN_FILES
         spawn/spawn.h
         )
 
-set(ACLK_STATIC_LIBS
+set(ACLK_LEGACY_STATIC_LIBS
         ${CMAKE_SOURCE_DIR}/externaldeps/mosquitto/libmosquitto.a
         ${CMAKE_SOURCE_DIR}/externaldeps/libwebsockets/libwebsockets.a
         )
@@ -828,6 +890,8 @@ set(DAEMON_FILES
         daemon/daemon.h
         daemon/global_statistics.c
         daemon/global_statistics.h
+        daemon/analytics.c
+        daemon/analytics.h
         daemon/main.c
         daemon/main.h
         daemon/signals.c
@@ -957,21 +1021,21 @@ ENDIF()
 
 set(NETDATA_COMMON_LIBRARIES ${NETDATA_COMMON_LIBRARIES} m ${CMAKE_THREAD_LIBS_INIT})
 
-set(ACLK_CAN_BUILD 1)
+set(ACLK_LEGACY_CAN_BUILD 1)
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/externaldeps/mosquitto/libmosquitto.a")
     message(WARNING "Static build of mosquitto not found. Disabling ACLK")
-    set(ACLK_CAN_BUILD 0)
+    set(ACLK_LEGACY_CAN_BUILD 0)
 ENDIF()
 
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/externaldeps/libwebsockets/libwebsockets.a")
     message(WARNING "Static build of libwebsockets not found. Disabling ACLK")
-    set(ACLK_CAN_BUILD 0)
+    set(ACLK_LEGACY_CAN_BUILD 0)
 ENDIF()
 
-IF(ACLK_CAN_BUILD)
-    message(STATUS "agent-cloud-link: enabled")
-    list(APPEND NETDATA_FILES ${ACLK_PLUGIN_FILES})
-    list(APPEND NETDATA_COMMON_LIBRARIES ${ACLK_STATIC_LIBS})
+IF(ACLK_LEGACY_CAN_BUILD)
+    message(STATUS "agent-cloud-link Legacy: enabled")
+    list(APPEND NETDATA_FILES ${ACLK_LEGACY_FILES})
+    list(APPEND NETDATA_COMMON_LIBRARIES ${ACLK_LEGACY_STATIC_LIBS})
     include_directories(BEFORE ${CMAKE_SOURCE_DIR}/externaldeps/libwebsockets/include)
     IF(LINUX AND CAP_FOUND)
         list(APPEND NETDATA_COMMON_LIBRARIES ${CAP_LIBRARIES})
@@ -979,8 +1043,64 @@ IF(ACLK_CAN_BUILD)
         list(APPEND NETDATA_COMMON_CFLAGS ${CAP_CFLAGS_OTHER})
     ENDIF()
 ELSE()
-    message(STATUS "agent-cloud-link: disabled")
+    message(STATUS "agent-cloud-link Legacy: disabled")
 ENDIF()
+
+find_package(Protobuf REQUIRED)
+
+function(PROTOBUF_ACLK_GENERATE_CPP SRCS HDRS)
+  if(NOT ARGN)
+    message(SEND_ERROR "Error: PROTOBUF_ACLK_GENERATE_CPP() called without any proto files")
+    return()
+  endif()
+
+  set(${SRCS})
+  set(${HDRS})
+  foreach(FIL ${ARGN})
+    get_filename_component(ABS_FIL ${FIL} ABSOLUTE)
+    get_filename_component(DIR ${ABS_FIL} DIRECTORY)
+    get_filename_component(FIL_WE ${FIL} NAME_WE)
+    set(GENERATED_PB_CC "${DIR}/${FIL_WE}.pb.cc")
+    set(GENERATED_PB_H "${DIR}/${FIL_WE}.pb.h")
+# cmake > 3.20 required :(
+#    cmake_path(SET GENERATED_PB_CC "${DIR}")
+#    cmake_path(SET GENERATED_PB_H "${DIR}")
+#    cmake_path(APPEND GENERATED_PB_CC "${FIL_WE}.pb.cc")
+#    cmake_path(APPEND GENERATED_PB_H "${FIL_WE}.pb.h")
+
+    list(APPEND ${SRCS} ${GENERATED_PB_CC})
+    list(APPEND ${HDRS} ${GENERATED_PB_H})
+    add_custom_command(
+      OUTPUT ${GENERATED_PB_CC}
+             ${GENERATED_PB_H}
+      COMMAND  ${PROTOBUF_PROTOC_EXECUTABLE}
+      ARGS -I=${CMAKE_SOURCE_DIR}/aclk/aclk-schemas --cpp_out=${CMAKE_SOURCE_DIR}/aclk/aclk-schemas ${ABS_FIL}
+      DEPENDS ${ABS_FIL} ${PROTOBUF_PROTOC_EXECUTABLE}
+      COMMENT "Running C++ protocol buffer compiler on ${FIL}"
+      VERBATIM )
+  endforeach()
+  set_source_files_properties(${${SRCS}} ${${HDRS}} PROPERTIES GENERATED TRUE)
+  set(${SRCS} ${${SRCS}} PARENT_SCOPE)
+  set(${HDRS} ${${HDRS}} PARENT_SCOPE)
+endfunction()
+
+set(ACLK_NG_PROTO_DEFS
+        aclk/aclk-schemas/proto/agent/v1/connection.proto
+        aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.proto
+        aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.proto
+        )
+PROTOBUF_ACLK_GENERATE_CPP(ACLK_NG_PROTO_BUILT_SRCS ACLK_NG_PROTO_BUILT_HDRS ${ACLK_NG_PROTO_DEFS})
+
+list(APPEND NETDATA_COMMON_LIBRARIES ${PROTOBUF_LIBRARIES})
+list(APPEND NETDATA_COMMON_INCLUDE_DIRS ${PROTOBUF_INCLUDE_DIRS})
+list(APPEND NETDATA_COMMON_CFLAGS ${PROTOBUF_CFLAGS_OTHER})
+list(APPEND NETDATA_FILES ${ACLK_ALWAYS_BUILD})
+list(APPEND NETDATA_FILES ${ACLK_NG_FILES} ${ACLK_NG_PROTO_BUILT_SRCS} ${ACLK_NG_PROTO_BUILT_HDRS})
+list(APPEND NETDATA_FILES ${ACLK_COMMON_FILES})
+include_directories(BEFORE ${CMAKE_SOURCE_DIR}/aclk/aclk-schemas)
+include_directories(BEFORE ${CMAKE_SOURCE_DIR}/mqtt_websockets/MQTT-C/include)
+include_directories(BEFORE ${CMAKE_SOURCE_DIR}/mqtt_websockets/src/include)
+include_directories(BEFORE ${CMAKE_SOURCE_DIR}/mqtt_websockets/c-rbuf/include)
 
 # -----------------------------------------------------------------------------
 # netdata
