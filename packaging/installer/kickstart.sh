@@ -259,36 +259,32 @@ dependencies() {
   echo "Machine           : ${MACHINE}"
   echo "BASH major version: ${BASH_MAJOR_VERSION}"
 
-  if [ "${OS}" != "GNU/Linux" ] && [ "${SYSTEM}" != "Linux" ]; then
-    warning "Cannot detect the packages to be installed on a ${SYSTEM} - ${OS} system."
+  bash="$(command -v bash 2> /dev/null)"
+  if ! detect_bash4 "${bash}"; then
+    warning "Cannot detect packages to be installed in this system, without BASH v4+."
   else
-    bash="$(command -v bash 2> /dev/null)"
-    if ! detect_bash4 "${bash}"; then
-      warning "Cannot detect packages to be installed in this system, without BASH v4+."
+    progress "Fetching script to detect required packages..."
+    if [ -n "${NETDATA_LOCAL_TARBALL_OVERRIDE_DEPS_SCRIPT}" ]; then
+      if [ -f "${NETDATA_LOCAL_TARBALL_OVERRIDE_DEPS_SCRIPT}" ]; then
+        run cp "${NETDATA_LOCAL_TARBALL_OVERRIDE_DEPS_SCRIPT}" "${ndtmpdir}/install-required-packages.sh"
+      else
+        fatal "Invalid given dependency file, please check your --local-files parameter options and try again"
+      fi
     else
-      progress "Fetching script to detect required packages..."
-      if [ -n "${NETDATA_LOCAL_TARBALL_OVERRIDE_DEPS_SCRIPT}" ]; then
-        if [ -f "${NETDATA_LOCAL_TARBALL_OVERRIDE_DEPS_SCRIPT}" ]; then
-          run cp "${NETDATA_LOCAL_TARBALL_OVERRIDE_DEPS_SCRIPT}" "${ndtmpdir}/install-required-packages.sh"
-        else
-          fatal "Invalid given dependency file, please check your --local-files parameter options and try again"
-        fi
-      else
-        download "${PACKAGES_SCRIPT}" "${ndtmpdir}/install-required-packages.sh"
-      fi
-
-      if [ ! -s "${ndtmpdir}/install-required-packages.sh" ]; then
-        warning "Downloaded dependency installation script is empty."
-      else
-        progress "Running downloaded script to detect required packages..."
-        run ${sudo} "${bash}" "${ndtmpdir}/install-required-packages.sh" ${PACKAGES_INSTALLER_OPTIONS}
-        # shellcheck disable=SC2181
-        if [ $? -ne 0 ]; then
-          warning "It failed to install all the required packages, but installation might still be possible."
-        fi
-      fi
-
+      download "${PACKAGES_SCRIPT}" "${ndtmpdir}/install-required-packages.sh"
     fi
+
+    if [ ! -s "${ndtmpdir}/install-required-packages.sh" ]; then
+      warning "Downloaded dependency installation script is empty."
+    else
+      progress "Running downloaded script to detect required packages..."
+      run ${sudo} "${bash}" "${ndtmpdir}/install-required-packages.sh" ${PACKAGES_INSTALLER_OPTIONS}
+      # shellcheck disable=SC2181
+      if [ $? -ne 0 ]; then
+        warning "It failed to install all the required packages, but installation might still be possible."
+      fi
+    fi
+
   fi
 }
 
@@ -301,6 +297,23 @@ safe_sha256sum() {
     shasum -a 256 "$@"
   else
     fatal "I could not find a suitable checksum binary to use"
+  fi
+}
+
+claim() {
+  progress "Attempting to claim agent to ${NETDATA_CLAIM_URL}"
+  if [ -z "${NETDATA_PREFIX}" ] ; then
+    NETDATA_CLAIM_PATH=/usr/sbin/netdata-claim.sh
+  else
+    NETDATA_CLAIM_PATH="${NETDATA_PREFIX}/netdata/usr/sbin/netdata-claim.sh"
+  fi
+
+  if "${NETDATA_CLAIM_PATH}" -token=${NETDATA_CLAIM_TOKEN} -rooms=${NETDATA_CLAIM_ROOMS} -url=${NETDATA_CLAIM_URL} ${NETDATA_CLAIM_EXTRA}; then
+    progress "Successfully claimed node"
+    return 0
+  else
+    run_failed "Unable to claim node, you must do so manually."
+    return 1
   fi
 }
 
@@ -442,7 +455,14 @@ if [ -n "$ndpath" ] ; then
   if [ -r "${ndprefix}/etc/netdata/.environment" ] ; then
     ndstatic="$(grep IS_NETDATA_STATIC_BINARY "${ndprefix}/etc/netdata/.environment" | cut -d "=" -f 2 | tr -d \")"
     if [ -z "${NETDATA_REINSTALL}" ] && [ -z "${NETDATA_LOCAL_TARBALL_OVERRIDE}" ] ; then
-      if [ -x "${ndprefix}/usr/libexec/netdata/netdata-updater.sh" ] ; then
+      if [ -n "${NETDATA_CLAIM_TOKEN}" ] ; then
+        if [ "${ndprefix}" != '/' ] ; then
+          NETDATA_PREFIX="${ndprefix}"
+        fi
+
+        claim
+        exit $?
+      elif [ -x "${ndprefix}/usr/libexec/netdata/netdata-updater.sh" ] ; then
         progress "Attempting to update existing install instead of creating a new one"
         if run ${sudo} "${ndprefix}/usr/libexec/netdata/netdata-updater.sh" --not-running-from-cron ; then
           progress "Updated existing install at ${ndpath}"
@@ -469,7 +489,14 @@ if [ -n "$ndpath" ] ; then
     fi
   else
     progress "Existing install appears to be handled manually or through the system package manager."
-    if [ -z "${NETDATA_ALLOW_DUPLICATE_INSTALL}" ] ; then
+    if [ -n "${NETDATA_CLAIM_TOKEN}" ] ; then
+      if [ "${ndprefix}" != '/' ] ; then
+        NETDATA_PREFIX="${ndprefix}"
+      fi
+
+      claim
+      exit $?
+    elif [ -z "${NETDATA_ALLOW_DUPLICATE_INSTALL}" ] ; then
       fatal "Existing installation detected which cannot be safely updated by this script, refusing to continue."
       exit 1
     else
@@ -533,16 +560,5 @@ fi
 # --------------------------------------------------------------------------------------------------------------------
 
 if [ -n "${NETDATA_CLAIM_TOKEN}" ]; then
-  progress "Attempting to claim agent to ${NETDATA_CLAIM_URL}"
-  if [ -z "${NETDATA_PREFIX}" ] ; then
-    NETDATA_CLAIM_PATH=/usr/sbin/netdata-claim.sh
-  else
-    NETDATA_CLAIM_PATH="${NETDATA_PREFIX}/bin/netdata-claim.sh"
-  fi
-
-  if "${NETDATA_CLAIM_PATH}" -token=${NETDATA_CLAIM_TOKEN} -rooms=${NETDATA_CLAIM_ROOMS} -url=${NETDATA_CLAIM_URL} ${NETDATA_CLAIM_EXTRA}; then
-    progress "Successfully claimed node"
-  else
-    run_failed "Unable to claim node, you must do so manually."
-  fi
+  claim
 fi

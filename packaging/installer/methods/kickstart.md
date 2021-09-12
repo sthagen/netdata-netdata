@@ -11,11 +11,19 @@ custom_edit_url: https://github.com/netdata/netdata/edit/master/packaging/instal
 This page covers detailed instructions on using and configuring the automatic one-line installation script named
 `kickstart.sh`.
 
-This method is fully automatic on all Linux distributions. To install Netdata from source, including all dependencies
+This method is fully automatic on all Linux distributions and macOS environments. To install Netdata from source, including all dependencies
 required to connect to Netdata Cloud, and get _automatic nightly updates_, run the following as your normal user:
+
+**Linux**
 
 ```bash
 bash <(curl -Ss https://my-netdata.io/kickstart.sh)
+```
+
+**macOS**
+
+```bash
+bash <(curl -Ss https://my-netdata.io/kickstart.sh) --install /usr/local/
 ```
 
 > See our [installation guide](../README.md) for details about [automatic updates](../README.md#automatic-updates) or
@@ -54,18 +62,18 @@ installation. Here are a few important parameters:
     process using those files. This option conflicts with the `--stable-channel` option. If you set this _and_
     `--stable-channel`, Netdata will use the local files.
 
-### Claim node to Netdata Cloud during installation
+### Connect node to Netdata Cloud during installation
 
-The `kickstart.sh` script accepts additional parameters to automatically [claim](/claim/README.md) your node to Netdata
+The `kickstart.sh` script accepts additional parameters to automatically [connect](/claim/README.md) your node to Netdata
 Cloud immediately after installation. Find the `token` and `rooms` strings by [signing in to Netdata
-Cloud](https://app.netdata.cloud/sign-in?cloudRoute=/spaces), then clicking on **Claim Nodes** in the [Spaces management
+Cloud](https://app.netdata.cloud/sign-in?cloudRoute=/spaces), then clicking on **Connect Nodes** in the [Spaces management
 area](https://learn.netdata.cloud/docs/cloud/spaces#manage-spaces).
 
 - `--claim-token`: The unique token associated with your Space in Netdata Cloud.
 - `--claim-rooms`: A comma-separated list of tokens for each War Room this node should appear in.
 - `--claim-proxy`: Should take the form of `socks5[h]://[user:pass@]host:ip` for a SOCKS5 proxy, or
-  `http://[user:pass@]host:ip` for an HTTP(S) proxy.See [claiming through a
-  proxy](/claim/README.md#claim-through-a-proxy) for details.
+  `http://[user:pass@]host:ip` for an HTTP(S) proxy.See [connecting through a
+  proxy](/claim/README.md#connect-through-a-proxy) for details.
 - `--claim-url`: Defaults to `https://app.netdata.cloud`.
 
 For example:
@@ -74,13 +82,15 @@ For example:
 bash <(curl -Ss https://my-netdata.io/kickstart.sh) --claim-token=TOKEN --claim-rooms=ROOM1,ROOM2
 ```
 
+Please note that to run it you will either need to have root privileges or run it with the user that is running the agent, more details on the [Connect an agent without root privileges](#connect-an-agent-without-root-privileges) section.
+
 ## Verify script integrity
 
 To use `md5sum` to verify the integrity of the `kickstart.sh` script you will download using the one-line command above,
 run the following:
 
 ```bash
-[ "271aef84d0bbdabb337571a3963549c7" = "$(curl -Ss https://my-netdata.io/kickstart.sh | md5sum | cut -d ' ' -f 1)" ] && echo "OK, VALID" || echo "FAILED, INVALID"
+[ "755019025d721fc199d52f7fb62d3420" = "$(curl -Ss https://my-netdata.io/kickstart.sh | md5sum | cut -d ' ' -f 1)" ] && echo "OK, VALID" || echo "FAILED, INVALID"
 ```
 
 If the script is valid, this command will return `OK, VALID`.

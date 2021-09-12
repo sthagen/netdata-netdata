@@ -33,6 +33,22 @@ ebpf_filesystem_partitions_t localfs[] =
       .flags = NETDATA_FILESYSTEM_ATTR_CHARTS,
       .enabled = CONFIG_BOOLEAN_YES,
       .addresses = {.function = NULL, .addr = 0}},
+     {.filesystem = "zfs",
+      .optional_filesystem = NULL,
+      .family = "ZFS",
+      .objects = NULL,
+      .probe_links = NULL,
+      .flags = NETDATA_FILESYSTEM_FLAG_NO_PARTITION,
+      .enabled = CONFIG_BOOLEAN_YES,
+      .addresses = {.function = NULL, .addr = 0}},
+     {.filesystem = "btrfs",
+      .optional_filesystem = NULL,
+      .family = "BTRFS",
+      .objects = NULL,
+      .probe_links = NULL,
+      .flags = NETDATA_FILESYSTEM_FILL_ADDRESS_TABLE,
+      .enabled = CONFIG_BOOLEAN_YES,
+      .addresses = {.function = "btrfs_file_operations", .addr = 0}},
      {.filesystem = NULL,
       .optional_filesystem = NULL,
       .family = NULL,
@@ -112,7 +128,7 @@ static void ebpf_create_fs_charts()
         uint32_t flags = efp->flags;
         if (flags & NETDATA_FILESYSTEM_FLAG_HAS_PARTITION && !(flags & test)) {
             snprintfz(title, 255, "%s latency for each read request.", efp->filesystem);
-            snprintfz(family, 63, "%s latency (eBPF)", efp->family);
+            snprintfz(family, 63, "%s_latency", efp->family);
             snprintfz(chart_name, 63, "%s_read_latency", efp->filesystem);
             efp->hread.name = strdupz(chart_name);
             efp->hread.title = strdupz(title);
@@ -123,7 +139,8 @@ static void ebpf_create_fs_charts()
                               title,
                               EBPF_COMMON_DIMENSION_CALL, family,
                               NULL, NETDATA_EBPF_CHART_TYPE_STACKED, order, ebpf_create_global_dimension,
-                              filesystem_publish_aggregated, NETDATA_EBPF_HIST_MAX_BINS);
+                              filesystem_publish_aggregated, NETDATA_EBPF_HIST_MAX_BINS,
+                              NETDATA_EBPF_MODULE_NAME_FILESYSTEM);
             order++;
 
             snprintfz(title, 255, "%s latency for each write request.", efp->filesystem);
@@ -135,7 +152,8 @@ static void ebpf_create_fs_charts()
                               title,
                               EBPF_COMMON_DIMENSION_CALL, family,
                               NULL, NETDATA_EBPF_CHART_TYPE_STACKED, order, ebpf_create_global_dimension,
-                              filesystem_publish_aggregated, NETDATA_EBPF_HIST_MAX_BINS);
+                              filesystem_publish_aggregated, NETDATA_EBPF_HIST_MAX_BINS,
+                              NETDATA_EBPF_MODULE_NAME_FILESYSTEM);
             order++;
 
             snprintfz(title, 255, "%s latency for each open request.", efp->filesystem);
@@ -147,7 +165,8 @@ static void ebpf_create_fs_charts()
                               title,
                               EBPF_COMMON_DIMENSION_CALL, family,
                               NULL, NETDATA_EBPF_CHART_TYPE_STACKED, order, ebpf_create_global_dimension,
-                              filesystem_publish_aggregated, NETDATA_EBPF_HIST_MAX_BINS);
+                              filesystem_publish_aggregated, NETDATA_EBPF_HIST_MAX_BINS,
+                              NETDATA_EBPF_MODULE_NAME_FILESYSTEM);
             order++;
 
             char *type = (efp->flags & NETDATA_FILESYSTEM_ATTR_CHARTS) ? "attribute" : "sync";
@@ -159,7 +178,8 @@ static void ebpf_create_fs_charts()
             ebpf_create_chart(NETDATA_FILESYSTEM_FAMILY, efp->hadditional.name, title,
                               EBPF_COMMON_DIMENSION_CALL, family,
                               NULL, NETDATA_EBPF_CHART_TYPE_STACKED, order, ebpf_create_global_dimension,
-                              filesystem_publish_aggregated, NETDATA_EBPF_HIST_MAX_BINS);
+                              filesystem_publish_aggregated, NETDATA_EBPF_HIST_MAX_BINS,
+                              NETDATA_EBPF_MODULE_NAME_FILESYSTEM);
             order++;
             efp->flags |= NETDATA_FILESYSTEM_FLAG_CHART_CREATED;
         }

@@ -61,7 +61,7 @@ netdataDashboard.menu = {
         icon: '<i class="fas fa-cloud"></i>',
         info: function (os) {
             if (os === "linux")
-                return 'Metrics for the networking stack of the system. These metrics are collected from <code>/proc/net/netstat</code>, apply to both IPv4 and IPv6 traffic and are related to operation of the kernel networking stack.';
+                return 'Metrics for the networking stack of the system. These metrics are collected from <code>/proc/net/netstat</code> or attaching <code>kprobes</code> to kernel functions, apply to both IPv4 and IPv6 traffic and are related to operation of the kernel networking stack.';
             else
                 return 'Metrics for the networking stack of the system.';
         }
@@ -125,6 +125,12 @@ netdataDashboard.menu = {
         title: 'Disks',
         icon: '<i class="fas fa-hdd"></i>',
         info: 'Charts with performance information for all the system disks. Special care has been given to present disk performance metrics in a way compatible with <code>iostat -x</code>. netdata by default prevents rendering performance charts for individual partitions and unmounted virtual disks. Disabled charts can still be enabled by configuring the relative settings in the netdata configuration file.'
+    },
+
+    'mount': {
+        title: 'Mount Points',
+        icon: '<i class="fas fa-hdd"></i>',
+        info: ''
     },
 
     'mdstat': {
@@ -794,6 +800,51 @@ netdataDashboard.submenu = {
     'ntpd.peers': {
         title: 'peers',
         info: 'Statistics of the peer variables for each peer configured in <code>/etc/ntp.conf</code> as shown by the readvar billboard <code>ntpq -c "rv &lt;association&gt;"</code>, while each peer is assigned a nonzero association ID as shown by <code>ntpq -c "apeers"</code>. The module periodically scans for new/changed peers (default: every 60s). <b>ntpd</b> selects the best possible peer from the available peers to synchronize the clock. A minimum of at least 3 peers is required to properly identify the best possible peer.'
+    },
+
+    'filesystem.EXT4_latency': {
+        title: 'EXT4 Latency',
+        info: 'Latency is the time it takes for an event to be completed. We calculate the difference between the calling and return times, this spans disk I/O, file system operations (lock, I/O), run queue latency and all events related to the monitored action. Based on the eBPF <a href="http://www.brendangregg.com/blog/2016-10-06/linux-bcc-ext4dist-ext4slower.html" target="_blank">ext4dist</a> from BCC tools.'
+    },
+
+    'filesystem.XFS_latency': {
+        title: 'XFS Latency',
+        info: 'Latency is the time it takes for an event to be completed. We calculate the difference between the calling and return times, this spans disk I/O, file system operations (lock, I/O), run queue latency and all events related to the monitored action. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/xfsdist_example.txt" target="_blank">xfsdist</a> from BCC tools.'
+    },
+
+    'filesystem.NFS_latency': {
+        title: 'NFS Latency',
+        info: 'Latency is the time it takes for an event to be completed. We calculate the difference between the calling and return times, this spans disk I/O, file system operations (lock, I/O), run queue latency and all events related to the monitored action. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/nfsdist_example.txt" target="_blank">nfsdist</a> from BCC tools.'
+    },
+
+    'filesystem.ZFS_latency': {
+        title: 'ZFS Latency',
+        info: 'Latency is the time it takes for an event to be completed. We calculate the difference between the calling and return times, this spans disk I/O, file system operations (lock, I/O), run queue latency and all events related to the monitored action. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/zfsdist_example.txt" target="_blank">zfsdist</a> from BCC tools.'
+    },
+
+    'filesystem.BTRFS_latency': {
+        title: 'BTRFS Latency',
+        info: 'Latency is the time it takes for an event to be completed. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/btrfsdist_example.txt" target="_blank">btrfsdist</a> from BCC tools.'
+    },
+
+    'filesystem.File_access': {
+        title: 'File Access',
+        info: 'When integration with apps is <a href="https://learn.netdata.cloud/guides/troubleshoot/monitor-debug-applications-ebpf" target="_blank">enabled</a>, Netdata also shows file access per <a href="#menu_apps_submenu_file_access">application</a>.'
+    },
+
+    'apps.file_access': {
+        title: 'File Access',
+        info: 'Netdata also gives a summary for this chart on <a href="#menu_filesystem_submenu_File_access">Filesystem submenu</a> (more details on <a href="https://learn.netdata.cloud/docs/agent/collectors/ebpf.plugin#file" target="_blank">eBPF plugin file chart section</a>).'
+    },
+
+    'ip.kernel': {
+        title: 'Kernel Functions',
+        info: 'Next charts are made when <code>ebpf.plugin</code> is running on your host. When integration with apps is <a href="https://learn.netdata.cloud/guides/troubleshoot/monitor-debug-applications-ebpf" target="_blank">enabled</a>, Netdata also shows calls for kernel functions per <a href="#menu_apps_submenu_net">application</a>.'
+    },
+
+    'apps.net': {
+        title: 'Network monitoring',
+        info: 'Netdata also gives a summary for eBPF charts in <a href="#menu_ip_submenu_kernel">Networking Stack submenu</a>.'
     }
 };
 
@@ -901,8 +952,16 @@ netdataDashboard.context = {
         info: 'CPU interrupts in detail. At the <a href="#menu_cpu">CPUs</a> section, interrupts are analyzed per CPU core.'
     },
 
+    'system.hardirq_latency': {
+        info: 'Total time spent servicing hardware interrupts. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/hardirqs_example.txt" target="_blank">hardirqs</a> from BCC tools.'
+    },
+
     'system.softirqs': {
         info: 'CPU softirqs in detail. At the <a href="#menu_cpu">CPUs</a> section, softirqs are analyzed per CPU core.'
+    },
+
+    'system.softirq_latency': {
+        info: 'Total time spent servicing software interrupts. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/softirqs_example.txt" target="_blank">softirqs</a> from BCC tools.'
     },
 
     'system.processes': {
@@ -1140,6 +1199,42 @@ netdataDashboard.context = {
         info: 'TCP connection aborts. <b>baddata</b> (<code>TCPAbortOnData</code>) happens while the connection is on <code>FIN_WAIT1</code> and the kernel receives a packet with a sequence number beyond the last one for this connection - the kernel responds with <code>RST</code> (closes the connection). <b>userclosed</b> (<code>TCPAbortOnClose</code>) happens when the kernel receives data on an already closed connection and responds with <code>RST</code>. <b>nomemory</b> (<code>TCPAbortOnMemory</code> happens when there are too many orphaned sockets (not attached to an fd) and the kernel has to drop a connection - sometimes it will send an <code>RST</code>, sometimes it won\'t. <b>timeout</b> (<code>TCPAbortOnTimeout</code>) happens when a connection times out. <b>linger</b> (<code>TCPAbortOnLinger</code>) happens when the kernel killed a socket that was already closed by the application and lingered around for long enough. <b>failed</b> (<code>TCPAbortFailed</code>) happens when the kernel attempted to send an <code>RST</code> but failed because there was no memory available.'
     },
 
+    'ip.tcp_functions': {
+        title : 'TCP calls',
+        info: 'Successful or failed calls to functions <code>tcp_sendmsg</code>, <code>tcp_cleanup_rbuf</code>, and <code>tcp_close</code>.'
+    },
+
+    'ip.total_tcp_bandwidth': {
+        title : 'TCP bandwidth',
+        info: 'Bytes sent and received by functions <code>tcp_sendmsg</code> and <code>tcp_cleanup_rbuf</code>. We use <code>tcp_cleanup_rbuf</code> instead of <code>tcp_recvmsg</code>, because the last one misses <code>tcp_read_sock()</code> traffic and we would also need to have more probes to get the socket and package size.'
+    },
+
+    'ip.tcp_error': {
+        title : 'TCP errors',
+        info: 'Failed calls to functions <code>tcp_sendmsg</code>, <code>tcp_cleanup_rbuf</code>, and <code>tcp_close</code>.'
+    },
+
+    'ip.tcp_retransmit': {
+        title : 'TCP retransmit',
+        info: 'Number of packets retransmitted by function <code>tcp_retransmit_skb</code>.'
+    },
+
+    'ip.udp_functions': {
+        title : 'UDP calls',
+        info: 'Successful or failed calls to functions <code>udp_sendmsg</code> and <code>udp_recvmsg</code>.'
+    },
+
+    'ip.total_udp_bandwidth': {
+        title : 'UDP bandwidth',
+        info: 'Bytes sent and received by functions <code>udp_sendmsg</code> and <code>udp_recvmsg</code>.'
+    },
+
+    'ip.udp_error': {
+        title : 'UDP errors',
+        info: 'Failed calls to functions <code>udp_sendmsg</code> and <code>udp_recvmsg</code>.'
+    },
+
+
     'ip.tcp_syn_queue': {
         info: 'The <b>SYN queue</b> of the kernel tracks TCP handshakes until connections get fully established. ' +
             'It overflows when too many incoming TCP connection requests hang in the half-open state and the server ' +
@@ -1272,32 +1367,32 @@ netdataDashboard.context = {
         info: 'Calls to the functions responsible for closing (<a href="https://www.informit.com/articles/article.aspx?p=370047&seqNum=4" target="_blank">do_exit</a>) and releasing (<a  href="https://www.informit.com/articles/article.aspx?p=370047&seqNum=4" target="_blank">release_task</a>) tasks.'
     },
 
-    'apps.bandwidth_sent': {
+    'apps.total_bandwidth_sent': {
         info: 'Bytes sent by functions <code>tcp_sendmsg</code> and <code>udp_sendmsg</code>.'
     },
 
-    'apps.bandwidth_recv': {
+    'apps.total_bandwidth_recv': {
         info: 'Bytes received by functions <code>tcp_cleanup_rbuf</code> and <code>udp_recvmsg</code>. We use <code>tcp_cleanup_rbuf</code> instead <code>tcp_recvmsg</code>, because this last misses <code>tcp_read_sock()</code> traffic and we would also need to have more probes to get the socket and package size.'
     },
 
     'apps.bandwidth_tcp_send': {
-        info: 'Calls for function <code>tcp_sendmsg</code>.'
+        info: 'The function <code>tcp_sendmsg</code> is used to collect number of bytes sent from TCP connections.'
     },
 
     'apps.bandwidth_tcp_recv': {
-        info: 'Calls for functions <code>tcp_cleanup_rbuf</code>. We use <code>tcp_cleanup_rbuf</code> instead <code>tcp_recvmsg</code>, because this last misses <code>tcp_read_sock()</code> traffic and we would also need to have more probes to get the socket and package size.'
+        info: 'The function <code>tcp_cleanup_rbuf</code> is used to collect number of bytes received from TCP connections.'
     },
 
     'apps.bandwidth_tcp_retransmit': {
-        info: 'Calls for functions <code>tcp_retransmit_skb</code>.'
+        info: 'The function <code>tcp_retransmit_skb</code> is called when the host did not receive the expected return from a packet sent.'
     },
 
     'apps.bandwidth_udp_send': {
-        info: 'Calls for function <code>udp_sendmsg</code>.'
+        info: 'The function <code>udp_sendmsg</code> is used to collect number of bytes sent from UDP connections.'
     },
 
     'apps.bandwidth_udp_recv': {
-        info: 'Calls for function <code>udp_recvmsg</code>.'
+        info: 'The function <code>udp_recvmsg</code> is used to collect number of bytes received from UDP connections.'
     },
 
     'apps.dc_hit_ratio': {
@@ -3437,6 +3532,13 @@ netdataDashboard.context = {
     },
 
     // ------------------------------------------------------------------------
+    // Perf
+
+    'perf.instructions_per_cycle': {
+        info: 'An IPC < 1.0 likely means memory bound, and an IPC > 1.0 likely means instruction bound. For more details about the metric take a look at this <a href="https://www.brendangregg.com/blog/2017-05-09/cpu-utilization-is-wrong.html" target="_blank">blog post</a>.'
+    },
+
+    // ------------------------------------------------------------------------
     // Filesystem
 
     'filesystem.vfs_deleted_objects': {
@@ -3484,88 +3586,94 @@ netdataDashboard.context = {
     },
 
     'filesystem.ext4_read_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>ext4_file_read_iter</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="http://www.brendangregg.com/blog/2016-10-06/linux-bcc-ext4dist-ext4slower.html" target="_blank">ext4dist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>ext4_file_read_iter</code>.'
     },
 
     'filesystem.ext4_write_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>ext4_file_write_iter</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="http://www.brendangregg.com/blog/2016-10-06/linux-bcc-ext4dist-ext4slower.html" target="_blank">ext4dist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>ext4_file_write_iter</code>.'
     },
 
     'filesystem.ext4_open_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>ext4_file_open</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="http://www.brendangregg.com/blog/2016-10-06/linux-bcc-ext4dist-ext4slower.html" target="_blank">ext4dist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>ext4_file_open</code>.'
     },
 
     'filesystem.ext4_sync_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>ext4_sync_file</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="http://www.brendangregg.com/blog/2016-10-06/linux-bcc-ext4dist-ext4slower.html" target="_blank">ext4dist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>ext4_sync_file</code>.'
     },
 
     'filesystem.xfs_read_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>xfs_file_read_iter</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/xfsdist_example.txt" target="_blank">xfsdist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>xfs_file_read_iter</code>.'
     },
 
     'filesystem.xfs_write_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>xfs_file_write_iter</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/xfsdist_example.txt" target="_blank">xfsdist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>xfs_file_write_iter</code>.'
     },
 
     'filesystem.xfs_open_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>xfs_file_open</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/xfsdist_example.txt" target="_blank">xfsdist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>xfs_file_open</code>.'
     },
 
     'filesystem.xfs_sync_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>xfs_file_sync</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/xfsdist_example.txt" target="_blank">xfsdist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>xfs_file_sync</code>.'
     },
 
     'filesystem.nfs_read_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>nfs_file_read</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/nfsdist_example.txt" target="_blank">nfsdist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>nfs_file_read</code>.'
     },
 
     'filesystem.nfs_write_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>nfs_file_write</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/nfsdist_example.txt" target="_blank">nfsdist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>nfs_file_write</code>.'
     },
 
     'filesystem.nfs_open_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when functions <code>nfs_file_open</code> and <code>nfs4_file_open</code> are called and another for when they finish the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/nfsdist_example.txt" target="_blank">nfsdist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for functions <code>nfs_file_open</code> and <code>nfs4_file_open</code>'
     },
 
     'filesystem.nfs_attribute_latency': {
-        info: 'Latency is the time it takes for an event to be completed. Netdata is attaching a kprobe for when the function <code>nfs_getattr</code> is called and another for when it finishes the execution. We calculate the difference between the calling and return times, we get the logarithmic for the final result and we sum one value to the respective bin. Based on the eBPF <a href="https://github.com/iovisor/bcc/blob/master/tools/nfsdist_example.txt" target="_blank">nfsdist</a> from BCC tools.'
+        info: 'Netdata is attaching <code>kprobes</code> for the function <code>nfs_getattr</code>.'
     },
 
-    // ------------------------------------------------------------------------
-    // eBPF
-
-    'ebpf.tcp_functions': {
-        title : 'TCP calls',
-        info: 'Successful or failed calls to functions <code>tcp_sendmsg</code>, <code>tcp_cleanup_rbuf</code> and <code>tcp_close</code>.'
+    'filesystem.zfs_read_latency': {
+        info: 'Netdata is attaching <code>kprobes</code> for when the function <code>zpl_iter_read</code>.'
     },
 
-    'ebpf.tcp_bandwidth': {
-        title : 'TCP bandwidth',
-        info: 'Bytes sent and received for functions <code>tcp_sendmsg</code> and <code>tcp_cleanup_rbuf</code>. We use <code>tcp_cleanup_rbuf</code> instead <code>tcp_recvmsg</code>, because this last misses <code>tcp_read_sock()</code> traffic and we would also need to have more probes to get the socket and package size.'
+    'filesystem.zfs_write_latency': {
+        info: 'Netdata is attaching <code>kprobes</code> for when the function <code>zpl_iter_write</code>.'
     },
 
-    'ebpf.tcp_retransmit': {
-        title : 'TCP retransmit',
-        info: 'Number of packets retransmitted for function <code>tcp_retransmit_skb</code>.'
+    'filesystem.zfs_open_latency': {
+        info: 'Netdata is attaching <code>kprobes</code> for when the function <code>zpl_open</code>.'
     },
 
-    'ebpf.tcp_error': {
-        title : 'TCP errors',
-        info: 'Failed calls that to functions <code>tcp_sendmsg</code>, <code>tcp_cleanup_rbuf</code> and <code>tcp_close</code>.'
+    'filesystem.zfs_sync_latency': {
+        info: 'Netdata is attaching <code>kprobes</code> for when the function <code>zpl_fsync</code>.'
     },
 
-    'ebpf.udp_functions': {
-        title : 'UDP calls',
-        info: 'Successful or failed calls to  functions <code>udp_sendmsg</code> and <code>udp_recvmsg</code>.'
+    'filesystem.btrfs_read_latency': {
+        info: 'Netdata is attaching <code>kprobes</code> for when the function <code>btrfs_file_read_iter</code> (kernel newer than 5.9.16) or the function <code>generic_file_read_iter</code> (old kernels).'
     },
 
-    'ebpf.udp_bandwidth': {
-        title : 'UDP bandwidth',
-        info: 'Bytes sent and received for functions <code>udp_sendmsg</code> and <code>udp_recvmsg</code>.'
+    'filesystem.btrfs_write_latency': {
+        info: 'Netdata is attaching <code>kprobes</code> for when the function <code>btrfs_file_write_iter</code>.'
     },
 
-    'ebpf.file_descriptor': {
-        title : 'File access',
+    'filesystem.btrfs_open_latency': {
+        info: 'Netdata is attaching <code>kprobes</code> for when the function <code>btrfs_file_open</code>.'
+    },
+
+    'filesystem.btrfs_sync_latency': {
+        info: 'Netdata is attaching <code>kprobes</code> for when the function <code>btrfs_sync_file</code>.'
+    },
+
+    'mount_points.call': {
+        info: 'Monitor calls to syscalls <code>mount(2)</code> and <code>umount(2)</code> that are responsible for attaching or removing filesystems.'
+    },
+
+    'mount_points.error': {
+        info: 'Monitor errors in calls to syscalls <code>mount(2)</code> and <code>umount(2)</code>.'
+    },
+
+    'filesystem.file_descriptor': {
         info: 'Calls for internal functions on Linux kernel. The open dimension is attached to the kernel internal function <code>do_sys_open</code> ( For kernels newer than <code>5.5.19</code> we add a kprobe to <code>do_sys_openat2</code>. ), which is the common function called from'+
             ' <a href="https://www.man7.org/linux/man-pages/man2/open.2.html" target="_blank">open(2)</a> ' +
             ' and <a href="https://www.man7.org/linux/man-pages/man2/openat.2.html" target="_blank">openat(2)</a>. ' +
@@ -3573,14 +3681,17 @@ netdataDashboard.context = {
             ' <a href="https://www.man7.org/linux/man-pages/man2/close.2.html" target="_blank">close(2)</a>. '
     },
 
-    'ebpf.file_error': {
-        title : 'File access error',
+    'filesystem.file_error': {
         info: 'Failed calls to the kernel internal function <code>do_sys_open</code> ( For kernels newer than <code>5.5.19</code> we add a kprobe to <code>do_sys_openat2</code>. ), which is the common function called from'+
             ' <a href="https://www.man7.org/linux/man-pages/man2/open.2.html" target="_blank">open(2)</a> ' +
             ' and <a href="https://www.man7.org/linux/man-pages/man2/openat.2.html" target="_blank">openat(2)</a>. ' +
             ' The close dimension is attached to the function <code>__close_fd</code> or <code>close_fd</code> according to your kernel version, which is called from system call' +
             ' <a href="https://www.man7.org/linux/man-pages/man2/close.2.html" target="_blank">close(2)</a>. '
     },
+
+
+    // ------------------------------------------------------------------------
+    // eBPF
 
     'ebpf.process_thread': {
         title : 'Task creation',
@@ -3663,26 +3774,6 @@ netdataDashboard.context = {
                     + ' data-after="-CHART_DURATION"'
                     + ' data-points="CHART_DURATION"'
                     + ' data-colors="' + NETDATA.colors[4] + '"'
-                    + ' data-decimal-digits="2"'
-                    + ' role="application"></div>';
-            }
-        ]
-    },
-    'vernemq.queue_messages_in_queues': {
-        mainheads: [
-            function (os, id) {
-                void (os);
-                return '<div data-netdata="' + id + '"'
-                    + ' data-dimensions="queue_messages_current"'
-                    + ' data-chart-library="gauge"'
-                    + ' data-title="Messages in the Queues"'
-                    + ' data-units="messages"'
-                    + ' data-gauge-adjust="width"'
-                    + ' data-width="16%"'
-                    + ' data-before="0"'
-                    + ' data-after="-CHART_DURATION"'
-                    + ' data-points="CHART_DURATION"'
-                    + ' data-colors="' + NETDATA.colors[2] + '"'
                     + ' data-decimal-digits="2"'
                     + ' role="application"></div>';
             }

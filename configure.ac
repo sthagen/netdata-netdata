@@ -144,9 +144,9 @@ AC_ARG_ENABLE(
 )
 AC_ARG_ENABLE(
     [lto],
-    [AS_HELP_STRING([--disable-lto], [Link Time Optimizations @<:@default autodetect@:>@])],
+    [AS_HELP_STRING([--enable-lto], [Link Time Optimizations @<:@default disabled@:>@])],
     ,
-    [enable_lto="detect"]
+    [enable_lto="no"]
 )
 AC_ARG_ENABLE(
     [https],
@@ -176,6 +176,13 @@ AC_ARG_WITH(
     [bundled-lws],
     [AS_HELP_STRING([--with-bundled-lws], [Use the bundled version of libwebsockets library @<:@default use system library@:>@])],
     [with_bundled_lws="yes"], [with_bundled_lws="no"]
+)
+AC_ARG_WITH(
+    [bundled-protobuf],
+    [AS_HELP_STRING([--with-bundled-protobuf],
+                    [Uses the bundled version of Google Protocol Buffers @<:@default bundled if present@:>@])],
+    [with_bundled_protobuf="$withval"],
+    [with_bundled_protobuf="detect"]
 )
 
 # -----------------------------------------------------------------------------
@@ -642,6 +649,22 @@ AM_CONDITIONAL([ENABLE_CAPABILITY], [test "${with_libcap}" = "yes"])
 # -----------------------------------------------------------------------------
 # ACLK
 
+bundled_proto_avail="no"
+if test "${with_bundled_protobuf}" != "no"; then
+    AC_MSG_CHECKING([is bundled protobuf available])
+    if test -f "externaldeps/protobuf/src/protoc"; then
+        bundled_proto_avail="yes"
+    fi
+    AC_MSG_RESULT([${bundled_proto_avail}])
+    if test "${with_bundled_protobuf}" == "yes" -a "${bundled_proto_avail}" != "yes"; then
+        AC_MSG_ERROR([Bundled protobuf requested using --with-bundled-protobuf but it cannot be used/found])
+    fi
+    if test "${with_bundled_protobuf}" == "detect" -a "${bundled_proto_avail}" == "yes"; then
+        with_bundled_protobuf="yes"
+    fi
+fi
+
+if test "${with_bundled_protobuf}" != "yes"; then
 PKG_CHECK_MODULES(
     [PROTOBUF],
     [protobuf >= 3],
@@ -655,6 +678,14 @@ AS_IF(
     [have_protoc=no],
     [have_protoc=yes]
 )
+else
+    AC_MSG_NOTICE([using bundled protobuf])
+    PROTOC="\$(abs_top_srcdir)/externaldeps/protobuf/src/protoc"
+    PROTOBUF_CFLAGS="-I \$(abs_top_srcdir)/externaldeps/protobuf/src"
+    PROTOBUF_LIBS="\$(abs_top_srcdir)/externaldeps/protobuf/src/.libs/libprotobuf.a"
+    have_libprotobuf="yes"
+    have_protoc="yes"
+fi
 
 AC_PATH_PROG([CXX_BINARY], [${CXX}], [no])
 AS_IF(
@@ -726,6 +757,29 @@ if test "$enable_cloud" != "no" -a "$aclk_ng" != "no"; then
     else
         AC_MSG_RESULT([yes])
     fi
+
+    if test "${with_bundled_protobuf}" = "yes"; then
+        AC_LANG_PUSH([C++]) 
+        CXXFLAGS="${CXXFLAGS} -std=c++11"
+
+        # On some platforms, std::atomic needs a helper library
+        AC_MSG_CHECKING(whether -latomic is needed for static protobuf)
+        AC_LINK_IFELSE([AC_LANG_SOURCE([[
+          #include <atomic>
+          #include <cstdint>
+          std::atomic<std::int64_t> v;
+          int main() {
+            return v;
+          }
+        ]])], STD_ATOMIC_NEED_LIBATOMIC=no, STD_ATOMIC_NEED_LIBATOMIC=yes)
+        AC_MSG_RESULT($STD_ATOMIC_NEED_LIBATOMIC)
+        if test "x$STD_ATOMIC_NEED_LIBATOMIC" = xyes; then
+            OPTIONAL_ATOMIC_LIBS="-latomic"
+        fi
+        AC_SUBST([OPTIONAL_ATOMIC_LIBS])
+        AC_LANG_POP([C++])
+    fi
+
     AC_MSG_CHECKING([ACLK Next Generation can be built])
     AC_MSG_RESULT([${can_enable_ng}])
     if test "$can_enable_ng" = "no" -a "$aclk_ng" = "yes"; then
@@ -823,6 +877,10 @@ if test "$enable_cloud" != "no" -a "$aclk_legacy" != "no"; then
         aclk_legacy="yes"
         enable_aclk="yes"
     fi
+fi
+
+if test "$enable_cloud" = "yes" -a "$enable_aclk" != "yes"; then
+    AC_MSG_ERROR([Neither ACLK-NG nor ACLK-Legacy can be built but --enable-cloud was requested])
 fi
 
 AC_SUBST([enable_cloud])
@@ -1504,11 +1562,11 @@ AC_SUBST([logdir])
 AC_SUBST([pluginsdir])
 AC_SUBST([webdir])
 
-CFLAGS="${CFLAGS} ${OPTIONAL_MATH_CFLAGS} ${OPTIONAL_NFACCT_CFLAGS} ${OPTIONAL_ZLIB_CFLAGS} ${OPTIONAL_UUID_CFLAGS} \
+CFLAGS="${CFLAGS} ${OPTIONAL_PROTOBUF_CFLAGS} ${OPTIONAL_MATH_CFLAGS} ${OPTIONAL_NFACCT_CFLAGS} ${OPTIONAL_ZLIB_CFLAGS} ${OPTIONAL_UUID_CFLAGS} \
     ${OPTIONAL_LIBCAP_CFLAGS} ${OPTIONAL_IPMIMONITORING_CFLAGS} ${OPTIONAL_CUPS_CFLAGS} ${OPTIONAL_XENSTAT_FLAGS} \
     ${OPTIONAL_KINESIS_CFLAGS} ${OPTIONAL_PUBSUB_CFLAGS} ${OPTIONAL_PROMETHEUS_REMOTE_WRITE_CFLAGS} \
     ${OPTIONAL_MONGOC_CFLAGS} ${LWS_CFLAGS} ${OPTIONAL_JSONC_STATIC_CFLAGS} ${OPTIONAL_BPF_CFLAGS} ${OPTIONAL_JUDY_CFLAGS} \
-    ${OPTIONAL_ACLK_NG_CFLAGS} ${OPTIONAL_PROTOBUF_CFLAGS}"
+    ${OPTIONAL_ACLK_NG_CFLAGS}"
 
 CXXFLAGS="${CFLAGS} ${CXX11FLAG}"
 

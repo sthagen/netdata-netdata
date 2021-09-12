@@ -82,8 +82,18 @@ enum ebpf_module_indexes {
     EBPF_MODULE_SWAP_IDX,
     EBPF_MODULE_VFS_IDX,
     EBPF_MODULE_FILESYSTEM_IDX,
-    EBPF_MODULE_DISK_IDX
+    EBPF_MODULE_DISK_IDX,
+    EBPF_MODULE_MOUNT_IDX,
+    EBPF_MODULE_FD_IDX,
+    EBPF_MODULE_HARDIRQ_IDX,
+    EBPF_MODULE_SOFTIRQ_IDX
 };
+
+typedef struct ebpf_tracepoint {
+    bool enabled;
+    char *class;
+    char *event;
+} ebpf_tracepoint_t;
 
 // Copied from musl header
 #ifndef offsetof
@@ -96,7 +106,9 @@ enum ebpf_module_indexes {
 
 // Chart definitions
 #define NETDATA_EBPF_FAMILY "ebpf"
+#define NETDATA_EBPF_IP_FAMILY "ip"
 #define NETDATA_FILESYSTEM_FAMILY "filesystem"
+#define NETDATA_EBPF_MOUNT_GLOBAL_FAMILY "mount_points"
 #define NETDATA_EBPF_CHART_TYPE_LINE "line"
 #define NETDATA_EBPF_CHART_TYPE_STACKED "stacked"
 #define NETDATA_EBPF_MEMORY_GROUP "mem"
@@ -152,7 +164,8 @@ extern void ebpf_write_chart_cmd(char *type,
                                  char *family,
                                  char *charttype,
                                  char *context,
-                                 int order);
+                                 int order,
+                                 char *module);
 
 extern void ebpf_write_global_dimension(char *name, char *id, char *algorithm);
 
@@ -168,7 +181,8 @@ extern void ebpf_create_chart(char *type,
                               int order,
                               void (*ncd)(void *, int),
                               void *move,
-                              int end);
+                              int end,
+                              char *module);
 
 extern void write_begin_chart(char *family, char *name);
 
@@ -190,11 +204,16 @@ extern void ebpf_create_charts_on_apps(char *name,
                                        char *charttype,
                                        int order,
                                        char *algorithm,
-                                       struct target *root);
+                                       struct target *root,
+                                       char *module);
 
 extern void write_end_chart();
 
 extern void ebpf_cleanup_publish_syscall(netdata_publish_syscall_t *nps);
+
+extern int ebpf_enable_tracepoint(ebpf_tracepoint_t *tp);
+extern int ebpf_disable_tracepoint(ebpf_tracepoint_t *tp);
+extern uint32_t ebpf_enable_tracepoints(ebpf_tracepoint_t *tps);
 
 #define EBPF_PROGRAMS_SECTION "ebpf programs"
 
@@ -205,6 +224,7 @@ extern void ebpf_cleanup_publish_syscall(netdata_publish_syscall_t *nps);
 #define EBPF_COMMON_DIMENSION_DIFFERENCE "difference"
 #define EBPF_COMMON_DIMENSION_PACKETS "packets"
 #define EBPF_COMMON_DIMENSION_FILES "files"
+#define EBPF_COMMON_DIMENSION_MILLISECONDS "milliseconds"
 
 // Common variables
 extern int debug_enabled;

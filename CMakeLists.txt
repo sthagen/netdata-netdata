@@ -492,12 +492,20 @@ set(EBPF_PROCESS_PLUGIN_FILES
         collectors/ebpf.plugin/ebpf_dcstat.h
         collectors/ebpf.plugin/ebpf_disk.c
         collectors/ebpf.plugin/ebpf_disk.h
+        collectors/ebpf.plugin/ebpf_fd.c
+        collectors/ebpf.plugin/ebpf_fd.h
+        collectors/ebpf.plugin/ebpf_hardirq.c
+        collectors/ebpf.plugin/ebpf_hardirq.h
+        collectors/ebpf.plugin/ebpf_mount.c
+        collectors/ebpf.plugin/ebpf_mount.h
         collectors/ebpf.plugin/ebpf_filesystem.c
         collectors/ebpf.plugin/ebpf_filesystem.h
         collectors/ebpf.plugin/ebpf_process.c
         collectors/ebpf.plugin/ebpf_process.h
         collectors/ebpf.plugin/ebpf_socket.c
         collectors/ebpf.plugin/ebpf_socket.h
+        collectors/ebpf.plugin/ebpf_softirq.c
+        collectors/ebpf.plugin/ebpf_softirq.h
         collectors/ebpf.plugin/ebpf_sync.c
         collectors/ebpf.plugin/ebpf_sync.h
         collectors/ebpf.plugin/ebpf_swap.c
@@ -619,6 +627,8 @@ set(RRD_PLUGIN_FILES
         database/rrdvar.h
         database/sqlite/sqlite_functions.c
         database/sqlite/sqlite_functions.h
+        database/sqlite/sqlite_aclk.c
+        database/sqlite/sqlite_aclk.h
         database/sqlite/sqlite3.c
         database/sqlite/sqlite3.h
         database/engine/rrdengine.c
@@ -803,6 +813,7 @@ set(ACLK_NG_FILES
         aclk/schema-wrappers/node_creation.cc
         aclk/schema-wrappers/node_creation.h
         aclk/schema-wrappers/schema_wrappers.h
+        aclk/schema-wrappers/schema_wrapper_utils.cc
         aclk/schema-wrappers/schema_wrapper_utils.h
         )
 
@@ -896,6 +907,8 @@ set(DAEMON_FILES
         daemon/main.h
         daemon/signals.c
         daemon/signals.h
+        daemon/service.c
+        daemon/service.h
         daemon/commands.c
         daemon/commands.h
         daemon/unit_test.c

@@ -105,7 +105,7 @@ ebpf_module_t ebpf_modules[] = {
       .optional = 0, .apps_routine = ebpf_swap_create_apps_charts, .maps = NULL,
       .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &swap_config,
       .config_file = NETDATA_DIRECTORY_SWAP_CONFIG_FILE},
-    { .thread_name = "vfs", .config_name = "swap", .enabled = 0, .start_routine = ebpf_vfs_thread,
+    { .thread_name = "vfs", .config_name = "vfs", .enabled = 0, .start_routine = ebpf_vfs_thread,
       .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
       .optional = 0, .apps_routine = ebpf_vfs_create_apps_charts, .maps = NULL,
       .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &vfs_config,
@@ -114,12 +114,32 @@ ebpf_module_t ebpf_modules[] = {
       .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
       .optional = 0, .apps_routine = NULL, .maps = NULL,
       .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &fs_config,
-      .config_file = NETDATA_SYNC_CONFIG_FILE},
+      .config_file = NETDATA_FILESYSTEM_CONFIG_FILE},
     { .thread_name = "disk", .config_name = "disk", .enabled = 0, .start_routine = ebpf_disk_thread,
       .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
       .optional = 0, .apps_routine = NULL, .maps = NULL,
       .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &disk_config,
-      .config_file = NETDATA_SYNC_CONFIG_FILE},
+      .config_file = NETDATA_DISK_CONFIG_FILE},
+    { .thread_name = "mount", .config_name = "mount", .enabled = 0, .start_routine = ebpf_mount_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = NULL, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &mount_config,
+      .config_file = NETDATA_MOUNT_CONFIG_FILE},
+    { .thread_name = "fd", .config_name = "fd", .enabled = 0, .start_routine = ebpf_fd_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = ebpf_fd_create_apps_charts, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &fd_config,
+      .config_file = NETDATA_FD_CONFIG_FILE},
+    { .thread_name = "hardirq", .config_name = "hardirq", .enabled = 0, .start_routine = ebpf_hardirq_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = NULL, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &hardirq_config,
+      .config_file = NETDATA_HARDIRQ_CONFIG_FILE},
+    { .thread_name = "softirq", .config_name = "softirq", .enabled = 0, .start_routine = ebpf_softirq_thread,
+      .update_time = 1, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
+      .optional = 0, .apps_routine = NULL, .maps = NULL,
+      .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &softirq_config,
+      .config_file = NETDATA_SOFTIRQ_CONFIG_FILE},
     { .thread_name = NULL, .enabled = 0, .start_routine = NULL, .update_time = 1,
       .global_charts = 0, .apps_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY,
       .optional = 0, .apps_routine = NULL, .maps = NULL, .pid_map_size = 0, .names = NULL,
@@ -192,6 +212,12 @@ static void ebpf_exit(int sig)
         ebpf_modules[EBPF_MODULE_VFS_IDX].enabled = 0;
         clean_vfs_pid_structures();
         freez(vfs_pid);
+    }
+
+    if (ebpf_modules[EBPF_MODULE_FD_IDX].enabled) {
+        ebpf_modules[EBPF_MODULE_FD_IDX].enabled = 0;
+        clean_fd_pid_structures();
+        freez(fd_pid);
     }
 
     /*
@@ -280,8 +306,7 @@ inline void write_end_chart()
  */
 void write_chart_dimension(char *dim, long long value)
 {
-    int ret = printf("SET %s = %lld\n", dim, value);
-    UNUSED(ret);
+    printf("SET %s = %lld\n", dim, value);
 }
 
 /**
@@ -384,11 +409,12 @@ void write_io_chart(char *chart, char *family, char *dwrite, long long vwrite, c
  * @param charttype chart type
  * @param context   chart context
  * @param order     chart order
+ * @param module    chart module name, this is the eBPF thread.
  */
 void ebpf_write_chart_cmd(char *type, char *id, char *title, char *units, char *family,
-                          char *charttype, char *context, int order)
+                          char *charttype, char *context, int order, char *module)
 {
-    printf("CHART %s.%s '' '%s' '%s' '%s' '%s' '%s' %d %d\n",
+    printf("CHART %s.%s '' '%s' '%s' '%s' '%s' '%s' %d %d '' 'ebpf.plugin' '%s'\n",
            type,
            id,
            title,
@@ -397,7 +423,8 @@ void ebpf_write_chart_cmd(char *type, char *id, char *title, char *units, char *
            (context)?context:"",
            (charttype)?charttype:"",
            order,
-           update_every);
+           update_every,
+           module);
 }
 
 /**
@@ -472,6 +499,7 @@ void ebpf_create_global_dimension(void *ptr, int end)
  * @param ncd       a pointer to a function called to create dimensions
  * @param move      a pointer for a structure that has the dimensions
  * @param end       number of dimensions for the chart created
+ * @param module    chart module name, this is the eBPF thread.
  */
 void ebpf_create_chart(char *type,
                        char *id,
@@ -483,11 +511,14 @@ void ebpf_create_chart(char *type,
                        int order,
                        void (*ncd)(void *, int),
                        void *move,
-                       int end)
+                       int end,
+                       char *module)
 {
-    ebpf_write_chart_cmd(type, id, title, units, family, charttype, context, order);
+    ebpf_write_chart_cmd(type, id, title, units, family, charttype, context, order, module);
 
-    ncd(move, end);
+    if (ncd) {
+        ncd(move, end);
+    }
 }
 
 /**
@@ -501,12 +532,13 @@ void ebpf_create_chart(char *type,
  * @param order  the chart order
  * @param algorithm the algorithm used by dimension
  * @param root   structure used to create the dimensions.
+ * @param module    chart module name, this is the eBPF thread.
  */
 void ebpf_create_charts_on_apps(char *id, char *title, char *units, char *family, char *charttype, int order,
-                                char *algorithm, struct target *root)
+                                char *algorithm, struct target *root, char *module)
 {
     struct target *w;
-    ebpf_write_chart_cmd(NETDATA_APPS_FAMILY, id, title, units, family, charttype, NULL, order);
+    ebpf_write_chart_cmd(NETDATA_APPS_FAMILY, id, title, units, family, charttype, NULL, order, module);
 
     for (w = root; w; w = w->next) {
         if (unlikely(w->exposed))
@@ -692,12 +724,18 @@ void ebpf_print_help()
             "\n"
             " --filesystem or -i  Enable chart related to filesystem run time.\n"
             "\n"
+            " --hardirq or -q     Enable chart related to hard IRQ latency.\n"
+            "\n"
+            " --mount or -m       Enable charts related to mount monitoring.\n"
+            "\n"
             " --net or -n         Enable network viewer charts.\n"
             "\n"
             " --process or -p     Enable charts related to process run time.\n"
             "\n"
             " --return or -r      Run the collector in return mode.\n"
             "\n",
+            " --softirq or -t     Enable chart related to soft IRQ latency.\n"
+            "\n"
             " --sync or -s        Enable chart related to sync run time.\n"
             "\n"
             " --swap or -w        Enable chart related to swap run time.\n"
@@ -706,6 +744,87 @@ void ebpf_print_help()
             "\n"
             VERSION,
             (year >= 116) ? year + 1900 : 2020);
+}
+
+/*****************************************************************
+ *
+ *  TRACEPOINT MANAGEMENT FUNCTIONS
+ *
+ *****************************************************************/
+
+/**
+ * Enable a tracepoint.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ebpf_enable_tracepoint(ebpf_tracepoint_t *tp)
+{
+    int test = ebpf_is_tracepoint_enabled(tp->class, tp->event);
+
+    // err?
+    if (test == -1) {
+        return -1;
+    }
+    // disabled?
+    else if (test == 0) {
+        // enable it then.
+        if (ebpf_enable_tracing_values(tp->class, tp->event)) {
+            return -1;
+        }
+    }
+
+    // enabled now or already was.
+    tp->enabled = true;
+
+    return 0;
+}
+
+/**
+ * Disable a tracepoint if it's enabled.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int ebpf_disable_tracepoint(ebpf_tracepoint_t *tp)
+{
+    int test = ebpf_is_tracepoint_enabled(tp->class, tp->event);
+
+    // err?
+    if (test == -1) {
+        return -1;
+    }
+    // enabled?
+    else if (test == 1) {
+        // disable it then.
+        if (ebpf_disable_tracing_values(tp->class, tp->event)) {
+            return -1;
+        }
+    }
+
+    // disable now or already was.
+    tp->enabled = false;
+
+    return 0;
+}
+
+/**
+ * Enable multiple tracepoints on a list of tracepoints which end when the
+ * class is NULL.
+ *
+ * @return the number of successful enables.
+ */
+uint32_t ebpf_enable_tracepoints(ebpf_tracepoint_t *tps)
+{
+    uint32_t cnt = 0;
+    for (int i = 0; tps[i].class != NULL; i++) {
+        if (ebpf_enable_tracepoint(&tps[i]) == -1) {
+            infoerr("failed to enable tracepoint %s:%s",
+                tps[i].class, tps[i].event);
+        }
+        else {
+            cnt += 1;
+        }
+    }
+    return cnt;
 }
 
 /*****************************************************************
@@ -1021,6 +1140,34 @@ static void read_collector_values(int *disable_apps)
         started++;
     }
 
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "mount",
+                                    CONFIG_BOOLEAN_YES);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_MOUNT_IDX, *disable_apps);
+        started++;
+    }
+
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "fd",
+                                    CONFIG_BOOLEAN_YES);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_FD_IDX, *disable_apps);
+        started++;
+    }
+
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "hardirq",
+                                    CONFIG_BOOLEAN_YES);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_HARDIRQ_IDX, *disable_apps);
+        started++;
+    }
+
+    enabled = appconfig_get_boolean(&collector_config, EBPF_PROGRAMS_SECTION, "softirq",
+                                    CONFIG_BOOLEAN_YES);
+    if (enabled) {
+        ebpf_enable_chart(EBPF_MODULE_SOFTIRQ_IDX, *disable_apps);
+        started++;
+    }
+
     if (!started){
         ebpf_enable_all_charts(*disable_apps);
         // Read network viewer section
@@ -1099,20 +1246,24 @@ static void parse_args(int argc, char **argv)
     int freq = 0;
     int option_index = 0;
     static struct option long_options[] = {
-        {"help",       no_argument,    0,  'h' },
-        {"version",    no_argument,    0,  'v' },
-        {"global",     no_argument,    0,  'g' },
-        {"all",        no_argument,    0,  'a' },
-        {"cachestat",  no_argument,    0,  'c' },
-        {"dcstat",     no_argument,    0,  'd' },
-        {"disk",       no_argument,    0,  'k' },
-        {"filesystem", no_argument,    0,  'i' },
-        {"net",        no_argument,    0,  'n' },
-        {"process",    no_argument,    0,  'p' },
-        {"return",     no_argument,    0,  'r' },
-        {"sync",       no_argument,    0,  's' },
-        {"swap",       no_argument,    0,  'w' },
-        {"vfs",        no_argument,    0,  'f' },
+        {"help",           no_argument,    0,  'h' },
+        {"version",        no_argument,    0,  'v' },
+        {"global",         no_argument,    0,  'g' },
+        {"all",            no_argument,    0,  'a' },
+        {"cachestat",      no_argument,    0,  'c' },
+        {"dcstat",         no_argument,    0,  'd' },
+        {"disk",           no_argument,    0,  'k' },
+        {"filesystem",     no_argument,    0,  'i' },
+        {"filedescriptor", no_argument,    0,  'e' },
+        {"hardirq",        no_argument,    0,  'q' },
+        {"mount",          no_argument,    0,  'm' },
+        {"net",            no_argument,    0,  'n' },
+        {"process",        no_argument,    0,  'p' },
+        {"return",         no_argument,    0,  'r' },
+        {"softirq",        no_argument,    0,  't' },
+        {"sync",           no_argument,    0,  's' },
+        {"swap",           no_argument,    0,  'w' },
+        {"vfs",            no_argument,    0,  'f' },
         {0, 0, 0, 0}
     };
 
@@ -1127,7 +1278,7 @@ static void parse_args(int argc, char **argv)
     }
 
     while (1) {
-        int c = getopt_long(argc, argv, "hvgacdnprsw", long_options, &option_index);
+        int c = getopt_long(argc, argv, "hvgacdkieqmnprtswf", long_options, &option_index);
         if (c == -1)
             break;
 
@@ -1182,11 +1333,35 @@ static void parse_args(int argc, char **argv)
 #endif
                 break;
             }
+            case 'q': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_HARDIRQ_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info("EBPF enabling \"hardirq\" chart, because it was started with the option \"--hardirq\" or \"-q\".");
+#endif
+                break;
+            }
             case 'k': {
                 enabled = 1;
                 ebpf_enable_chart(EBPF_MODULE_DISK_IDX, disable_apps);
 #ifdef NETDATA_INTERNAL_CHECKS
                 info("EBPF enabling \"disk\" chart, because it was started with the option \"--disk\" or \"-k\".");
+#endif
+                break;
+            }
+            case 'm': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_MOUNT_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info("EBPF enabling \"mount\" chart, because it was started with the option \"--mount\" or \"-m\".");
+#endif
+                break;
+            }
+            case 'e': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_FD_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info("EBPF enabling \"filedescriptor\" chart, because it was started with the option \"--filedescriptor\" or \"-e\".");
 #endif
                 break;
             }
@@ -1211,6 +1386,14 @@ static void parse_args(int argc, char **argv)
                 ebpf_set_thread_mode(MODE_RETURN);
 #ifdef NETDATA_INTERNAL_CHECKS
                 info("EBPF running in \"return\" mode, because it was started with the option \"--return\" or \"-r\".");
+#endif
+                break;
+            }
+            case 't': {
+                enabled = 1;
+                ebpf_enable_chart(EBPF_MODULE_SOFTIRQ_IDX, disable_apps);
+#ifdef NETDATA_INTERNAL_CHECKS
+                info("EBPF enabling \"softirq\" chart, because it was started with the option \"--softirq\" or \"-t\".");
 #endif
                 break;
             }
@@ -1514,6 +1697,14 @@ int main(int argc, char **argv)
             NULL, NULL, ebpf_modules[EBPF_MODULE_FILESYSTEM_IDX].start_routine},
         {"EBPF DISK" , NULL, NULL, 1,
             NULL, NULL, ebpf_modules[EBPF_MODULE_DISK_IDX].start_routine},
+        {"EBPF MOUNT" , NULL, NULL, 1,
+            NULL, NULL, ebpf_modules[EBPF_MODULE_MOUNT_IDX].start_routine},
+        {"EBPF FD" , NULL, NULL, 1,
+             NULL, NULL, ebpf_modules[EBPF_MODULE_FD_IDX].start_routine},
+        {"EBPF HARDIRQ" , NULL, NULL, 1,
+            NULL, NULL, ebpf_modules[EBPF_MODULE_HARDIRQ_IDX].start_routine},
+        {"EBPF SOFTIRQ" , NULL, NULL, 1,
+            NULL, NULL, ebpf_modules[EBPF_MODULE_SOFTIRQ_IDX].start_routine},
         {NULL          , NULL, NULL, 0,
           NULL, NULL, NULL}
     };

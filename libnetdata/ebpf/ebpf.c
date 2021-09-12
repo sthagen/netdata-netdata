@@ -533,7 +533,7 @@ int ebpf_load_config(struct config *config, char *filename)
 
 static netdata_run_mode_t ebpf_select_mode(char *mode)
 {
-    if (!strcasecmp(mode, "return"))
+    if (!strcasecmp(mode,EBPF_CFG_LOAD_MODE_RETURN ))
         return MODE_RETURN;
     else if  (!strcasecmp(mode, "dev"))
         return MODE_DEVMODE;
@@ -541,9 +541,22 @@ static netdata_run_mode_t ebpf_select_mode(char *mode)
     return MODE_ENTRY;
 }
 
+static void ebpf_select_mode_string(char *output, size_t len, netdata_run_mode_t  sel)
+{
+    if (sel == MODE_RETURN)
+        strncpyz(output, EBPF_CFG_LOAD_MODE_RETURN, len);
+    else
+        strncpyz(output, EBPF_CFG_LOAD_MODE_DEFAULT, len);
+}
+
+/**
+ * @param modules   structure that will be updated
+ */
 void ebpf_update_module_using_config(ebpf_module_t *modules)
 {
-    char *mode = appconfig_get(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_LOAD_MODE, EBPF_CFG_LOAD_MODE_DEFAULT);
+    char default_value[EBPF_MAX_MODE_LENGTH + 1];
+    ebpf_select_mode_string(default_value, EBPF_MAX_MODE_LENGTH, modules->mode);
+    char *mode = appconfig_get(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_LOAD_MODE, default_value);
     modules->mode = ebpf_select_mode(mode);
 
     modules->update_time = (int)appconfig_get_number(modules->cfg, EBPF_GLOBAL_SECTION,

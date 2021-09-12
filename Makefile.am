@@ -57,7 +57,6 @@ dist_noinst_DATA = \
     contrib \
     docs \
     mqtt_websockets \
-    aclk/aclk-schemas \
     netdata.cppcheck \
     netdata.spec \
     package.json \
@@ -84,6 +83,8 @@ dist_noinst_DATA = \
     packaging/libwebsockets.version \
     packaging/mosquitto.checksums \
     packaging/mosquitto.version \
+    packaging/protobuf.checksums \
+    packaging/protobuf.version \
     packaging/version \
     $(NULL)
 
@@ -295,12 +296,20 @@ EBPF_PLUGIN_FILES = \
     collectors/ebpf.plugin/ebpf_dcstat.h \
     collectors/ebpf.plugin/ebpf_disk.c \
     collectors/ebpf.plugin/ebpf_disk.h \
+    collectors/ebpf.plugin/ebpf_fd.c \
+    collectors/ebpf.plugin/ebpf_fd.h \
     collectors/ebpf.plugin/ebpf_filesystem.c \
     collectors/ebpf.plugin/ebpf_filesystem.h \
+    collectors/ebpf.plugin/ebpf_hardirq.c \
+    collectors/ebpf.plugin/ebpf_hardirq.h \
+    collectors/ebpf.plugin/ebpf_mount.c \
+    collectors/ebpf.plugin/ebpf_mount.h \
     collectors/ebpf.plugin/ebpf_process.c \
     collectors/ebpf.plugin/ebpf_process.h \
     collectors/ebpf.plugin/ebpf_socket.c \
     collectors/ebpf.plugin/ebpf_socket.h \
+    collectors/ebpf.plugin/ebpf_softirq.c \
+    collectors/ebpf.plugin/ebpf_softirq.h \
     collectors/ebpf.plugin/ebpf_sync.c \
     collectors/ebpf.plugin/ebpf_sync.h \
     collectors/ebpf.plugin/ebpf_swap.c \
@@ -398,6 +407,8 @@ RRD_PLUGIN_FILES = \
     database/rrdvar.h \
     database/sqlite/sqlite_functions.c \
     database/sqlite/sqlite_functions.h \
+    database/sqlite/sqlite_aclk.c \
+    database/sqlite/sqlite_aclk.h \
     database/sqlite/sqlite3.c \
     database/sqlite/sqlite3.h \
     $(NULL)
@@ -565,6 +576,10 @@ ACLK_NG_FILES = \
     aclk/aclk_rx_msgs.h \
     aclk/https_client.c \
     aclk/https_client.h \
+    aclk/aclk_charts_api.c \
+    aclk/aclk_charts_api.h \
+    aclk/aclk_alarm_api.c \
+    aclk/aclk_alarm_api.h \
     mqtt_websockets/src/mqtt_wss_client.c \
     mqtt_websockets/src/include/mqtt_wss_client.h \
     mqtt_websockets/src/mqtt_wss_log.c \
@@ -582,9 +597,36 @@ ACLK_NG_FILES = \
     aclk/schema-wrappers/node_connection.h \
     aclk/schema-wrappers/node_creation.cc \
     aclk/schema-wrappers/node_creation.h \
+    aclk/schema-wrappers/chart_stream.cc \
+    aclk/schema-wrappers/chart_stream.h \
+    aclk/schema-wrappers/chart_config.cc \
+    aclk/schema-wrappers/chart_config.h \
+    aclk/schema-wrappers/alarm_stream.cc \
+    aclk/schema-wrappers/alarm_stream.h \
+    aclk/schema-wrappers/alarm_config.cc \
+    aclk/schema-wrappers/alarm_config.h \
+    aclk/schema-wrappers/node_info.cc \
+    aclk/schema-wrappers/node_info.h \
     aclk/schema-wrappers/schema_wrappers.h \
+    aclk/schema-wrappers/schema_wrapper_utils.cc \
     aclk/schema-wrappers/schema_wrapper_utils.h \
     $(NULL)
+
+ACLK_NG_PROTO_DEFINITIONS = \
+    aclk/aclk-schemas/proto/aclk/v1/lib.proto \
+    aclk/aclk-schemas/proto/agent/v1/connection.proto \
+    aclk/aclk-schemas/proto/alarm/v1/config.proto \
+    aclk/aclk-schemas/proto/alarm/v1/stream.proto \
+    aclk/aclk-schemas/proto/chart/v1/config.proto \
+    aclk/aclk-schemas/proto/chart/v1/dimension.proto \
+    aclk/aclk-schemas/proto/chart/v1/instance.proto \
+    aclk/aclk-schemas/proto/chart/v1/stream.proto \
+    aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.proto \
+    aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.proto \
+    aclk/aclk-schemas/proto/nodeinstance/info/v1/info.proto \
+    $(NULL)
+
+dist_noinst_DATA += $(ACLK_NG_PROTO_DEFINITIONS)
 
 ACLK_NG_PROTO_BUILT_FILES = aclk/aclk-schemas/proto/agent/v1/connection.pb.cc \
     aclk/aclk-schemas/proto/agent/v1/connection.pb.h \
@@ -592,10 +634,27 @@ ACLK_NG_PROTO_BUILT_FILES = aclk/aclk-schemas/proto/agent/v1/connection.pb.cc \
     aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.pb.h \
     aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.pb.cc \
     aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.pb.h \
+    aclk/aclk-schemas/proto/chart/v1/stream.pb.cc \
+    aclk/aclk-schemas/proto/chart/v1/stream.pb.h \
+    aclk/aclk-schemas/proto/chart/v1/instance.pb.cc \
+    aclk/aclk-schemas/proto/chart/v1/instance.pb.h \
+    aclk/aclk-schemas/proto/chart/v1/dimension.pb.cc \
+    aclk/aclk-schemas/proto/chart/v1/dimension.pb.h \
+    aclk/aclk-schemas/proto/chart/v1/config.pb.cc \
+    aclk/aclk-schemas/proto/chart/v1/config.pb.h \
+    aclk/aclk-schemas/proto/aclk/v1/lib.pb.cc \
+    aclk/aclk-schemas/proto/aclk/v1/lib.pb.h \
+    aclk/aclk-schemas/proto/alarm/v1/config.pb.cc \
+    aclk/aclk-schemas/proto/alarm/v1/config.pb.h \
+    aclk/aclk-schemas/proto/alarm/v1/stream.pb.cc \
+    aclk/aclk-schemas/proto/alarm/v1/stream.pb.h \
+    aclk/aclk-schemas/proto/nodeinstance/info/v1/info.pb.cc \
+    aclk/aclk-schemas/proto/nodeinstance/info/v1/info.pb.h \
     $(NULL)
 
 BUILT_SOURCES += $(ACLK_NG_PROTO_BUILT_FILES)
 nodist_netdata_SOURCES += $(ACLK_NG_PROTO_BUILT_FILES)
+CLEANFILES += $(ACLK_NG_PROTO_BUILT_FILES)
 
 aclk/aclk-schemas/proto/agent/v1/connection.pb.cc \
 aclk/aclk-schemas/proto/agent/v1/connection.pb.h: aclk/aclk-schemas/proto/agent/v1/connection.proto
@@ -607,6 +666,38 @@ aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.pb.h: aclk/aclk-sc
 
 aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.pb.cc \
 aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.pb.h: aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/chart/v1/stream.pb.cc \
+aclk/aclk-schemas/proto/chart/v1/stream.pb.h: aclk/aclk-schemas/proto/chart/v1/stream.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/chart/v1/instance.pb.cc \
+aclk/aclk-schemas/proto/chart/v1/instance.pb.h: aclk/aclk-schemas/proto/chart/v1/instance.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/chart/v1/dimension.pb.cc \
+aclk/aclk-schemas/proto/chart/v1/dimension.pb.h: aclk/aclk-schemas/proto/chart/v1/dimension.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/chart/v1/config.pb.cc \
+aclk/aclk-schemas/proto/chart/v1/config.pb.h: aclk/aclk-schemas/proto/chart/v1/config.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/aclk/v1/lib.pb.cc \
+aclk/aclk-schemas/proto/aclk/v1/lib.pb.h: aclk/aclk-schemas/proto/aclk/v1/lib.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/alarm/v1/config.pb.cc \
+aclk/aclk-schemas/proto/alarm/v1/config.pb.h: aclk/aclk-schemas/proto/alarm/v1/config.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/alarm/v1/stream.pb.cc \
+aclk/aclk-schemas/proto/alarm/v1/stream.pb.h: aclk/aclk-schemas/proto/alarm/v1/stream.proto
+	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
+
+aclk/aclk-schemas/proto/nodeinstance/info/v1/info.pb.cc \
+aclk/aclk-schemas/proto/nodeinstance/info/v1/info.pb.h: aclk/aclk-schemas/proto/nodeinstance/info/v1/info.proto
 	$(PROTOC) -I=aclk/aclk-schemas --cpp_out=$(builddir)/aclk/aclk-schemas $^
 
 endif #ACLK_NG
@@ -733,6 +824,8 @@ DAEMON_FILES = \
     daemon/main.h \
     daemon/signals.c \
     daemon/signals.h \
+    daemon/service.c \
+    daemon/service.h \
     daemon/commands.c \
     daemon/commands.h \
     daemon/unit_test.c \
@@ -821,15 +914,17 @@ netdata_LDADD = \
     $(NULL)
 
 if ACLK_NG
-    netdata_LDADD += $(OPTIONAL_PROTOBUF_LIBS)
+    netdata_LDADD += $(OPTIONAL_PROTOBUF_LIBS) \
+        $(OPTIONAL_ATOMIC_LIBS) \
+        $(NULL)
 endif
 
 if ACLK_LEGACY
-netdata_LDADD += \
-    $(abs_top_srcdir)/externaldeps/mosquitto/libmosquitto.a \
-    $(OPTIONAL_LWS_LIBS) \
-    $(OPTIONAL_LIBCAP_LIBS) \
-    $(NULL)
+    netdata_LDADD += \
+        $(abs_top_srcdir)/externaldeps/mosquitto/libmosquitto.a \
+        $(OPTIONAL_LWS_LIBS) \
+        $(OPTIONAL_LIBCAP_LIBS) \
+        $(NULL)
 endif #ACLK_LEGACY
 
 if ENABLE_CXX_LINKER

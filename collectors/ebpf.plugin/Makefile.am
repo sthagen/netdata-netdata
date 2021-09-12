@@ -35,9 +35,13 @@ dist_ebpfconfig_DATA = \
     ebpf.d/cachestat.conf \
     ebpf.d/dcstat.conf \
     ebpf.d/disk.conf \
+    ebpf.d/fd.conf \
     ebpf.d/filesystem.conf \
+    ebpf.d/hardirq.conf \
+    ebpf.d/mount.conf \
     ebpf.d/network.conf \
     ebpf.d/process.conf \
+    ebpf.d/softirq.conf \
     ebpf.d/sync.conf \
     ebpf.d/swap.conf \
     ebpf.d/vfs.conf \
