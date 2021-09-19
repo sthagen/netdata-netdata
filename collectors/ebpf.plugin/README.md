@@ -322,6 +322,10 @@ The eBPF collector enables and runs the following eBPF programs by default:
     time spent servicing individual hardware interrupt requests (hard IRQs).
 -   `softirq`: This eBPF program creates charts that show information about
     time spent servicing individual software interrupt requests (soft IRQs).
+-   `oomkill`: This eBPF program creates a chart that shows OOM kills for all
+    applications recognized via the `apps.plugin` integration. Note that this
+    program will show application charts regardless of whether apps integration
+    is turned on or off.
 
 You can also enable the following eBPF programs:
 -   `cachestat`: Netdata's eBPF data collector creates charts about the memory page cache. When the integration with
@@ -596,10 +600,5 @@ shows how the lockdown module impacts `ebpf.plugin` based on the selected option
 
 If you or your distribution compiled the kernel with the last combination, your system cannot load shared libraries
 required to run `ebpf.plugin`.
-
-## Cleaning `kprobe_events`
-The eBPF collector adds entries to the file `/sys/kernel/debug/tracing/kprobe_events`, and cleans them on exit, unless
-another process prevents it. If you need to clean the eBPF entries safely, you can manually run the script
-`/usr/libexec/netdata/plugins.d/reset_netdata_trace.sh`.
 
 [![analytics](https://www.google-analytics.com/collect?v=1&aip=1&t=pageview&_s=1&ds=github&dr=https%3A%2F%2Fgithub.com%2Fnetdata%2Fnetdata&dl=https%3A%2F%2Fmy-netdata.io%2Fgithub%2Fcollectors%2Febpf.plugin%2FREADME&_u=MAC~&cid=5792dfd7-8dc4-476b-af31-da2fdb9f93d2&tid=UA-64295674-3)](<>)

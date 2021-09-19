@@ -12,11 +12,9 @@
 
 #define NETDATA_APPS_FAMILY "apps"
 #define NETDATA_APPS_FILE_GROUP "file_access"
-#define NETDATA_APPS_VFS_GROUP "vfs (eBPF)"
 #define NETDATA_APPS_PROCESS_GROUP "process (eBPF)"
 #define NETDATA_APPS_NET_GROUP "net"
 #define NETDATA_APPS_CACHESTAT_GROUP "page cache (eBPF)"
-#define NETDATA_APPS_DCSTAT_GROUP "directory cache (eBPF)"
 
 #include "ebpf_process.h"
 #include "ebpf_dcstat.h"
@@ -26,6 +24,7 @@
 #include "ebpf_hardirq.h"
 #include "ebpf_cachestat.h"
 #include "ebpf_mount.h"
+#include "ebpf_oomkill.h"
 #include "ebpf_softirq.h"
 #include "ebpf_sync.h"
 #include "ebpf_swap.h"
@@ -419,6 +418,8 @@ extern int am_i_running_as_root();
 extern void cleanup_exited_pids();
 
 extern int ebpf_read_hash_table(void *ep, int fd, uint32_t pid);
+
+extern int get_pid_comm(pid_t pid, size_t n, char *dest);
 
 extern size_t read_processes_statistic_using_pid_on_target(ebpf_process_stat_t **ep,
                                                            int fd,
