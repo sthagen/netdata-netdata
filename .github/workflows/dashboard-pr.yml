@@ -8,7 +8,7 @@ on:
       dashboard_version:
         # This must be specified, and must _exactly_ match the version
         # tag for the release to be used for the update.
-        name: Dashboard Version
+        description: Dashboard Version
         required: true
 
 env:
@@ -21,13 +21,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Create Branch
-        # This is needed because we want to do a PR, and the commit
-        # action used below requires the branch it is commiting to to
-        # already exist.
-        run: |
-          git checkout -b dashboard-${{ github.event.inputs.dashboard_version }}
-          git push -u origin dashboard-${{ github.event.inputs.dashboard_version }}
       - name: Update Files
         run: |
           web/gui/bundle_dashboard.py ${{ github.event.inputs.dashboard_version }}
@@ -36,7 +29,7 @@ jobs:
         with:
           title: 'Update dashboard to version ${{ github.event.inputs.dashboard_version }}.'
           body: 'See https://github.com/netdata/dashboard/releases/tag/${{ github.event.inputs.dashboard_version }} for changes.'
-          branch: dashboard-${{ github.events.inputs.dashboard_version }}
+          branch: dashboard-${{ github.event.inputs.dashboard_version }}
           branch-suffix: timestamp
           delete-branch: true
           commit-message: 'Update dashboard to version ${{ github.event.inputs.dashboard_version }}.'
