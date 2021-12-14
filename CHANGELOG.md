@@ -1,5 +1,34 @@
 # Changelog
 
+## [v1.32.1](https://github.com/netdata/netdata/tree/v1.32.1) (2021-12-14)
+
+[Full Changelog](https://github.com/netdata/netdata/compare/v1.32.0...v1.32.1)
+
+**Merged pull requests:**
+
+- Clean up anomaly-detection guide docs [\#11901](https://github.com/netdata/netdata/pull/11901) ([andrewm4894](https://github.com/andrewm4894))
+- Use the chart id instead of chart name in response to incoming cloud context queries [\#11898](https://github.com/netdata/netdata/pull/11898) ([stelfrag](https://github.com/stelfrag))
+- Moved data privacy section into a separate topic [\#11889](https://github.com/netdata/netdata/pull/11889) ([kickoke](https://github.com/kickoke))
+- Fixed formatting issues. [\#11888](https://github.com/netdata/netdata/pull/11888) ([kickoke](https://github.com/kickoke))
+- Fix postdrop handling for systemd systems. [\#11885](https://github.com/netdata/netdata/pull/11885) ([Ferroin](https://github.com/Ferroin))
+- Minor ACLK docu updates [\#11882](https://github.com/netdata/netdata/pull/11882) ([underhood](https://github.com/underhood))
+- Adds Swagger docs for new `/api/v1/aclk` endpoint [\#11881](https://github.com/netdata/netdata/pull/11881) ([underhood](https://github.com/underhood))
+- fix\(updater\): don't produce output when static update succeeded [\#11879](https://github.com/netdata/netdata/pull/11879) ([ilyam8](https://github.com/ilyam8))
+- fix\(updater\): fix exit code when updating static install && updater script [\#11873](https://github.com/netdata/netdata/pull/11873) ([ilyam8](https://github.com/ilyam8))
+- add z score alarm example [\#11871](https://github.com/netdata/netdata/pull/11871) ([andrewm4894](https://github.com/andrewm4894))
+- fix\(health\): used\_swap alarm calc [\#11868](https://github.com/netdata/netdata/pull/11868) ([ilyam8](https://github.com/ilyam8))
+- Initialize enabled parameter to 1 in AlarmLogHealth message [\#11856](https://github.com/netdata/netdata/pull/11856) ([MrZammler](https://github.com/MrZammler))
+- Explicitly conflict with distro netdata DEB packages. [\#11855](https://github.com/netdata/netdata/pull/11855) ([Ferroin](https://github.com/Ferroin))
+- fixed username for not-local users [\#11854](https://github.com/netdata/netdata/pull/11854) ([scatenag](https://github.com/scatenag))
+- fix static build, curl will be staict binary; extra args can be transfer [\#11852](https://github.com/netdata/netdata/pull/11852) ([boxjan](https://github.com/boxjan))
+- Create ML README.md [\#11848](https://github.com/netdata/netdata/pull/11848) ([andrewm4894](https://github.com/andrewm4894))
+- Fix token name in release draft workflow. [\#11847](https://github.com/netdata/netdata/pull/11847) ([Ferroin](https://github.com/Ferroin))
+- Bump static builds to use Alpine 3.15 as a base. [\#11836](https://github.com/netdata/netdata/pull/11836) ([Ferroin](https://github.com/Ferroin))
+- Detect whether libatomic should be linked in when using CXX linker. [\#11818](https://github.com/netdata/netdata/pull/11818) ([vkalintiris](https://github.com/vkalintiris))
+- Make netdata-updater.sh POSIX compliant. [\#11755](https://github.com/netdata/netdata/pull/11755) ([Ferroin](https://github.com/Ferroin))
+- Remove Fedora 33 from CI. [\#11640](https://github.com/netdata/netdata/pull/11640) ([Ferroin](https://github.com/Ferroin))
+- Remove OpenSUSE Leap 15.2 from CI. [\#11600](https://github.com/netdata/netdata/pull/11600) ([Ferroin](https://github.com/Ferroin))
+
 ## [v1.32.0](https://github.com/netdata/netdata/tree/v1.32.0) (2021-11-30)
 
 [Full Changelog](https://github.com/netdata/netdata/compare/v1.31.0...v1.32.0)
@@ -156,7 +185,6 @@
 - add proc\_net\_sockstat and sockstat6 charts info [\#11567](https://github.com/netdata/netdata/pull/11567) ([ilyam8](https://github.com/ilyam8))
 - Disable eBPF compilation in different platforms [\#11566](https://github.com/netdata/netdata/pull/11566) ([thiagoftsm](https://github.com/thiagoftsm))
 - add proc\_net\_snmp6 charts info [\#11565](https://github.com/netdata/netdata/pull/11565) ([ilyam8](https://github.com/ilyam8))
-- add proc\_net\_sctp\_snmp charts info [\#11564](https://github.com/netdata/netdata/pull/11564) ([ilyam8](https://github.com/ilyam8))
 - eBPF Shared Memory system call tracking [\#11560](https://github.com/netdata/netdata/pull/11560) ([UmanShahzad](https://github.com/UmanShahzad))
 - Add shared memory to cgroup [\#11559](https://github.com/netdata/netdata/pull/11559) ([thiagoftsm](https://github.com/thiagoftsm))
 - End of support for Ubuntu 16.04 [\#11556](https://github.com/netdata/netdata/pull/11556) ([Ferroin](https://github.com/Ferroin))
