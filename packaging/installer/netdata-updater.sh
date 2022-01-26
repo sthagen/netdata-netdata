@@ -38,6 +38,14 @@ else
   script_source="${script_dir}/netdata-updater.sh"
 fi
 
+PATH="${PATH}:/usr/local/bin:/usr/local/sbin"
+
+if [ ! -t 1 ]; then
+  INTERACTIVE=0
+else
+  INTERACTIVE=1
+fi
+
 info() {
   echo >&3 "$(date) : INFO: " "${@}"
 }
@@ -60,11 +68,15 @@ if [ "${ENVIRONMENT_FILE}" = "THIS_SHOULD_BE_REPLACED_BY_INSTALLER_SCRIPT" ]; th
     if [ -r "${envpath}" ]; then
       ENVIRONMENT_FILE="${envpath}"
     else
-      error "Cannot find environment file, unable to update."
-      exit 1
+      fatal "Cannot find environment file, unable to update."
     fi
   fi
 fi
+
+str_in_list() {
+  printf "%s\n" "${2}" | tr ' ' "\n" | grep -qE "^${1}\$"
+  return $?
+}
 
 safe_sha256sum() {
   # Within the context of the installer, we only use -c option that is common between the two commands
@@ -181,10 +193,6 @@ get_netdata_latest_tag() {
     fatal "I need curl or wget to proceed, but neither of them are available on this system."
   fi
 
-  if echo "${tag}" | grep -vEq "^v[0-9]+\..+"; then
-    fatal "Cannot download latest stable tag from ${url}"
-  fi
-
   echo "${tag}" >"${dest}"
 }
 
@@ -261,33 +269,18 @@ get_latest_version() {
   fi
 }
 
-set_tarball_urls() {
-  extension="tar.gz"
+update_available() {
+  basepath="$(dirname "$(dirname "$(dirname "${NETDATA_LIB_DIR}")")")"
+  searchpath="${basepath}/bin:${basepath}/sbin:${basepath}/usr/bin:${basepath}/usr/sbin:${PATH}"
+  searchpath="${basepath}/netdata/bin:${basepath}/netdata/sbin:${basepath}/netdata/usr/bin:${basepath}/netdata/usr/sbin:${searchpath}"
+  ndbinary="$(PATH="${searchpath}" command -v netdata 2>/dev/null)"
 
-  if [ "$2" = "yes" ]; then
-    extension="gz.run"
-  fi
-
-  if [ "$1" = "stable" ]; then
-    latest="$(get_netdata_latest_tag /dev/stdout)"
-    export NETDATA_TARBALL_URL="https://github.com/netdata/netdata/releases/download/$latest/netdata-$latest.${extension}"
-    export NETDATA_TARBALL_CHECKSUM_URL="https://github.com/netdata/netdata/releases/download/$latest/sha256sums.txt"
+  if [ -z "${ndbinary}" ]; then
+    current_version=0
   else
-    export NETDATA_TARBALL_URL="$NETDATA_NIGHTLIES_BASEURL/netdata-latest.${extension}"
-    export NETDATA_TARBALL_CHECKSUM_URL="$NETDATA_NIGHTLIES_BASEURL/sha256sums.txt"
+    current_version="$(parse_version "$(${ndbinary} -v | cut -f 2 -d ' ')")"
   fi
-}
 
-update() {
-  [ -z "${logfile}" ] && info "Running on a terminal - (this script also supports running headless from crontab)"
-
-  RUN_INSTALLER=0
-  ndtmpdir=$(create_tmp_directory)
-  cd "$ndtmpdir" || exit 1
-
-  download "${NETDATA_TARBALL_CHECKSUM_URL}" "${ndtmpdir}/sha256sum.txt" >&3 2>&3
-
-  current_version="$(command -v netdata > /dev/null && parse_version "$(netdata -v | cut -f 2 -d ' ')")"
   latest_tag="$(get_latest_version)"
   latest_version="$(parse_version "${latest_tag}")"
   path_version="$(echo "${latest_tag}" | cut -f 1 -d "-")"
@@ -303,19 +296,52 @@ update() {
 
   if [ "${latest_version}" -gt 0 ] && [ "${current_version}" -gt 0 ] && [ "${current_version}" -ge "${latest_version}" ]; then
     info "Newest version (current=${current_version} >= latest=${latest_version}) is already installed"
-  elif [ -n "${NETDATA_TARBALL_CHECKSUM}" ] && grep "${NETDATA_TARBALL_CHECKSUM}" sha256sum.txt >&3 2>&3; then
-    info "Newest version is already installed"
+    return 1
   else
+    info "Update available"
+    return 0
+  fi
+}
+
+set_tarball_urls() {
+  extension="tar.gz"
+
+  if [ "$2" = "yes" ]; then
+    extension="gz.run"
+  fi
+
+  if [ "$1" = "stable" ]; then
+    latest="$(get_netdata_latest_tag /dev/stdout)"
+    export NETDATA_TARBALL_URL="https://github.com/netdata/netdata/releases/download/$latest/netdata-latest.${extension}"
+    export NETDATA_TARBALL_CHECKSUM_URL="https://github.com/netdata/netdata/releases/download/$latest/sha256sums.txt"
+  else
+    export NETDATA_TARBALL_URL="$NETDATA_NIGHTLIES_BASEURL/netdata-latest.${extension}"
+    export NETDATA_TARBALL_CHECKSUM_URL="$NETDATA_NIGHTLIES_BASEURL/sha256sums.txt"
+  fi
+}
+
+update_build() {
+  [ -z "${logfile}" ] && info "Running on a terminal - (this script also supports running headless from crontab)"
+
+  RUN_INSTALLER=0
+  ndtmpdir=$(create_tmp_directory)
+  cd "$ndtmpdir" || exit 1
+
+  if update_available; then
+    download "${NETDATA_TARBALL_CHECKSUM_URL}" "${ndtmpdir}/sha256sum.txt" >&3 2>&3
     download "${NETDATA_TARBALL_URL}" "${ndtmpdir}/netdata-latest.tar.gz"
-    if ! grep netdata-latest.tar.gz sha256sum.txt | safe_sha256sum -c - >&3 2>&3; then
-      fatal "Tarball checksum validation failed. Stopping netdata upgrade and leaving tarball in ${ndtmpdir}\nUsually this is a result of an older copy of the tarball or checksum file being cached somewhere upstream and can be resolved by retrying in an hour."
+    if [ -n "${NETDATA_TARBALL_CHECKSUM}" ] && grep "${NETDATA_TARBALL_CHECKSUM}" sha256sum.txt >&3 2>&3; then
+      info "Newest version is already installed"
+    else
+      if ! grep netdata-latest.tar.gz sha256sum.txt | safe_sha256sum -c - >&3 2>&3; then
+        fatal "Tarball checksum validation failed. Stopping netdata upgrade and leaving tarball in ${ndtmpdir}\nUsually this is a result of an older copy of the tarball or checksum file being cached somewhere upstream and can be resolved by retrying in an hour."
+      fi
+      NEW_CHECKSUM="$(safe_sha256sum netdata-latest.tar.gz 2> /dev/null | cut -d' ' -f1)"
+      tar -xf netdata-latest.tar.gz >&3 2>&3
+      rm netdata-latest.tar.gz >&3 2>&3
+      cd "$(find . -maxdepth 1 -name "netdata-${path_version}*" | head -n 1)" || exit 1
+      RUN_INSTALLER=1
     fi
-    NEW_CHECKSUM="$(safe_sha256sum netdata-latest.tar.gz 2> /dev/null | cut -d' ' -f1)"
-    tar -xf netdata-latest.tar.gz >&3 2>&3
-    rm netdata-latest.tar.gz >&3 2>&3
-    cd "$(find . -maxdepth 1 -name "netdata-${path_version}*" | head -n 1)" || exit 1
-    RUN_INSTALLER=1
-    cd "${NETDATA_LOCAL_TARBALL_OVERRIDE}" || exit 1
   fi
 
   # We got the sources, run the update now
@@ -325,7 +351,8 @@ update() {
     possible_pids=$(pidof netdata)
     do_not_start=
     if [ -n "${possible_pids}" ]; then
-      kill -USR1 "${possible_pids}"
+      # shellcheck disable=SC2086
+      kill -USR1 ${possible_pids}
     else
       # netdata is currently not running, so do not start it after updating
       do_not_start="--dont-start-it"
@@ -367,6 +394,175 @@ update() {
   return 0
 }
 
+update_static() {
+  ndtmpdir="$(create_tmp_directory)"
+  PREVDIR="$(pwd)"
+
+  info "Entering ${ndtmpdir}"
+  cd "${ndtmpdir}" || exit 1
+
+  if update_available; then
+    sysarch="$(uname -m)"
+    download "${NETDATA_TARBALL_CHECKSUM_URL}" "${ndtmpdir}/sha256sum.txt"
+    download "${NETDATA_TARBALL_URL}" "${ndtmpdir}/netdata-${sysarch}-latest.gz.run"
+    if ! grep "netdata-${sysarch}-latest.gz.run" "${ndtmpdir}/sha256sum.txt" | safe_sha256sum -c - > /dev/null 2>&1; then
+      fatal "Static binary checksum validation failed. Stopping netdata installation and leaving binary in ${ndtmpdir}\nUsually this is a result of an older copy of the file being cached somewhere and can be resolved by simply retrying in an hour."
+    fi
+
+    if [ -e /opt/netdata/etc/netdata/.install-type ] ; then
+      install_type="$(cat /opt/netdata/etc/netdata/.install-type)"
+    else
+      install_type="INSTALL_TYPE='legacy-static'"
+    fi
+
+    # Do not pass any options other than the accept, for now
+    # shellcheck disable=SC2086
+    if sh "${ndtmpdir}/netdata-${sysarch}-latest.gz.run" --accept -- ${REINSTALL_OPTIONS}; then
+      rm -r "${ndtmpdir}"
+    else
+      info "NOTE: did not remove: ${ndtmpdir}"
+    fi
+
+    echo "${install_type}" > /opt/netdata/etc/netdata/.install-type
+  fi
+
+  if [ -e "${PREVDIR}" ]; then
+    info "Switching back to ${PREVDIR}"
+    cd "${PREVDIR}"
+  fi
+  [ -n "${logfile}" ] && rm "${logfile}" && logfile=
+  exit 0
+}
+
+update_binpkg() {
+  os_release_file=
+  if [ -s "/etc/os-release" ] && [ -r "/etc/os-release" ]; then
+    os_release_file="/etc/os-release"
+  elif [ -s "/usr/lib/os-release" ] && [ -r "/usr/lib/os-release" ]; then
+    os_release_file="/usr/lib/os-release"
+  else
+    fatal "Cannot find an os-release file ..." F0401
+  fi
+
+  # shellcheck disable=SC1090
+  . "${os_release_file}"
+
+  DISTRO="${ID}"
+
+  supported_compat_names="debian ubuntu centos fedora opensuse"
+
+  if str_in_list "${DISTRO}" "${supported_compat_names}"; then
+    DISTRO_COMPAT_NAME="${DISTRO}"
+  else
+    case "${DISTRO}" in
+      opensuse-leap)
+        DISTRO_COMPAT_NAME="opensuse"
+        ;;
+      rhel)
+        DISTRO_COMPAT_NAME="centos"
+        ;;
+      *)
+        DISTRO_COMPAT_NAME="unknown"
+        ;;
+    esac
+  fi
+
+  if [ "${INTERACTIVE}" = "0" ]; then
+    interactive_opts="-y"
+    env="DEBIAN_FRONTEND=noninteractive"
+  else
+    interactive_opts=""
+    env=""
+  fi
+
+  case "${DISTRO_COMPAT_NAME}" in
+    debian)
+      pm_cmd="apt-get"
+      repo_subcmd="update"
+      upgrade_cmd="upgrade"
+      pkg_install_opts="${interactive_opts}"
+      repo_update_opts="${interactive_opts}"
+      pkg_installed_check="dpkg -l"
+      INSTALL_TYPE="binpkg-deb"
+      ;;
+    ubuntu)
+      pm_cmd="apt-get"
+      repo_subcmd="update"
+      upgrade_cmd="upgrade"
+      pkg_install_opts="${interactive_opts}"
+      repo_update_opts="${interactive_opts}"
+      pkg_installed_check="dpkg -l"
+      INSTALL_TYPE="binpkg-deb"
+      ;;
+    centos)
+      if command -v dnf > /dev/null; then
+        pm_cmd="dnf"
+        repo_subcmd="makecache"
+      else
+        pm_cmd="yum"
+      fi
+      upgrade_cmd="upgrade"
+      pkg_install_opts="${interactive_opts}"
+      repo_update_opts="${interactive_opts}"
+      pkg_installed_check="rpm -q"
+      INSTALL_TYPE="binpkg-rpm"
+      ;;
+    fedora)
+      if command -v dnf > /dev/null; then
+        pm_cmd="dnf"
+        repo_subcmd="makecache"
+      else
+        pm_cmd="yum"
+      fi
+      upgrade_cmd="upgrade"
+      pkg_install_opts="${interactive_opts}"
+      repo_update_opts="${interactive_opts}"
+      pkg_installed_check="rpm -q"
+      INSTALL_TYPE="binpkg-rpm"
+      ;;
+    opensuse)
+      pm_cmd="zypper"
+      repo_subcmd="--gpg-auto-import-keys refresh"
+      upgrade_cmd="upgrade"
+      pkg_install_opts="${interactive_opts} --allow-unsigned-rpm"
+      repo_update_opts=""
+      pkg_installed_check="rpm -q"
+      INSTALL_TYPE="binpkg-rpm"
+      ;;
+    *)
+      warning "We do not provide native packages for ${DISTRO}."
+      return 2
+      ;;
+  esac
+
+  if [ -n "${repo_subcmd}" ]; then
+    # shellcheck disable=SC2086
+    env ${env} ${pm_cmd} ${repo_subcmd} ${repo_update_opts} || fatal "Failed to update repository metadata."
+  fi
+
+  for repopkg in netdata-repo netdata-repo-edge; do
+    if ${pkg_installed_check} ${repopkg} > /dev/null 2>&1; then
+      # shellcheck disable=SC2086
+      env ${env} ${pm_cmd} ${upgrade_cmd} ${pkg_install_opts} ${repopkg} || fatal "Failed to update Netdata repository config."
+      # shellcheck disable=SC2086
+      env ${env} ${pm_cmd} ${repo_subcmd} ${repo_update_opts} || fatal "Failed to update repository metadata."
+    fi
+  done
+
+  # shellcheck disable=SC2086
+  env ${env} ${pm_cmd} ${upgrade_cmd} ${pkg_install_opts} netdata || fatal "Failed to update Netdata package."
+}
+
+# Simple function to encapsulate original updater behavior.
+update_legacy() {
+  set_tarball_urls "${RELEASE_CHANNEL}" "${IS_NETDATA_STATIC_BINARY}"
+  if [ "${IS_NETDATA_STATIC_BINARY}" = "yes" ]; then
+    update_static && exit 0
+  else
+    update_build && exit 0
+  fi
+}
+
 logfile=
 ndtmpdir=
 
@@ -402,6 +598,11 @@ fi
 # shellcheck source=/dev/null
 . "${ENVIRONMENT_FILE}" || exit 1
 
+if [ -f "$(dirname "${ENVIRONMENT_FILE}")/.install-type" ]; then
+  # shellcheck source=/dev/null
+  . "$(dirname "${ENVIRONMENT_FILE}")/.install-type" || exit 1
+fi
+
 # We dont expect to find lib dir variable on older installations, so load this path if none found
 export NETDATA_LIB_DIR="${NETDATA_LIB_DIR:-${NETDATA_PREFIX}/var/lib/netdata}"
 
@@ -429,44 +630,35 @@ fi
 
 self_update
 
-set_tarball_urls "${RELEASE_CHANNEL}" "${IS_NETDATA_STATIC_BINARY}"
-
-if [ "${IS_NETDATA_STATIC_BINARY}" = "yes" ]; then
-  ndtmpdir="$(create_tmp_directory)"
-  PREVDIR="$(pwd)"
-
-  info "Entering ${ndtmpdir}"
-  cd "${ndtmpdir}" || exit 1
-
-  download "${NETDATA_TARBALL_CHECKSUM_URL}" "${ndtmpdir}/sha256sum.txt"
-  download "${NETDATA_TARBALL_URL}" "${ndtmpdir}/netdata-latest.gz.run"
-  if ! grep netdata-latest.gz.run "${ndtmpdir}/sha256sum.txt" | safe_sha256sum -c - > /dev/null 2>&1; then
-    fatal "Static binary checksum validation failed. Stopping netdata installation and leaving binary in ${ndtmpdir}\nUsually this is a result of an older copy of the file being cached somewhere and can be resolved by simply retrying in an hour."
-  fi
-
-  if [ -e /opt/netdata/etc/netdata/.install-type ] ; then
-    install_type="$(cat /opt/netdata/etc/netdata/.install-type)"
-  else
-    install_type="INSTALL_TYPE='legacy-static'"
-  fi
-
-  # Do not pass any options other than the accept, for now
-  # shellcheck disable=SC2086
-  if sh "${ndtmpdir}/netdata-latest.gz.run" --accept -- ${REINSTALL_OPTIONS} >&3 2>&3; then
-    rm -rf "${ndtmpdir}" >&3 2>&3
-  else
-    info "NOTE: did not remove: ${ndtmpdir}"
-  fi
-
-  echo "${install_type}" > /opt/netdata/etc/netdata/.install-type
-
-  if [ -e "${PREVDIR}" ]; then
-    info "Switching back to ${PREVDIR}"
-    cd "${PREVDIR}"
-  fi
-  [ -n "${logfile}" ] && rm "${logfile}" && logfile=
-  exit 0
-else
-  # the installer updates this script - so we run and exit in a single line
-  update && exit 0
-fi
+# shellcheck disable=SC2153
+case "${INSTALL_TYPE}" in
+    *-build)
+      set_tarball_urls "${RELEASE_CHANNEL}" "${IS_NETDATA_STATIC_BINARY}"
+      update_build && exit 0
+      ;;
+    *-static*)
+      set_tarball_urls "${RELEASE_CHANNEL}" "${IS_NETDATA_STATIC_BINARY}"
+      update_static && exit 0
+      ;;
+    *binpkg*)
+      update_binpkg && exit 0
+      ;;
+    "") # Fallback case for no `.install-type` file. This just works like the old install type detection.
+      update_legacy
+      ;;
+    custom)
+      # At this point, we _should_ have a valid `.environment` file, but it0s best to just check.
+      # If we do, then behave like the legacy updater.
+      if [ -n "${RELEASE_CHANNEL}" ] && [ -n "${NETDATA_PREFIX}" ] && [ -n "${REINSTALL_OPTIONS}" ]; then
+        update_legacy
+      else
+        fatal "This script does not support updating custom installations."
+      fi
+      ;;
+    oci)
+      fatal "This script does not support updating Netdata inside our official Docker containers, please instead update the container itself."
+      ;;
+    *)
+      fatal "Unrecognized installation type (${INSTALL_TYPE}), unable to update."
+      ;;
+esac

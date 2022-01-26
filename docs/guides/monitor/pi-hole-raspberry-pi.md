@@ -100,7 +100,7 @@ part of your system might affect another.
 action](https://user-images.githubusercontent.com/1153921/80827388-b9fee100-8b98-11ea-8f60-0d7824667cd3.gif)
 
 If you're completely new to Netdata, look at our [step-by-step guide](/docs/guides/step-by-step/step-00.md) for a
-walkthrough of all its features. For a more expedited tour, see the [get started guide](/docs/getting-started.md).
+walkthrough of all its features. For a more expedited tour, see the [get started guide](/docs/get-started.md).
 
 ### Enable temperature sensor monitoring
 
@@ -137,7 +137,7 @@ more than 256.
 ```
 
 Use our [database sizing
-calculator](/docs/store/change-metrics-storage.md#calculate-the-system-resources-RAM-disk-space-needed-to-store-metrics)
+calculator](/docs/store/change-metrics-storage.md#calculate-the-system-resources-ram-disk-space-needed-to-store-metrics)
 and [guide on storing historical metrics](/docs/guides/longer-metrics-storage.md) to help you determine the right
 setting for your Raspberry Pi.
 

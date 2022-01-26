@@ -382,7 +382,19 @@ RRDHOST *rrdhost_create(const char *hostname,
         else localhost = host;
     }
 
+    // ------------------------------------------------------------------------
+    // init new ML host and update system_info to let upstreams know
+    // about ML functionality
+
     ml_new_host(host);
+    if (is_localhost && host->system_info) {
+#ifndef ENABLE_ML
+        host->system_info->ml_capable = 0;
+#else
+        host->system_info->ml_capable = 1;
+#endif
+        host->system_info->ml_enabled = host->ml_host != NULL;
+    }
 
     info("Host '%s' (at registry as '%s') with guid '%s' initialized"
                  ", os '%s'"
@@ -839,6 +851,10 @@ void rrdhost_free(RRDHOST *host) {
     rrdpush_sender_thread_stop(host); // stop a possibly running thread
     cbuffer_free(host->sender->buffer);
     buffer_free(host->sender->build);
+#ifdef ENABLE_COMPRESSION
+    if (host->sender->compressor)
+        host->sender->compressor->destroy(&host->sender->compressor);
+#endif
     freez(host->sender);
     host->sender = NULL;
     if (netdata_exit) {
@@ -938,6 +954,7 @@ void rrdhost_free(RRDHOST *host) {
 
     pthread_mutex_destroy(&host->aclk_state_lock);
     freez(host->aclk_state.claimed_id);
+    freez(host->aclk_state.prev_claimed_id);
     freez((void *)host->tags);
     free_label_list(host->labels.head);
     freez((void *)host->os);

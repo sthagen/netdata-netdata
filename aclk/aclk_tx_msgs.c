@@ -147,7 +147,11 @@ static void aclk_send_message_with_bin_payload(mqtt_wss_client client, json_obje
     json_object_to_file_ext(filename, msg, JSON_C_TO_STRING_PRETTY);
 #endif */
 
-    mqtt_wss_publish_pid(client, topic, full_msg, len,  MQTT_WSS_PUB_QOS1, &packet_id);
+    int rc = mqtt_wss_publish_pid_block(client, topic, full_msg, len,  MQTT_WSS_PUB_QOS1, &packet_id, 5000);
+    if (rc == MQTT_WSS_ERR_BLOCK_TIMEOUT)
+        error("Timeout sending binpacked message");
+    if (rc == MQTT_WSS_ERR_TX_BUF_TOO_SMALL)
+        error("Message is bigger than allowed maximum");
 #ifdef NETDATA_INTERNAL_CHECKS
     aclk_stats_msg_published(packet_id);
 #endif
@@ -188,7 +192,7 @@ static struct json_object *create_hdr(const char *type, const char *msg_id, time
 
 // TODO handle this somehow on older json-c
 //    tmp = json_object_new_uint64(ts_us);
-// probably jso->_to_json_strinf -> custom function
+// probably jso->_to_json_string -> custom function
 //          jso->o.c_uint64 -> map this with pointer to signed int
 // commit that implements json_object_new_uint64 is 3c3b592
 // between 0.14 and 0.15
@@ -420,7 +424,10 @@ uint16_t aclk_send_agent_connection_update(mqtt_wss_client client, int reachable
         rrdhost_aclk_state_unlock(localhost);
         return 0;
     }
-    conn.claim_id = localhost->aclk_state.claimed_id;
+    if (localhost->aclk_state.prev_claimed_id)
+        conn.claim_id = localhost->aclk_state.prev_claimed_id;
+    else
+        conn.claim_id = localhost->aclk_state.claimed_id;
 
     char *msg = generate_update_agent_connection(&len, &conn);
     rrdhost_aclk_state_unlock(localhost);
@@ -432,6 +439,10 @@ uint16_t aclk_send_agent_connection_update(mqtt_wss_client client, int reachable
 
     pid = aclk_send_bin_message_subtopic_pid(client, msg, len, ACLK_TOPICID_AGENT_CONN, "UpdateAgentConnection");
     freez(msg);
+    if (localhost->aclk_state.prev_claimed_id) {
+        freez(localhost->aclk_state.prev_claimed_id);
+        localhost->aclk_state.prev_claimed_id = NULL;
+    }
     return pid;
 }
 

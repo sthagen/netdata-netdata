@@ -121,7 +121,7 @@ static int wait_till_agent_claimed(void)
  * agent claimed, cloud url set and private key available
  * 
  * @param aclk_hostname points to location where string pointer to hostname will be set
- * @param ackl_port port to int where port will be saved
+ * @param aclk_port port to int where port will be saved
  * 
  * @return If non 0 returned irrecoverable error happened and ACLK should be terminated
  */
@@ -212,7 +212,7 @@ static void msg_callback_old_protocol(const char *topic, const void *msg, size_t
     close(logfd);
 #endif
 
-    debug(D_ACLK, "Got Message From Broker Topic \"%s\" QOS %d MSG: \"%s\"", topic, qos, cmsg);
+    debug(D_ACLK, "Got Message From Broker Topic \"%s\" QoS %d MSG: \"%s\"", topic, qos, cmsg);
 
     if (strcmp(cmd_topic, topic))
         error("Received message on unexpected topic %s", topic);
@@ -222,7 +222,7 @@ static void msg_callback_old_protocol(const char *topic, const void *msg, size_t
         return;
     }
 
-    aclk_handle_cloud_message(cmsg);
+    aclk_handle_cloud_cmd_message(cmsg);
 }
 
 #ifdef ENABLE_NEW_CLOUD_PROTOCOL
@@ -303,7 +303,7 @@ static int read_query_thread_count()
 
 void aclk_graceful_disconnect(mqtt_wss_client client);
 
-/* Keeps connection alive and handles all network comms.
+/* Keeps connection alive and handles all network communications.
  * Returns on error or when netdata is shutting down.
  * @param client instance of mqtt_wss_client
  * @returns  0 - Netdata Exits
@@ -320,7 +320,7 @@ static int handle_connection(mqtt_wss_client client)
             return 1;
         }
 
-        if (disconnect_req) {
+        if (disconnect_req || aclk_kill_link) {
             disconnect_req = 0;
             aclk_graceful_disconnect(client);
             aclk_queue_unlock();
@@ -763,6 +763,10 @@ void *aclk_main(void *ptr)
         return NULL;
     }
 
+#ifdef ENABLE_NEW_CLOUD_PROTOCOL
+    aclk_init_rx_msg_handlers();
+#endif
+
     // This thread is unusual in that it cannot be cancelled by cancel_main_threads()
     // as it must notify the far end that it shutdown gracefully and avoid the LWT.
     netdata_thread_disable_cancelability();
@@ -859,7 +863,7 @@ exit:
 // fix this in both old and new ACLK
 extern void health_alarm_entry2json_nolock(BUFFER *wb, ALARM_ENTRY *ae, RRDHOST *host);
 
-void ng_aclk_alarm_reload(void)
+void aclk_alarm_reload(void)
 {
     ACLK_SHARED_STATE_LOCK;
     if (unlikely(aclk_shared_state.agent_state == ACLK_HOST_INITIALIZING)) {
@@ -871,7 +875,7 @@ void ng_aclk_alarm_reload(void)
     aclk_queue_query(aclk_query_new(METADATA_ALARMS));
 }
 
-int ng_aclk_update_alarm(RRDHOST *host, ALARM_ENTRY *ae)
+int aclk_update_alarm(RRDHOST *host, ALARM_ENTRY *ae)
 {
     BUFFER *local_buffer;
     json_object *msg;
@@ -902,7 +906,7 @@ int ng_aclk_update_alarm(RRDHOST *host, ALARM_ENTRY *ae)
     return 0;
 }
 
-int ng_aclk_update_chart(RRDHOST *host, char *chart_name, int create)
+int aclk_update_chart(RRDHOST *host, char *chart_name, int create)
 {
     struct aclk_query *query;
 
@@ -926,7 +930,7 @@ int ng_aclk_update_chart(RRDHOST *host, char *chart_name, int create)
  * Add a new collector to the list
  * If it exists, update the chart count
  */
-void ng_aclk_add_collector(RRDHOST *host, const char *plugin_name, const char *module_name)
+void aclk_add_collector(RRDHOST *host, const char *plugin_name, const char *module_name)
 {
     struct aclk_query *query;
     struct _collector *tmp_collector;
@@ -969,7 +973,7 @@ void ng_aclk_add_collector(RRDHOST *host, const char *plugin_name, const char *m
  * This function will release the memory used and schedule
  * a cloud update
  */
-void ng_aclk_del_collector(RRDHOST *host, const char *plugin_name, const char *module_name)
+void aclk_del_collector(RRDHOST *host, const char *plugin_name, const char *module_name)
 {
     struct aclk_query *query;
     struct _collector *tmp_collector;
@@ -1010,7 +1014,7 @@ void ng_aclk_del_collector(RRDHOST *host, const char *plugin_name, const char *m
     aclk_queue_query(query);
 }
 
-void ng_aclk_host_state_update(RRDHOST *host, int cmd)
+void aclk_host_state_update(RRDHOST *host, int cmd)
 {
     uuid_t node_id;
     int ret;

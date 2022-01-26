@@ -223,10 +223,6 @@ jobs:
         run: |
           docker run --security-opt seccomp=unconfined -w /netdata sha256:${{ steps.load.outputs.image }} \
               /bin/sh -c './netdata-installer.sh --dont-wait --dont-start-it --require-cloud'
-      - name: netdata-installer on ${{ matrix.distro }}, require cloud, require ACLK-NG
-        run: |
-          docker run --security-opt seccomp=unconfined -w /netdata -e NETDATA_CONFIGURE_OPTIONS='--with-aclk-ng' \
-              sha256:${{ steps.load.outputs.image }} /bin/sh -c './netdata-installer.sh --dont-wait --dont-start-it --require-cloud'
       - name: netdata-installer on ${{ matrix.distro }}, require cloud, no JSON-C
         if: matrix.rmjsonc != ''
         run: |
@@ -390,7 +386,7 @@ jobs:
       - name: Verify that artifacts work with installer
         env:
           NETDATA_TARBALL_BASEURL: http://localhost:8080/artifacts
-        run: packaging/installer/kickstart.sh --dont-start-it --disable-telemetry --dont-wait
+        run: packaging/installer/kickstart.sh --build-only --dont-start-it --disable-telemetry --dont-wait
       - name: Failure Notification
         uses: rtCamp/action-slack-notify@v2
         env:
@@ -431,7 +427,7 @@ jobs:
       - name: Verify that artifacts work with installer
         env:
           NETDATA_TARBALL_BASEURL: http://localhost:8080/artifacts
-        run: packaging/installer/kickstart-static64.sh --dont-start-it --disable-telemetry --dont-wait
+        run: packaging/installer/kickstart.sh --static-only --dont-start-it --disable-telemetry
       - name: Failure Notification
         uses: rtCamp/action-slack-notify@v2
         env:
@@ -465,7 +461,7 @@ jobs:
           name: final-artifacts
           path: final-artifacts
       - name: Setup Gcloud
-        uses: google-github-actions/setup-gcloud@v0.3
+        uses: google-github-actions/setup-gcloud@v0.4.0
         with:
           project_id: ${{ secrets.GCP_NIGHTLY_STORAGE_PROJECT }}
           service_account_key: ${{ secrets.GCP_STORAGE_SERVICE_ACCOUNT_KEY }}

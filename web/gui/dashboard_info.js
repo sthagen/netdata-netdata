@@ -683,7 +683,7 @@ netdataDashboard.menu = {
         'or <code>inactive</code> (meaning stopped, unbound, unplugged), ' +
         'as well as in the process of being activated or deactivated, i.e. between the two states (these states are called <code>activating</code>, <code>deactivating</code>). ' +
         'A special <code>failed</code> state is available as well, which is very similar to <code>inactive</code> and is entered when the service failed in some way (process returned error code on exit, or crashed, an operation timed out, or after too many restarts). ' +
-        'For detailes, see <a href="https://www.freedesktop.org/software/systemd/man/systemd.html" target="_blank"> systemd(1)</a>.'
+        'For details, see <a href="https://www.freedesktop.org/software/systemd/man/systemd.html" target="_blank"> systemd(1)</a>.'
     },
     
     'changefinder': {
@@ -702,6 +702,12 @@ netdataDashboard.menu = {
         title: 'Anomaly Detection',
         icon: '<i class="fas fa-brain"></i>',
         info: 'Charts relating to anomaly detection, increased <code>anomalous</code> dimensions or a higher than usual <code>anomaly_rate</code> could be signs of some abnormal behaviour. Read our <a href="https://learn.netdata.cloud/guides/monitor/anomaly-detection" target="_blank">anomaly detection guide</a> for more details.'
+    },
+
+    'fail2ban': {
+        title: 'Fail2ban',
+        icon: '<i class="fas fa-shield-alt"></i>',
+        info: 'Netdata keeps track of the current jail status by reading the Fail2ban log file.'
     },
 };
 
@@ -2172,7 +2178,7 @@ netdataDashboard.context = {
     },
 
     'netfilter.conntrack_new': {
-        info: '<p>Packet tracking statistics.</p>'+
+        info: '<p>Packet tracking statistics. <b>New</b> (since v4.9) and <b>Ignore</b> (since v5.10) are hardcoded to zeros in the latest kernel.</p>'+
         '<p><b>New</b> - conntrack entries added which were not expected before. '+
         '<b>Ignore</b> - packets seen which are already connected to a conntrack entry. '+
         '<b>Invalid</b> - packets seen which can not be tracked.</p>'
@@ -3586,6 +3592,14 @@ netdataDashboard.context = {
 
     'netdata.response_time': {
         info: 'The netdata API response time measures the time netdata needed to serve requests. This time includes everything, from the reception of the first byte of a request, to the dispatch of the last byte of its reply, therefore it includes all network latencies involved (i.e. a client over a slow network will influence these metrics).'
+    },
+
+    'netdata.ebpf_threads': {
+        info: 'Show total number of threads and number of active threads. For more details about the threads, see the <a href="https://learn.netdata.cloud/docs/agent/collectors/ebpf.plugin#ebpf-programs">official documentation</a>.'
+    },
+
+    'netdata.ebpf_load_methods': {
+        info: 'Show number of threads loaded using legacy code (independent binary) or <code>CO-RE (Compile Once Run Everywhere)</code>.'
     },
 
     // ------------------------------------------------------------------------
@@ -5105,7 +5119,7 @@ netdataDashboard.context = {
     },
 
     'spigotmc.users': {
-        info: 'The number of currently connect users on the monitored Spigot server.'
+        info: 'The number of currently connected users on the monitored Spigot server.'
     },
 
     'boinc.tasks': {
@@ -5259,7 +5273,7 @@ netdataDashboard.context = {
             '<code>sharedcommon</code> is amount of machine memory that is shared by all powered-on virtual machines and vSphere services on the host. ' +
             '<code>shared</code> - <code>sharedcommon</code> = machine memory (host memory) savings (KB). ' +
             'For details see <a href="https://docs.vmware.com/en/VMware-vSphere/6.5/com.vmware.vsphere.resmgmt.doc/GUID-BFDC988B-F53D-4E97-9793-A002445AFAE1.html" target="_blank">Measuring and Differentiating Types of Memory Usage</a> and ' +
-            '<a href="https://www.vmware.com/support/developer/converter-sdk/conv51_apireference/memory_counters.html" target="_blank">Memory Counters</a> articles.'
+            '<a href="https://vdc-repo.vmware.com/vmwb-repository/dcr-public/fe08899f-1eec-4d8d-b3bc-a6664c168c2c/7fdf97a1-4c0d-4be0-9d43-2ceebbc174d9/doc/memory_counters.html" target="_blank">Memory Counters</a> articles.'
     },
 
     'vsphere.host_mem_swap_rate': {
@@ -5284,7 +5298,7 @@ netdataDashboard.context = {
             '<code>active</code> is amount of memory that is actively used, as estimated by VMkernel based on recently touched memory pages. ' +
             '<code>shared</code> is amount of guest “physical” memory shared with other virtual machines (through the VMkernel’s transparent page-sharing mechanism, a RAM de-duplication technique). ' +
             'For details see <a href="https://docs.vmware.com/en/VMware-vSphere/6.5/com.vmware.vsphere.resmgmt.doc/GUID-BFDC988B-F53D-4E97-9793-A002445AFAE1.html" target="_blank">Measuring and Differentiating Types of Memory Usage</a> and ' +
-            '<a href="https://www.vmware.com/support/developer/converter-sdk/conv51_apireference/memory_counters.html" target="_blank">Memory Counters</a> articles.'
+            '<a href="https://vdc-repo.vmware.com/vmwb-repository/dcr-public/fe08899f-1eec-4d8d-b3bc-a6664c168c2c/7fdf97a1-4c0d-4be0-9d43-2ceebbc174d9/doc/memory_counters.html" target="_blank">Memory Counters</a> articles.'
 
     },
 
@@ -6371,6 +6385,25 @@ netdataDashboard.context = {
 
     'anomaly_detection.training_stats': {
         info: 'Diagnostic metrics relating to training time of anomaly detection. '
+    },
+
+    // ------------------------------------------------------------------------
+    // Supervisor
+
+    'fail2ban.failed_attempts': {
+        info: '<p>The number of failed attempts.</p>'+
+        '<p>This chart reflects the number of \'Found\' lines. '+
+        'Found means a line in the service’s log file matches the failregex in its filter.</p>'
+    },
+
+    'fail2ban.bans': {
+        info: '<p>The number of bans.</p>'+
+        '<p>This chart reflects the number of \'Ban\' and \'Restore Ban\' lines. '+
+        'Ban action happens when the number of failed attempts (maxretry) occurred in the last configured interval (findtime).</p>'
+    },
+
+    'fail2ban.banned_ips': {
+        info: '<p>The number of banned IP addresses.</p>'
     },
 
 };

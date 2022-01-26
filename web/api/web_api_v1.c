@@ -3,6 +3,7 @@
 #include "web_api_v1.h"
 
 char *api_secret;
+extern int aclk_use_new_cloud_arch;
 
 static struct {
     const char *name;
@@ -589,9 +590,13 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
                 w->id, google_version, google_reqId, google_sig, google_out, responseHandler, outFileName
         );
 
-        buffer_sprintf(w->response.data,
-                "%s({version:'%s',reqId:'%s',status:'ok',sig:'%ld',table:",
-                responseHandler, google_version, google_reqId, st->last_updated.tv_sec);
+        buffer_sprintf(
+            w->response.data,
+            "%s({version:'%s',reqId:'%s',status:'ok',sig:'%"PRId64"',table:",
+            responseHandler,
+            google_version,
+            google_reqId,
+            (int64_t)st->last_updated.tv_sec);
     }
     else if(format == DATASOURCE_JSONP) {
         if(responseHandler == NULL)
@@ -980,30 +985,18 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
 
 #ifdef ENABLE_ACLK
     buffer_strcat(wb, "\t\"cloud-available\": true,\n");
-#ifdef ACLK_NG
     buffer_strcat(wb, "\t\"aclk-ng-available\": true,\n");
-#else
-    buffer_strcat(wb, "\t\"aclk-ng-available\": false,\n");
-#endif
-#if defined(ACLK_NG) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+#ifdef ENABLE_NEW_CLOUD_PROTOCOL
     buffer_strcat(wb, "\t\"aclk-ng-new-cloud-protocol\": true,\n");
 #else
     buffer_strcat(wb, "\t\"aclk-ng-new-cloud-protocol\": false,\n");
 #endif
-#ifdef ACLK_LEGACY
-    buffer_strcat(wb, "\t\"aclk-legacy-available\": true,\n");
-#else
     buffer_strcat(wb, "\t\"aclk-legacy-available\": false,\n");
-#endif
-    buffer_strcat(wb, "\t\"aclk-implementation\": \"");
-    if (aclk_ng) {
-        buffer_strcat(wb, "Next Generation");
-    } else {
-        buffer_strcat(wb, "legacy");
-    }
-    buffer_strcat(wb, "\",\n");
+    buffer_strcat(wb, "\t\"aclk-implementation\": \"Next Generation\",\n");
 #else
     buffer_strcat(wb, "\t\"cloud-available\": false,\n");
+    buffer_strcat(wb, "\t\"aclk-ng-available\": false,\n");
+    buffer_strcat(wb, "\t\"aclk-legacy-available\": false,\n");
 #endif
     char *agent_id = is_agent_claimed();
     if (agent_id == NULL)
@@ -1013,11 +1006,18 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
         freez(agent_id);
     }
 #ifdef ENABLE_ACLK
-    if (aclk_connected)
+    if (aclk_connected) {
         buffer_strcat(wb, "\t\"aclk-available\": true,\n");
+#ifdef ENABLE_NEW_CLOUD_PROTOCOL
+        if (aclk_use_new_cloud_arch)
+            buffer_strcat(wb, "\t\"aclk-available-protocol\": \"New\",\n");
+        else
+#endif
+            buffer_strcat(wb, "\t\"aclk-available-protocol\": \"Legacy\",\n");
+    }
     else
 #endif
-        buffer_strcat(wb, "\t\"aclk-available\": false,\n");     // Intentionally valid with/without #ifdef above
+        buffer_strcat(wb, "\t\"aclk-available\": false,\n\t\"aclk-available-protocol\": null,\n");     // Intentionally valid with/without #ifdef above
 
     buffer_strcat(wb, "\t\"memory-mode\": ");
     analytics_get_data(analytics_data.netdata_config_memory_mode, wb);
@@ -1034,6 +1034,14 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     buffer_strcat(wb, "\t\"stream-enabled\": ");
     analytics_get_data(analytics_data.netdata_config_stream_enabled, wb);
     buffer_strcat(wb, ",\n");
+
+#ifdef  ENABLE_COMPRESSION
+    buffer_strcat(wb, "\t\"stream-compression\": ");
+    buffer_strcat(wb, (default_compression_enabled ? "\"enabled\"" : "\"disabled\""));
+    buffer_strcat(wb, ",\n");
+#else
+    buffer_strcat(wb, "\t\"stream-compression\": \"N/A\",\n");
+#endif  //ENABLE_COMPRESSION   
 
     buffer_strcat(wb, "\t\"hosts-available\": ");
     analytics_get_data(analytics_data.netdata_config_hosts_available, wb);
@@ -1130,11 +1138,11 @@ int web_client_api_request_v1_anomaly_events(RRDHOST *host, struct web_client *w
 
     char *s;
     if (!before || !after)
-        s = strdup("{\"error\": \"missing after/before parameters\" }\n");
+        s = strdupz("{\"error\": \"missing after/before parameters\" }\n");
     else {
         s = ml_get_anomaly_events(host, "AD1", 1, after, before);
         if (!s)
-            s = strdup("{\"error\": \"json string is empty\" }\n");
+            s = strdupz("{\"error\": \"json string is empty\" }\n");
     }
 
     BUFFER *wb = w->response.data;
@@ -1174,11 +1182,11 @@ int web_client_api_request_v1_anomaly_event_info(RRDHOST *host, struct web_clien
 
     char *s;
     if (!before || !after)
-        s = strdup("{\"error\": \"missing after/before parameters\" }\n");
+        s = strdupz("{\"error\": \"missing after/before parameters\" }\n");
     else {
         s = ml_get_anomaly_event_info(host, "AD1", 1, after, before);
         if (!s)
-            s = strdup("{\"error\": \"json string is empty\" }\n");
+            s = strdupz("{\"error\": \"json string is empty\" }\n");
     }
 
     BUFFER *wb = w->response.data;
@@ -1190,6 +1198,27 @@ int web_client_api_request_v1_anomaly_event_info(RRDHOST *host, struct web_clien
     freez(s);
     return HTTP_RESP_OK;
 }
+
+int web_client_api_request_v1_ml_info(RRDHOST *host, struct web_client *w, char *url) {
+    (void) url;
+
+    if (!netdata_ready)
+        return HTTP_RESP_BACKEND_FETCH_FAILED;
+
+    char *s = ml_get_host_runtime_info(host);
+    if (!s)
+        s = strdupz("{\"error\": \"json string is empty\" }\n");
+
+    BUFFER *wb = w->response.data;
+    buffer_flush(wb);
+    wb->contenttype = CT_APPLICATION_JSON;
+    buffer_strcat(wb, s);
+    buffer_no_cacheable(wb);
+
+    freez(s);
+    return HTTP_RESP_OK;
+}
+
 #endif // defined(ENABLE_ML)
 
 inline int web_client_api_request_v1_info(RRDHOST *host, struct web_client *w, char *url) {
@@ -1250,6 +1279,7 @@ static struct api_command {
 #if defined(ENABLE_ML)
         { "anomaly_events",     0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_anomaly_events     },
         { "anomaly_event_info", 0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_anomaly_event_info },
+        { "ml_info",            0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_ml_info            },
 #endif
 
         { "manage/health",   0, WEB_CLIENT_ACL_MGMT,      web_client_api_request_v1_mgmt_health     },

@@ -124,9 +124,9 @@ Supported packages (you can append many of them):
 
     - sensors        install lm_sensors for monitoring h/w sensors
 
-    - firehol-all    packages required for FireHOL, FireQoS, update-ipsets
+    - firehol-all    packages required for FireHOL, FireQOS, update-ipsets
     - firehol        packages required for FireHOL
-    - fireqos        packages required for FireQoS
+    - fireqos        packages required for FireQOS
     - update-ipsets  packages required for update-ipsets
 
     - demo           packages required for running a netdata demo site
@@ -1613,7 +1613,7 @@ validate_tree_centos() {
 
   if [[ "${version}" =~ ^8(\..*)?$ ]]; then
     echo >&2 " > Checking for config-manager ..."
-    if ! run yum ${sudo} config-manager; then
+    if ! run ${sudo} yum config-manager --help; then
       if prompt "config-manager not found, shall I install it?"; then
         run ${sudo} yum ${opts} install 'dnf-command(config-manager)'
       fi

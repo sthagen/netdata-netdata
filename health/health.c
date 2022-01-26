@@ -101,7 +101,11 @@ static void health_silencers_init(void) {
                 freez(str);
             }
         } else {
-            error("Health silencers file %s has the size %ld that is out of range[ 1 , %d ]. Aborting read.", silencers_filename, length, HEALTH_SILENCERS_MAX_FILE_LEN);
+            error(
+                "Health silencers file %s has the size %" PRId64 " that is out of range[ 1 , %d ]. Aborting read.",
+                silencers_filename,
+                (int64_t)length,
+                HEALTH_SILENCERS_MAX_FILE_LEN);
         }
         fclose(fd);
     } else {
@@ -326,7 +330,7 @@ static inline void health_alarm_execute(RRDHOST *host, ALARM_ENTRY *ae) {
                     buffer_strcat(warn_alarms, ",");
                 buffer_strcat(warn_alarms, rc->name);
                 buffer_strcat(warn_alarms, "=");
-                buffer_snprintf(warn_alarms, 11, "%ld", rc->last_status_change);
+                buffer_snprintf(warn_alarms, 11, "%"PRId64"", (int64_t)rc->last_status_change);
                 n_warn++;
             } else if (ae->alarm_id == rc->id)
                 expr = rc->warning;
@@ -336,7 +340,7 @@ static inline void health_alarm_execute(RRDHOST *host, ALARM_ENTRY *ae) {
                     buffer_strcat(crit_alarms, ",");
                 buffer_strcat(crit_alarms, rc->name);
                 buffer_strcat(crit_alarms, "=");
-                buffer_snprintf(crit_alarms, 11, "%ld", rc->last_status_change);
+                buffer_snprintf(crit_alarms, 11, "%"PRId64"", (int64_t)rc->last_status_change);
                 n_crit++;
             } else if (ae->alarm_id == rc->id)
                 expr = rc->critical;
@@ -346,9 +350,9 @@ static inline void health_alarm_execute(RRDHOST *host, ALARM_ENTRY *ae) {
         }
     }
 
-    char *edit_command = ae->source ? health_edit_command_from_source(ae->source) : strdupz("UNKNOWN=0");
+    char *edit_command = ae->source ? health_edit_command_from_source(ae->source) : strdupz("UNKNOWN=0=UNKNOWN");
 
-    snprintfz(command_to_run, ALARM_EXEC_COMMAND_LENGTH, "exec %s '%s' '%s' '%u' '%u' '%u' '%lu' '%s' '%s' '%s' '%s' '%s' '" CALCULATED_NUMBER_FORMAT_ZERO "' '" CALCULATED_NUMBER_FORMAT_ZERO "' '%s' '%u' '%u' '%s' '%s' '%s' '%s' '%s' '%s' '%d' '%d' '%s' '%s' '%s' '%s' '%s'",
+    snprintfz(command_to_run, ALARM_EXEC_COMMAND_LENGTH, "exec %s '%s' '%s' '%u' '%u' '%u' '%lu' '%s' '%s' '%s' '%s' '%s' '" CALCULATED_NUMBER_FORMAT_ZERO "' '" CALCULATED_NUMBER_FORMAT_ZERO "' '%s' '%u' '%u' '%s' '%s' '%s' '%s' '%s' '%s' '%d' '%d' '%s' '%s' '%s' '%s'",
               exec,
               recipient,
               host->registry_hostname,
@@ -377,8 +381,7 @@ static inline void health_alarm_execute(RRDHOST *host, ALARM_ENTRY *ae) {
               buffer_tostring(warn_alarms),
               buffer_tostring(crit_alarms),
               ae->classification?ae->classification:"Unknown",
-              edit_command,
-              localhost->registry_hostname
+              edit_command
     );
 
     ae->flags |= HEALTH_ENTRY_FLAG_EXEC_RUN;
@@ -673,6 +676,9 @@ void *health_main(void *ptr) {
     rrdcalc_labels_unlink();
 
     unsigned int loop = 0;
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+    unsigned int marked_aclk_reload_loop = 0;
+#endif
     while(!netdata_exit) {
         loop++;
         debug(D_HEALTH, "Health monitoring iteration no %u started", loop);
@@ -684,9 +690,10 @@ void *health_main(void *ptr) {
         if (unlikely(check_if_resumed_from_suspension())) {
             apply_hibernation_delay = 1;
 
-            info("Postponing alarm checks for %ld seconds, because it seems that the system was just resumed from suspension.",
-                 hibernation_delay
-            );
+            info(
+                "Postponing alarm checks for %"PRId64" seconds, "
+                "because it seems that the system was just resumed from suspension.",
+                (int64_t)hibernation_delay);
         }
 
         if (unlikely(silencers->all_alarms && silencers->stype == STYPE_DISABLE_ALARMS)) {
@@ -698,6 +705,11 @@ void *health_main(void *ptr) {
             }
         }
 
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+        if (aclk_alert_reloaded && !marked_aclk_reload_loop)
+            marked_aclk_reload_loop = loop;
+#endif
+
         rrd_rdlock();
 
         RRDHOST *host;
@@ -706,9 +718,10 @@ void *health_main(void *ptr) {
                 continue;
 
             if (unlikely(apply_hibernation_delay)) {
-
-                info("Postponing health checks for %ld seconds, on host '%s'.", hibernation_delay, host->hostname
-                );
+                info(
+                    "Postponing health checks for %"PRId64" seconds, on host '%s'.",
+                    (int64_t)hibernation_delay,
+                    host->hostname);
 
                 host->health_delay_up_to = now + hibernation_delay;
             }
@@ -1038,14 +1051,6 @@ void *health_main(void *ptr) {
                 rrdhost_unlock(host);
             }
 
-#ifdef ENABLE_ACLK
-#ifdef ENABLE_NEW_CLOUD_PROTOCOL
-            if (netdata_cloud_setting && unlikely(aclk_alert_reloaded) && loop > 2) {
-                sql_queue_removed_alerts_to_aclk(host);
-            }
-#endif
-#endif
-
             if (unlikely(netdata_exit))
                 break;
 
@@ -1070,9 +1075,16 @@ void *health_main(void *ptr) {
             health_alarm_wait_for_execution(ae);
         }
 
-#ifdef ENABLE_NEW_CLOUD_PROTOCOL
-        if (netdata_cloud_setting && unlikely(aclk_alert_reloaded))
-            aclk_alert_reloaded = 0;
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+        if (netdata_cloud_setting && unlikely(aclk_alert_reloaded) && loop > (marked_aclk_reload_loop + 2)) {
+                rrdhost_foreach_read(host) {
+                    if (unlikely(!host->health_enabled))
+                        continue;
+                    sql_queue_removed_alerts_to_aclk(host);
+                }
+                aclk_alert_reloaded = 0;
+                marked_aclk_reload_loop = 0;
+            }
 #endif
 
         rrd_unlock();
