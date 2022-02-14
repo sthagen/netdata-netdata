@@ -321,11 +321,24 @@ services:
 
 #### Giving group access to the Docker socket (less safe)
 
-**Important Note**: You should seriously consider the necessity of activating this option, as it grants to the `netdata`
+> You should seriously consider the necessity of activating this option, as it grants to the `netdata`
 user access to the privileged socket connection of docker service and therefore your whole machine.
 
 If you want to have your container names resolved by Netdata, make the `netdata` user be part of the group that owns the
 socket.
+
+```yaml
+version: '3'
+services:
+  netdata:
+    image: netdata/netdata
+    # ... rest of your config ...
+    volumes:
+      # ... other volumes ...
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PGID=[GROUP NUMBER]
+```
 
 To achieve that just add environment variable `PGID=[GROUP NUMBER]` to the Netdata container, where `[GROUP NUMBER]` is
 practically the group id of the group assigned to the docker socket, on your host.
@@ -377,7 +390,7 @@ executed internally by the caddy server.
 
 ```caddyfile
 netdata.example.org {
-  proxy / netdata:19999
+  reverse_proxy netdata:19999
   tls admin@example.org
 }
 ```
@@ -390,19 +403,19 @@ proxy.
 ```yaml
 version: '3'
 volumes:
-  caddy:
+  caddy_data:
+  caddy_config:
 
 services:
   caddy:
-    image: abiosoft/caddy
+    image: caddy:2
     ports:
-      - 80:80
-      - 443:443
+      - "80:80"
+      - "443:443"
     volumes:
-      - /opt/Caddyfile:/etc/Caddyfile
-      - $HOME/.caddy:/root/.caddy
-    environment:
-      ACME_AGREE: 'true'
+      - /opt/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
   netdata:
     restart: always
     hostname: netdata.example.org

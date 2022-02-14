@@ -3,30 +3,27 @@ title: "Install Netdata with kickstart.sh"
 description: "The kickstart.sh script installs Netdata from source, including all dependencies required to connect to Netdata Cloud, with a single command."
 custom_edit_url: https://github.com/netdata/netdata/edit/master/packaging/installer/methods/kickstart.md
 -->
+import { OneLineInstallWget, OneLineInstallCurl } from '../../../../../src/components/OneLineInstall/'
 
 # Install Netdata with kickstart.sh
 
-![](https://registry.my-netdata.io/api/v1/badge.svg?chart=web_log_nginx.requests_per_url&options=unaligned&dimensions=kickstart&group=sum&after=-3600&label=last+hour&units=installations&value_color=orange&precision=0) ![](https://registry.my-netdata.io/api/v1/badge.svg?chart=web_log_nginx.requests_per_url&options=unaligned&dimensions=kickstart&group=sum&after=-86400&label=today&units=installations&precision=0)
+![](https://registry.my-netdata.io/api/v1/badge.svg?chart=web_log_nginx.requests_per_url&options=unaligned&dimensions=kickstart&group=sum&after=-3600&label=last+hour&units=kickstart%20downloads&value_color=orange&precision=0) ![](https://registry.my-netdata.io/api/v1/badge.svg?chart=web_log_nginx.requests_per_url&options=unaligned&dimensions=kickstart&group=sum&after=-86400&label=today&units=kickstart%20downloads&precision=0)
 
 This page covers detailed instructions on using and configuring the automatic one-line installation script named
 `kickstart.sh`.
 
-The kickstart script works on all Linux distributions and macOS environments. By default, automatic nightly updates are enabled. If you are installing on macOS, make sure to check the [install documentation for macOS](packaging/installer/methods/macos) before continuing.
+The kickstart script works on all Linux distributions and macOS environments. By default, automatic nightly updates are enabled. If you are installing on macOS, make sure to check the [install documentation for macOS](packaging/installer/methods/macos.md) before continuing.
 
 > If you are unsure whether you want nightly or stable releases, read the [installation guide](/packaging/installer/README.md#nightly-vs-stable-releases). 
 > If you want to turn off [automatic updates](/packaging/installer/README.md#automatic-updates), use the `--no-updates` option. You can find more installation options below.
 
 To install Netdata, run the following as your normal user:
 
-```bash
-wget -O ./kickstart.sh https://my-netdata.io/kickstart.sh && sh ./kickstart.sh
-```
+<OneLineInstallWget/>
 
 Or, if you have cURL but not wget (such as on macOS):
 
-```bash
-curl https://my-netdata.io/kickstart.sh > /tmp/netdata-kickstart.sh && sh /tmp/netdata-kickstart.sh
-```
+<OneLineInstallCurl/>
 
 
 ## What does `kickstart.sh` do?
@@ -89,15 +86,14 @@ area](https://learn.netdata.cloud/docs/cloud/spaces#manage-spaces).
 - `--claim-token`: Specify a unique claiming token associated with your Space in Netdata Cloud to be used to connect to the node
   after the install.
 - `--claim-rooms`: Specify a comma-separated list of tokens for each War Room this node should appear in.
-- `--claim-proxy`: Specify a proxy to use when connecting to the cloud in the form of
-  `socks5[h]://[user:pass@]host:ip` for a SOCKS5 proxy, or `http://[user:pass@]host:ip` for an HTTP(S) proxy.
+- `--claim-proxy`: Specify a proxy to use when connecting to the cloud in the form of `http://[user:pass@]host:ip` for an HTTP(S) proxy.
   See [connecting through a proxy](/claim/README.md#connect-through-a-proxy) for details.
 - `--claim-url`: Specify a URL to use when connecting to the cloud. Defaults to `https://app.netdata.cloud`.
 
 For example:
 
 ```bash
-wget -O ./kickstart.sh https://my-netdata.io/kickstart.sh && sh ./kickstart.sh --claim-token=TOKEN --claim-rooms=ROOM1,ROOM2
+wget -O /tmp/netdata-kickstart.sh https://my-netdata.io/kickstart.sh && sh /tmp/netdata-kickstart.sh --claim-token=TOKEN --claim-rooms=ROOM1,ROOM2
 ```
 
 Please note that to run it you will either need to have root privileges or run it with the user that is running the agent, more details on the [Connect an agent without root privileges](/claim/README.md#connect-an-agent-without-root-privileges) section.
@@ -140,7 +136,7 @@ To use `md5sum` to verify the integrity of the `kickstart.sh` script you will do
 run the following:
 
 ```bash
-[ "dc50e88ee6e19f50dd395e1e5117a1fa" = "$(curl -Ss https://my-netdata.io/kickstart.sh | md5sum | cut -d ' ' -f 1)" ] && echo "OK, VALID" || echo "FAILED, INVALID"
+[ "2ea326514c5166eabf02622e75d10a53" = "$(curl -Ss https://my-netdata.io/kickstart.sh | md5sum | cut -d ' ' -f 1)" ] && echo "OK, VALID" || echo "FAILED, INVALID"
 ```
 
 If the script is valid, this command will return `OK, VALID`.

@@ -150,6 +150,7 @@ telemetry_event() {
     "error_code": "${3}",
     "error_message": "${2}",
     "install_options": "${KICKSTART_OPTIONS}",
+    "install_interactivity": "${INTERACTIVE}",
     "total_runtime": "${total_duration}",
     "selected_install_method": "${SELECTED_INSTALL_METHOD}",
     "netdata_release_channel": "${RELEASE_CHANNEL:-null}",
@@ -399,33 +400,47 @@ get_system_info() {
       elif [ -s "/usr/lib/os-release" ] && [ -r "/usr/lib/os-release" ]; then
         os_release_file="/usr/lib/os-release"
       else
-        fatal "Cannot find an os-release file ..." F0401
+        warning "Cannot find an os-release file ..."
       fi
 
-      # shellcheck disable=SC1090
-      . "${os_release_file}"
+      if [ -n "${os_release_file}" ]; then
+        # shellcheck disable=SC1090
+        . "${os_release_file}"
 
-      DISTRO="${ID}"
-      SYSVERSION="${VERSION_ID}"
-      SYSCODENAME="${VERSION_CODENAME}"
-      SYSARCH="$(uname -m)"
+        DISTRO="${ID}"
+        SYSVERSION="${VERSION_ID}"
+        SYSCODENAME="${VERSION_CODENAME}"
+        SYSARCH="$(uname -m)"
 
-      supported_compat_names="debian ubuntu centos fedora opensuse"
+        supported_compat_names="debian ubuntu centos fedora opensuse ol"
 
-      if str_in_list "${DISTRO}" "${supported_compat_names}"; then
-        DISTRO_COMPAT_NAME="${DISTRO}"
-      else
-        case "${DISTRO}" in
-          opensuse-leap)
-            DISTRO_COMPAT_NAME="opensuse"
-            ;;
-          rhel)
-            DISTRO_COMPAT_NAME="centos"
-            ;;
-          *)
-            DISTRO_COMPAT_NAME="unknown"
+        if str_in_list "${DISTRO}" "${supported_compat_names}"; then
+            DISTRO_COMPAT_NAME="${DISTRO}"
+        else
+            case "${DISTRO}" in
+            opensuse-leap)
+                DISTRO_COMPAT_NAME="opensuse"
+                ;;
+            rocky|rhel)
+                DISTRO_COMPAT_NAME="centos"
+                ;;
+            *)
+                DISTRO_COMPAT_NAME="unknown"
+                ;;
+            esac
+        fi
+
+        case "${DISTRO_COMPAT_NAME}" in
+          centos|ol)
+            SYSVERSION=$(echo "$SYSVERSION" | cut -d'.' -f1)
             ;;
         esac
+      else
+        DISTRO="unknown"
+        DISTRO_COMPAT_NAME="unknown"
+        SYSVERSION="unknown"
+        SYSCODENAME="unknown"
+        SYSARCH="$(uname -m)"
       fi
       ;;
     Darwin)
@@ -452,11 +467,19 @@ str_in_list() {
 confirm_root_support() {
   if [ "$(id -u)" -ne "0" ]; then
     if [ -z "${ROOTCMD}" ] && command -v sudo > /dev/null; then
-      ROOTCMD="sudo"
+      if [ "${INTERACTIVE}" -eq 0 ]; then
+        ROOTCMD="sudo -n"
+      else
+        ROOTCMD="sudo"
+      fi
     fi
 
     if [ -z "${ROOTCMD}" ] && command -v doas > /dev/null; then
-      ROOTCMD="doas"
+      if [ "${INTERACTIVE}" -eq 0 ]; then
+        ROOTCMD="doas -n"
+      else
+        ROOTCMD="doas"
+      fi
     fi
 
     if [ -z "${ROOTCMD}" ] && command -v pkexec > /dev/null; then
@@ -502,9 +525,11 @@ update() {
   fi
 }
 
-handle_existing_install() {
+detect_existing_install() {
   if pkg_installed netdata; then
     ndprefix="/"
+  elif [ -n "${INSTALL_PREFIX}" ]; then
+    ndprefix="${INSTALL_PREFIX}"
   else
     if [ -n "${INSTALL_PREFIX}" ]; then
       searchpath="${INSTALL_PREFIX}/bin:${INSTALL_PREFIX}/sbin:${INSTALL_PREFIX}/usr/bin:${INSTALL_PREFIX}/usr/sbin:${PATH}"
@@ -539,7 +564,13 @@ handle_existing_install() {
     fi
   fi
 
-  if [ -z "${ndprefix}" ]; then
+  INSTALL_PREFIX="${ndprefix}"
+}
+
+handle_existing_install() {
+  detect_existing_install
+
+  if [ -z "${INSTALL_PREFIX}" ] || [ -z "${INSTALL_TYPE}" ]; then
     progress "No existing installations of netdata found, assuming this is a fresh install."
     return 0
   fi
@@ -547,13 +578,13 @@ handle_existing_install() {
   case "${INSTALL_TYPE}" in
     kickstart-*|legacy-*|binpkg-*|manual-static|unknown)
       if [ "${INSTALL_TYPE}" = "unknown" ]; then
-        warning "Found an existing netdata install at ${ndprefix}, but could not determine the install type."
+        warning "Found an existing netdata install at ${INSTALL_PREFIX}, but could not determine the install type."
       else
-        progress "Found an existing netdata install at ${ndprefix}, with installation type '${INSTALL_TYPE}'."
+        progress "Found an existing netdata install at ${INSTALL_PREFIX}, with installation type '${INSTALL_TYPE}'."
       fi
 
       if [ -n "${NETDATA_REINSTALL}" ] || [ -n "${NETDATA_UNSAFE_REINSTALL}" ]; then
-        progress "Found an existing netdata install at ${ndprefix}, but user requested reinstall, continuing."
+        progress "Found an existing netdata install at ${INSTALL_PREFIX}, but user requested reinstall, continuing."
 
         case "${INSTALL_TYPE}" in
           binpkg-*) NETDATA_ONLY_NATIVE=1 ;;
@@ -581,21 +612,20 @@ handle_existing_install() {
 
       if [ "${NETDATA_CLAIM_ONLY}" -eq 0 ] && echo "${INSTALL_TYPE}" | grep -vq "binpkg-*"; then
         if ! update; then
-          warning "Unable to find usable updater script, not updating existing install at ${ndprefix}."
+          warning "Unable to find usable updater script, not updating existing install at ${INSTALL_PREFIX}."
         fi
       else
-        warning "Not updating existing install at ${ndprefix}."
+        warning "Not updating existing install at ${INSTALL_PREFIX}."
       fi
 
       if [ -n "${NETDATA_CLAIM_TOKEN}" ]; then
-        progress "Attempting to claim existing install at ${ndprefix}."
-        INSTALL_PREFIX="${ndprefix}"
+        progress "Attempting to claim existing install at ${INSTALL_PREFIX}."
         claim
         ret=$?
       elif [ "${NETDATA_CLAIM_ONLY}" -eq 1 ]; then
         fatal "User asked to claim, but did not proide a claiming token." F0202
       else
-        progress "Not attempting to claim existing install at ${ndprefix} (no claiming token provided)."
+        progress "Not attempting to claim existing install at ${INSTALL_PREFIX} (no claiming token provided)."
       fi
 
       cleanup
@@ -619,7 +649,7 @@ handle_existing_install() {
           fi
         fi
       else
-        fatal "Found an existing netdata install at ${ndprefix}, but the install type is '${INSTALL_TYPE}', which is not supported, refusing to proceed." F0103
+        fatal "Found an existing netdata install at ${INSTALL_PREFIX}, but the install type is '${INSTALL_TYPE}', which is not supported, refusing to proceed." F0103
       fi
       ;;
   esac
@@ -751,10 +781,10 @@ claim() {
 pkg_installed() {
   case "${DISTRO_COMPAT_NAME}" in
     debian|ubuntu)
-      dpkg -l "${1}" > /dev/null 2>&1
+      dpkg-query --show --showformat '${Status}' "${1}" 2>&1 | cut -f 1 -d ' ' | grep -q '^install$'
       return $?
       ;;
-    centos|fedora|opensuse)
+    centos|fedora|opensuse|ol)
       rpm -q "${1}" > /dev/null 2>&1
       return $?
       ;;
@@ -771,7 +801,7 @@ netdata_avail_check() {
       env DEBIAN_FRONTEND=noninteractive apt-cache policy netdata | grep -q packagecloud.io/netdata/netdata;
       return $?
       ;;
-    centos|fedora)
+    centos|fedora|ol)
       # shellcheck disable=SC2086
       ${pm_cmd} search -v netdata | grep -qE 'Repo *: netdata(-edge)?$'
       return $?
@@ -813,7 +843,7 @@ check_special_native_deps() {
 }
 
 try_package_install() {
-  if [ -z "${DISTRO}" ]; then
+  if [ -z "${DISTRO}" ] || [ "${DISTRO}" = "unknown" ]; then
     warning "Unable to determine Linux distribution for native packages."
     return 1
   fi
@@ -902,6 +932,22 @@ try_package_install() {
       pkg_vsep="-"
       pkg_install_opts="${interactive_opts} --allow-unsigned-rpm"
       repo_update_opts=""
+      uninstall_subcmd="remove"
+      INSTALL_TYPE="binpkg-rpm"
+      ;;
+    ol)
+      if command -v dnf > /dev/null; then
+        pm_cmd="dnf"
+        repo_subcmd="makecache"
+      else
+        pm_cmd="yum"
+      fi
+      repo_prefix="ol/${SYSVERSION}"
+      pkg_type="rpm"
+      pkg_suffix=".noarch"
+      pkg_vsep="-"
+      pkg_install_opts="${interactive_opts}"
+      repo_update_opts="${interactive_opts}"
       uninstall_subcmd="remove"
       INSTALL_TYPE="binpkg-rpm"
       ;;

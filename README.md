@@ -120,9 +120,9 @@ and builds all dependencies, including those required to connect to [Netdata Clo
 choose, and enables [automatic nightly
 updates](https://learn.netdata.cloud/docs/agent/packaging/installer#nightly-vs-stable-releases) and [anonymous
 statistics](https://learn.netdata.cloud/docs/agent/anonymous-statistics).
-
+<!-- candidate for reuse -->
 ```bash
-bash <(curl -Ss https://my-netdata.io/kickstart.sh)
+wget -O /tmp/netdata-kickstart.sh https://my-netdata.io/kickstart.sh && sh /tmp/netdata-kickstart.sh
 ```
 
 To view the Netdata dashboard, navigate to `http://localhost:19999`, or `http://NODE:19999`.
@@ -156,7 +156,7 @@ To view the Netdata dashboard, navigate to `http://localhost:19999`, or `http://
 See our documentation for [additional operating
 systems](/packaging/installer/README.md#have-a-different-operating-system-or-want-to-try-another-method), including
 [Kubernetes](/packaging/installer/methods/kubernetes.md), [`.deb`/`.rpm`
-packages](/packaging/installer/methods/packages.md), and more.
+packages](/packaging/installer/methods/kickstart.md#native-packages), and more.
 
 ### Post-installation
 
