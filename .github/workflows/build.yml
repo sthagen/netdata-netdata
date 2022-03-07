@@ -27,7 +27,7 @@ jobs:
       distfile: ${{ steps.build.outputs.distfile }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
           submodules: recursive
@@ -86,7 +86,7 @@ jobs:
           - 'ppc64le'
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
           submodules: recursive
@@ -126,7 +126,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Prepare tools
         run: |
           sudo apt-get update && sudo apt-get install -y jq
@@ -149,7 +149,7 @@ jobs:
       matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
     steps:
       - name: Git clone repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Setup Buildx
         uses: docker/setup-buildx-action@v1
       - name: Build test environment
@@ -199,7 +199,7 @@ jobs:
       matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
     steps:
       - name: Git clone repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: Fetch test environment
@@ -265,7 +265,7 @@ jobs:
           - ${{ github.workspace }}:/usr/local/apache2/htdocs/
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Fetch dist tarball artifacts
         uses: actions/download-artifact@v2
         with:
@@ -318,7 +318,7 @@ jobs:
       - build-static
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Prepare Environment
         run: mkdir -p artifacts
       - name: Retrieve Dist Tarball
@@ -377,7 +377,7 @@ jobs:
           - ${{ github.workspace }}:/usr/local/apache2/htdocs/
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Fetch artifacts
         uses: actions/download-artifact@v2
         with:
@@ -418,7 +418,7 @@ jobs:
           - ${{ github.workspace }}:/usr/local/apache2/htdocs/
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Fetch artifacts
         uses: actions/download-artifact@v2
         with:
@@ -501,7 +501,7 @@ jobs:
       - artifact-verification-static
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Retrieve Artifacts
         uses: actions/download-artifact@v2
         with:
