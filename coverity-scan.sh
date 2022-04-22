@@ -21,7 +21,7 @@
 # COVERITY_SCAN_TOKEN="TOKEN taken from Coverity site"
 #
 # the absolute path of the cov-build - optional
-# COVERITY_BUILD_PATH="/opt/cov-analysis-linux64-2019.03/bin/cov-build"
+# COVERITY_BUILD_PATH="/opt/cov-analysis-linux64-2021.12/bin/cov-build"
 #
 # when set, the script will print on screen the curl command that submits the build to coverity
 # this includes the token, so the default is not to print it.
@@ -40,7 +40,7 @@ set -e
 INSTALL_DIR="/opt"
 
 # the version of coverity to use
-COVERITY_BUILD_VERSION="${COVERITY_BUILD_VERSION:-cov-analysis-linux64-2020.09}"
+COVERITY_BUILD_VERSION="${COVERITY_BUILD_VERSION:-cov-analysis-linux64-2021.12}"
 
 # TODO: For some reasons this does not fully load on Debian 10 (Haven't checked if it happens on other distros yet), it breaks
 source packaging/installer/functions.sh || echo "Failed to fully load the functions library"
@@ -147,6 +147,8 @@ installit() {
     run sudo tar -z -x -f "${TMP_DIR}/${COVERITY_BUILD_VERSION}.tar.gz" || exit 1
     rm "${TMP_DIR}/${COVERITY_BUILD_VERSION}.tar.gz"
     export PATH=${PATH}:${INSTALL_DIR}/${COVERITY_BUILD_VERSION}/bin/
+  elif find . -name "*.tar.gz" > /dev/null 2>&1; then
+    fatal "Downloaded coverity tool tarball does not appear to be the version we were expecting, exiting."
   else
     fatal "Failed to download coverity tool tarball!"
   fi
@@ -157,11 +159,11 @@ installit() {
     fatal "Failed to install coverity."
   fi
 
-  # Clean temp directory
-  [ -n "${TMP_DIR}" ] && rm -rf "${TMP_DIR}"
-
   progress "Coverity scan tools are installed."
   cd "$ORIGINAL_DIR"
+
+  # Clean temp directory
+  [ -n "${TMP_DIR}" ] && rm -rf "${TMP_DIR}"
   return 0
 }
 
@@ -173,11 +175,11 @@ OTHER_OPTIONS+=" --enable-jsonc"
 OTHER_OPTIONS+=" --enable-plugin-nfacct"
 OTHER_OPTIONS+=" --enable-plugin-freeipmi"
 OTHER_OPTIONS+=" --enable-plugin-cups"
-OTHER_OPTIONS+=" --enable-backend-prometheus-remote-write"
+OTHER_OPTIONS+=" --enable-exporting-prometheus-remote-write"
 # TODO: enable these plugins too
 #OTHER_OPTIONS+=" --enable-plugin-xenstat"
-#OTHER_OPTIONS+=" --enable-backend-kinesis"
-#OTHER_OPTIONS+=" --enable-backend-mongodb"
+#OTHER_OPTIONS+=" --enable-exporting-kinesis"
+#OTHER_OPTIONS+=" --enable-exporting-mongodb"
 
 FOUND_OPTS="NO"
 while [ -n "${1}" ]; do

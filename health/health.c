@@ -223,6 +223,8 @@ void health_reload(void) {
     if (netdata_cloud_setting)
         aclk_single_update_disable();
 #endif
+    sql_refresh_hashes();
+
     rrd_rdlock();
 
     RRDHOST *host;
@@ -653,6 +655,41 @@ static int update_disabled_silenced(RRDHOST *host, RRDCALC *rc) {
         return 0;
 }
 
+// Create alarms for dimensions that have been added to charts
+// since the previous iteration.
+static void init_pending_foreach_alarms(RRDHOST *host) {
+    rrdhost_wrlock(host);
+
+    if (host->alarms_with_foreach || host->alarms_template_with_foreach) {
+        if (rrdhost_flag_check(host, RRDHOST_FLAG_PENDING_FOREACH_ALARMS)) {
+            RRDSET *st;
+
+            rrdset_foreach_read(st, host) {
+                rrdset_wrlock(st);
+
+                if (rrdset_flag_check(st, RRDSET_FLAG_PENDING_FOREACH_ALARMS)) {
+                    RRDDIM *rd;
+
+                    rrddim_foreach_write(rd, st) {
+                        if (rrddim_flag_check(rd, RRDDIM_FLAG_PENDING_FOREACH_ALARM)) {
+                            rrdcalc_link_to_rrddim(rd, st, host);
+                            rrddim_flag_clear(rd, RRDDIM_FLAG_PENDING_FOREACH_ALARM);
+                        }
+                    }
+
+                    rrdset_flag_clear(st, RRDSET_FLAG_PENDING_FOREACH_ALARMS);
+                }
+
+                rrdset_unlock(st);
+            }
+
+            rrdhost_flag_clear(host, RRDHOST_FLAG_PENDING_FOREACH_ALARMS);
+        }
+    }
+
+    rrdhost_unlock(host);
+}
+
 /**
  * Health Main
  *
@@ -737,6 +774,8 @@ void *health_main(void *ptr) {
             if(likely(!host->health_log_fp) && (loop == 1 || loop % cleanup_sql_every_loop == 0))
                 sql_health_alarm_log_cleanup(host);
 
+            init_pending_foreach_alarms(host);
+
             rrdhost_rdlock(host);
 
             // the first loop is to lookup values from the db
@@ -744,6 +783,33 @@ void *health_main(void *ptr) {
 
                 if (update_disabled_silenced(host, rc))
                     continue;
+
+                // create an alert removed event if the chart is obsolete and
+                // has stopped being collected for 60 seconds
+                if (unlikely(rc->rrdset && rc->status != RRDCALC_STATUS_REMOVED &&
+                             rrdset_flag_check(rc->rrdset, RRDSET_FLAG_OBSOLETE) &&
+                             now > (rc->rrdset->last_collected_time.tv_sec + 60))) {
+                    if (!rrdcalc_isrepeating(rc)) {
+                        time_t now = now_realtime_sec();
+                        ALARM_ENTRY *ae = health_create_alarm_entry(
+                            host, rc->id, rc->next_event_id++, rc->config_hash_id, now, rc->name, rc->rrdset->id,
+                            rc->rrdset->family, rc->classification, rc->component, rc->type, rc->exec, rc->recipient, now - rc->last_status_change,
+                            rc->value, NAN, rc->status, RRDCALC_STATUS_REMOVED, rc->source, rc->units, rc->info, 0, 0);
+                        if (ae) {
+                            health_alarm_log(host, ae);
+                            rc->old_status = rc->status;
+                            rc->status = RRDCALC_STATUS_REMOVED;
+                            rc->last_status_change = now;
+                            rc->last_updated = now;
+                            rc->value = NAN;
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+                            if (netdata_cloud_setting && likely(!aclk_alert_reloaded))
+                                sql_queue_removed_alerts_to_aclk(host);
+#endif
+                        }
+                    }
+                    continue;
+                }
 
                 if (unlikely(!rrdcalc_isrunnable(rc, now, &next_run))) {
                     if (unlikely(rc->rrdcalc_flags & RRDCALC_FLAG_RUNNABLE))
@@ -764,7 +830,7 @@ void *health_main(void *ptr) {
 
                     int ret = rrdset2value_api_v1(rc->rrdset, NULL, &rc->value, rc->dimensions, 1, rc->after,
                                                   rc->before, rc->group, 0, rc->options, &rc->db_after,
-                                                  &rc->db_before, &value_is_null
+                                                  &rc->db_before, &value_is_null, 0
                     );
 
                     if (unlikely(ret != 200)) {
@@ -975,19 +1041,19 @@ void *health_main(void *ptr) {
                         rc->delay_last = delay;
                         rc->delay_up_to_timestamp = now + delay;
 
-                        if(likely(!rrdcalc_isrepeating(rc))) {
-                            ALARM_ENTRY *ae = health_create_alarm_entry(
-                                    host, rc->id, rc->next_event_id++, rc->config_hash_id, now, rc->name, rc->rrdset->id,
-                                    rc->rrdset->family, rc->classification, rc->component, rc->type, rc->exec, rc->recipient, now - rc->last_status_change,
-                                    rc->old_value, rc->value, rc->status, status, rc->source, rc->units, rc->info,
-                                    rc->delay_last,
-                                    (
-                                            ((rc->options & RRDCALC_FLAG_NO_CLEAR_NOTIFICATION)? HEALTH_ENTRY_FLAG_NO_CLEAR_NOTIFICATION : 0) |
-                                            ((rc->rrdcalc_flags & RRDCALC_FLAG_SILENCED)? HEALTH_ENTRY_FLAG_SILENCED : 0)
-                                    )
-                            );
-                            health_alarm_log(host, ae);
-                        }
+
+                        ALARM_ENTRY *ae = health_create_alarm_entry(
+                                host, rc->id, rc->next_event_id++, rc->config_hash_id, now, rc->name, rc->rrdset->id,
+                                rc->rrdset->family, rc->classification, rc->component, rc->type, rc->exec, rc->recipient, now - rc->last_status_change,
+                                rc->old_value, rc->value, rc->status, status, rc->source, rc->units, rc->info,
+                                rc->delay_last,
+                                (
+                                        ((rc->options & RRDCALC_FLAG_NO_CLEAR_NOTIFICATION)? HEALTH_ENTRY_FLAG_NO_CLEAR_NOTIFICATION : 0) |
+                                        ((rc->rrdcalc_flags & RRDCALC_FLAG_SILENCED)? HEALTH_ENTRY_FLAG_SILENCED : 0)
+                                )
+                        );
+                        health_alarm_log(host, ae);
+
                         rc->last_status_change = now;
                         rc->old_status = rc->status;
                         rc->status = status;
@@ -1004,7 +1070,7 @@ void *health_main(void *ptr) {
                 RRDCALC *rc;
                 for(rc = host->alarms; rc ; rc = rc->next) {
                     int repeat_every = 0;
-                    if(unlikely(rrdcalc_isrepeating(rc))) {
+                    if(unlikely(rrdcalc_isrepeating(rc) && rc->delay_up_to_timestamp <= now)) {
                         if(unlikely(rc->status == RRDCALC_STATUS_WARNING)) {
                             rc->rrdcalc_flags &= ~RRDCALC_FLAG_RUN_ONCE;
                             repeat_every = rc->warn_repeat_every;
@@ -1026,6 +1092,7 @@ void *health_main(void *ptr) {
 
                     if(unlikely(repeat_every > 0 && (rc->last_repeat + repeat_every) <= now)) {
                         rc->last_repeat = now;
+                        if (likely(rc->times_repeat < UINT32_MAX)) rc->times_repeat++;
                         ALARM_ENTRY *ae = health_create_alarm_entry(
                                 host, rc->id, rc->next_event_id++, rc->config_hash_id, now, rc->name, rc->rrdset->id,
                                 rc->rrdset->family, rc->classification, rc->component, rc->type, rc->exec, rc->recipient, now - rc->last_status_change,

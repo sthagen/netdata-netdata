@@ -204,68 +204,6 @@ void web_client_request_done(struct web_client *w) {
 #endif // NETDATA_WITH_ZLIB
 }
 
-uid_t web_files_uid(void) {
-    static char *web_owner = NULL;
-    static uid_t owner_uid = 0;
-
-    if(unlikely(!web_owner)) {
-        // getpwuid() is not thread safe,
-        // but we have called this function once
-        // while single threaded
-        struct passwd *pw = getpwuid(geteuid());
-        web_owner = config_get(CONFIG_SECTION_WEB, "web files owner", (pw)?(pw->pw_name?pw->pw_name:""):"");
-        if(!web_owner || !*web_owner)
-            owner_uid = geteuid();
-        else {
-            // getpwnam() is not thread safe,
-            // but we have called this function once
-            // while single threaded
-            pw = getpwnam(web_owner);
-            if(!pw) {
-                error("User '%s' is not present. Ignoring option.", web_owner);
-                owner_uid = geteuid();
-            }
-            else {
-                debug(D_WEB_CLIENT, "Web files owner set to %s.", web_owner);
-                owner_uid = pw->pw_uid;
-            }
-        }
-    }
-
-    return(owner_uid);
-}
-
-gid_t web_files_gid(void) {
-    static char *web_group = NULL;
-    static gid_t owner_gid = 0;
-
-    if(unlikely(!web_group)) {
-        // getgrgid() is not thread safe,
-        // but we have called this function once
-        // while single threaded
-        struct group *gr = getgrgid(getegid());
-        web_group = config_get(CONFIG_SECTION_WEB, "web files group", (gr)?(gr->gr_name?gr->gr_name:""):"");
-        if(!web_group || !*web_group)
-            owner_gid = getegid();
-        else {
-            // getgrnam() is not thread safe,
-            // but we have called this function once
-            // while single threaded
-            gr = getgrnam(web_group);
-            if(!gr) {
-                error("Group '%s' is not present. Ignoring option.", web_group);
-                owner_gid = getegid();
-            }
-            else {
-                debug(D_WEB_CLIENT, "Web files group set to %s.", web_group);
-                owner_gid = gr->gr_gid;
-            }
-        }
-    }
-
-    return(owner_gid);
-}
-
 static struct {
     const char *extension;
     uint32_t hash;
@@ -399,18 +337,6 @@ int mysendfile(struct web_client *w, char *filename) {
             return access_to_file_is_not_permitted(w, webfilename);
         }
 
-        // check if the file is owned by expected user
-        if (statbuf.st_uid != web_files_uid()) {
-            error("%llu: File '%s' is owned by user %u (expected user %u). Access Denied.", w->id, webfilename, statbuf.st_uid, web_files_uid());
-            return access_to_file_is_not_permitted(w, webfilename);
-        }
-
-        // check if the file is owned by expected group
-        if (statbuf.st_gid != web_files_gid()) {
-            error("%llu: File '%s' is owned by group %u (expected group %u). Access Denied.", w->id, webfilename, statbuf.st_gid, web_files_gid());
-            return access_to_file_is_not_permitted(w, webfilename);
-        }
-
         done = 1;
     }
 
@@ -439,7 +365,7 @@ int mysendfile(struct web_client *w, char *filename) {
     sock_setnonblock(w->ifd);
 
     w->response.data->contenttype = contenttype_for_filename(webfilename);
-    debug(D_WEB_CLIENT_ACCESS, "%llu: Sending file '%s' (%ld bytes, ifd %d, ofd %d).", w->id, webfilename, statbuf.st_size, w->ifd, w->ofd);
+    debug(D_WEB_CLIENT_ACCESS, "%llu: Sending file '%s' (%"PRId64" bytes, ifd %d, ofd %d).", w->id, webfilename, (int64_t)statbuf.st_size, w->ifd, w->ofd);
 
     w->mode = WEB_CLIENT_MODE_FILECOPY;
     web_client_enable_wait_receive(w);
@@ -582,14 +508,14 @@ static inline int check_host_and_call(RRDHOST *host, struct web_client *w, char 
     return func(host, w, url);
 }
 
-static inline int check_host_and_dashboard_acl_and_call(RRDHOST *host, struct web_client *w, char *url, int (*func)(RRDHOST *, struct web_client *, char *)) {
+static inline int UNUSED_FUNCTION(check_host_and_dashboard_acl_and_call)(RRDHOST *host, struct web_client *w, char *url, int (*func)(RRDHOST *, struct web_client *, char *)) {
     if(!web_client_can_access_dashboard(w))
         return web_client_permission_denied(w);
 
     return check_host_and_call(host, w, url, func);
 }
 
-static inline int check_host_and_mgmt_acl_and_call(RRDHOST *host, struct web_client *w, char *url, int (*func)(RRDHOST *, struct web_client *, char *)) {
+static inline int UNUSED_FUNCTION(check_host_and_mgmt_acl_and_call)(RRDHOST *host, struct web_client *w, char *url, int (*func)(RRDHOST *, struct web_client *, char *)) {
     if(!web_client_can_access_mgmt(w))
         return web_client_permission_denied(w);
 
@@ -1076,6 +1002,9 @@ static inline HTTP_VALIDATION http_request_validate(struct web_client *w) {
                         if (url_parse_query_string(w->decoded_query_string, NETDATA_WEB_REQUEST_URL_SIZE + 1, ptr_variables, total_variables)) {
                             return HTTP_VALIDATION_MALFORMED_URL;
                         }
+                    } else {
+                        //make sure there's no leftovers from previous request on the same web client
+                        w->decoded_query_string[1]='\0';
                     }
                 }
                 *ue = ' ';
@@ -1380,15 +1309,7 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
             host = sql_create_host_by_uuid(tok);
             if (likely(host)) {
                 int rc = web_client_process_url(host, w, url);
-                freez(host->hostname);
-                freez((char *)host->os);
-                freez((char *)host->tags);
-                freez((char *)host->timezone);
-                freez(host->program_name);
-                freez(host->program_version);
-                freez(host->registry_hostname);
-                freez(host->system_info);
-                freez(host);
+                free_temporary_host(host);
                 return rc;
             }
         }

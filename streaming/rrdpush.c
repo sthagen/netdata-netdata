@@ -41,7 +41,7 @@ struct config stream_config = {
 
 unsigned int default_rrdpush_enabled = 0;
 #ifdef ENABLE_COMPRESSION
-unsigned int default_compression_enabled = 0;
+unsigned int default_compression_enabled = 1;
 #endif
 char *default_rrdpush_destination = NULL;
 char *default_rrdpush_api_key = NULL;
@@ -129,6 +129,13 @@ unsigned int remote_clock_resync_iterations = 60;
 
 
 static inline int should_send_chart_matching(RRDSET *st) {
+    // Do not stream anomaly rates charts.
+    if (unlikely(st->state->is_ar_chart))
+        return false;
+
+    if (rrdset_flag_check(st, RRDSET_FLAG_ANOMALY_DETECTION))
+        return ml_streaming_enabled();
+
     if(unlikely(!rrdset_flag_check(st, RRDSET_FLAG_ENABLED))) {
         rrdset_flag_clear(st, RRDSET_FLAG_UPSTREAM_SEND);
         rrdset_flag_set(st, RRDSET_FLAG_UPSTREAM_IGNORE);

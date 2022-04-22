@@ -362,21 +362,15 @@ void analytics_alarms_notifications(void)
 
 void analytics_get_install_type(void)
 {
-    struct install_type_info t = get_install_type();
-
-    if (t.install_type == NULL) {
+    if (localhost->system_info->install_type == NULL) {
         analytics_set_data_str(&analytics_data.netdata_install_type, "unknown");
     } else {
-        analytics_set_data_str(&analytics_data.netdata_install_type, t.install_type);
+        analytics_set_data_str(&analytics_data.netdata_install_type, localhost->system_info->install_type);
     }
 
-    if (t.prebuilt_distro != NULL) {
-        analytics_set_data_str(&analytics_data.netdata_prebuilt_distro, t.prebuilt_distro);
+    if (localhost->system_info->prebuilt_dist != NULL) {
+        analytics_set_data_str(&analytics_data.netdata_prebuilt_distro, localhost->system_info->prebuilt_dist);
     }
-
-    freez(t.prebuilt_arch);
-    freez(t.prebuilt_distro);
-    freez(t.install_type);
 }
 
 /*
@@ -422,12 +416,16 @@ void analytics_metrics(void)
     rrdset_foreach_read(st, localhost)
     {
         rrdset_rdlock(st);
-        rrddim_foreach_read(rd, st)
-        {
-            if (rrddim_flag_check(rd, RRDDIM_FLAG_HIDDEN) || rrddim_flag_check(rd, RRDDIM_FLAG_OBSOLETE))
-                continue;
-            dimensions++;
+
+        if (rrdset_is_available_for_viewers(st)) {
+            rrddim_foreach_read(rd, st)
+            {
+                if (rrddim_flag_check(rd, RRDDIM_FLAG_HIDDEN) || rrddim_flag_check(rd, RRDDIM_FLAG_OBSOLETE))
+                    continue;
+                dimensions++;
+            }
         }
+
         rrdset_unlock(st);
     }
     {

@@ -67,6 +67,8 @@ extern int rrdset2anything_api_v1(
         , time_t *latest_timestamp
         , struct context_param *context_param_list
         , char *chart_label_key
+        , int max_anomaly_rates
+        , int timeout
 );
 
 extern int rrdset2value_api_v1(
@@ -83,6 +85,7 @@ extern int rrdset2value_api_v1(
         , time_t *db_after
         , time_t *db_before
         , int *value_is_null
+        , int timeout
 );
 
 extern void build_context_param_list(struct context_param **param_list, RRDSET *st);

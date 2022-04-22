@@ -27,7 +27,7 @@ RUN chmod +x netdata-installer.sh && \
    cp -rp /deps/* /usr/local/ && \
    /bin/echo -e "INSTALL_TYPE='oci'\nPREBUILT_ARCH='$(uname -m)'" > ./system/.install-type && \
    ./netdata-installer.sh --dont-wait --dont-start-it --use-system-protobuf ${EXTRA_INSTALL_OPTS} \
-   "$([ "$RELEASE_CHANNEL" = stable ] && echo --stable-channel)"
+   --one-time-build "$([ "$RELEASE_CHANNEL" = stable ] && echo --stable-channel)"
 
 # files to one directory
 RUN mkdir -p /app/usr/sbin/ \
@@ -65,8 +65,8 @@ ARG NETDATA_UID=201
 ARG NETDATA_GID=201
 ENV DOCKER_GRP netdata
 ENV DOCKER_USR netdata
-# If DO_NOT_TRACK is set, it will disable anonymous stats collection and reporting
-#ENV DO_NOT_TRACK=1
+# If DISABLE_TELEMETRY is set, it will disable anonymous stats collection and reporting
+#ENV DISABLE_TELEMETRY=1
 
 # Copy files over
 RUN mkdir -p /opt/src /var/log/netdata && \
@@ -80,6 +80,7 @@ RUN mkdir -p /opt/src /var/log/netdata && \
     # Add netdata user
     addgroup -g ${NETDATA_GID} -S "${DOCKER_GRP}" && \
     adduser -S -H -s /usr/sbin/nologin -u ${NETDATA_GID} -h /etc/netdata -G "${DOCKER_GRP}" "${DOCKER_USR}"
+    # Fix handling of config directory
 
 # Long-term this should leverage BuildKit’s mount option.
 COPY --from=builder /wheels /wheels
@@ -110,7 +111,8 @@ RUN chown -R root:root \
     find /var/lib/netdata /var/cache/netdata -type d -exec chmod 0770 {} \; && \
     find /var/lib/netdata /var/cache/netdata -type f -exec chmod 0660 {} \; && \
     pip --no-cache-dir install /wheels/* && \
-    rm -rf /wheels
+    rm -rf /wheels && \
+    cp -va /etc/netdata /etc/netdata.stock
 
 ENV NETDATA_LISTENER_PORT 19999
 EXPOSE $NETDATA_LISTENER_PORT

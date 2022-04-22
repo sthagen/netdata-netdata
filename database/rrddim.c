@@ -3,32 +3,6 @@
 #define NETDATA_RRD_INTERNALS
 #include "rrd.h"
 
-static inline void calc_link_to_rrddim(RRDDIM *rd)
-{
-    RRDHOST *host = rd->rrdset->rrdhost;
-    RRDSET  *st = rd->rrdset;
-    if (host->alarms_with_foreach || host->alarms_template_with_foreach) {
-        int count = 0;
-        int hostlocked;
-        for (count = 0; count < 5; count++) {
-            hostlocked = netdata_rwlock_trywrlock(&host->rrdhost_rwlock);
-            if (!hostlocked) {
-                rrdcalc_link_to_rrddim(rd, st, host);
-                rrdhost_unlock(host);
-                break;
-            } else if (hostlocked != EBUSY) {
-                error("Cannot lock host to create an alarm for the dimension.");
-            }
-            sleep_usec(USEC_PER_MS * 200);
-        }
-
-        if (count == 5) {
-            error(
-                "Failed to create an alarm for dimension %s of chart %s 5 times. Skipping alarm.", rd->name, st->name);
-        }
-    }
-}
-
 // ----------------------------------------------------------------------------
 // RRDDIM index
 
@@ -73,9 +47,15 @@ inline int rrddim_set_name(RRDSET *st, RRDDIM *rd, const char *name) {
     snprintfz(varname, CONFIG_MAX_NAME, "dim %s name", rd->id);
     rd->name = config_set_default(st->config_section, varname, name);
     rd->hash_name = simple_hash(rd->name);
-    rrddimvar_rename_all(rd);
+
+    if (!st->state->is_ar_chart)
+        rrddimvar_rename_all(rd);
+
     rd->exposed = 0;
     rrdset_flag_clear(st, RRDSET_FLAG_UPSTREAM_EXPOSED);
+
+    ml_dimension_update_name(st, rd, name);
+
     return 1;
 }
 
@@ -238,7 +218,10 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
             rrddimvar_create(rd, RRDVAR_TYPE_CALCULATED, NULL, NULL, &rd->last_stored_value, RRDVAR_OPTION_DEFAULT);
             rrddimvar_create(rd, RRDVAR_TYPE_COLLECTED, NULL, "_raw", &rd->last_collected_value, RRDVAR_OPTION_DEFAULT);
             rrddimvar_create(rd, RRDVAR_TYPE_TIME_T, NULL, "_last_collected_t", &rd->last_collected_time.tv_sec, RRDVAR_OPTION_DEFAULT);
-            calc_link_to_rrddim(rd);
+
+            rrddim_flag_set(rd, RRDDIM_FLAG_PENDING_FOREACH_ALARM);
+            rrdset_flag_set(st, RRDSET_FLAG_PENDING_FOREACH_ALARMS);
+            rrdhost_flag_set(host, RRDHOST_FLAG_PENDING_FOREACH_ALARMS);
         }
         if (unlikely(rc)) {
             debug(D_METADATALOG, "DIMENSION [%s] metadata updated", rd->id);
@@ -252,7 +235,6 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
     char filename[FILENAME_MAX + 1];
     char fullfilename[FILENAME_MAX + 1];
 
-    char varname[CONFIG_MAX_NAME + 1];
     unsigned long size = sizeof(RRDDIM) + (st->entries * sizeof(storage_number));
 
     debug(D_RRD_CALLS, "Adding dimension '%s/%s'.", st->id, id);
@@ -350,18 +332,14 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
 
     rd->cache_filename = strdupz(fullfilename);
 
-    snprintfz(varname, CONFIG_MAX_NAME, "dim %s name", rd->id);
-    rd->name = config_get(st->config_section, varname, (name && *name)?name:rd->id);
+    rd->name = (name && *name)?strdupz(name):strdupz(rd->id);
     rd->hash_name = simple_hash(rd->name);
 
-    snprintfz(varname, CONFIG_MAX_NAME, "dim %s algorithm", rd->id);
-    rd->algorithm = rrd_algorithm_id(config_get(st->config_section, varname, rrd_algorithm_name(algorithm)));
+    rd->algorithm = algorithm;
 
-    snprintfz(varname, CONFIG_MAX_NAME, "dim %s multiplier", rd->id);
-    rd->multiplier = config_get_number(st->config_section, varname, multiplier);
+    rd->multiplier = multiplier;
 
-    snprintfz(varname, CONFIG_MAX_NAME, "dim %s divisor", rd->id);
-    rd->divisor = config_get_number(st->config_section, varname, divisor);
+    rd->divisor = divisor;
     if(!rd->divisor) rd->divisor = 1;
 
     rd->entries = st->entries;
@@ -443,7 +421,7 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
         td->next = rd;
     }
 
-    if(host->health_enabled) {
+    if(host->health_enabled && !st->state->is_ar_chart) {
         rrddimvar_create(rd, RRDVAR_TYPE_CALCULATED, NULL, NULL, &rd->last_stored_value, RRDVAR_OPTION_DEFAULT);
         rrddimvar_create(rd, RRDVAR_TYPE_COLLECTED, NULL, "_raw", &rd->last_collected_value, RRDVAR_OPTION_DEFAULT);
         rrddimvar_create(rd, RRDVAR_TYPE_TIME_T, NULL, "_last_collected_t", &rd->last_collected_time.tv_sec, RRDVAR_OPTION_DEFAULT);
@@ -452,7 +430,9 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
     if(unlikely(rrddim_index_add(st, rd) != rd))
         error("RRDDIM: INTERNAL ERROR: attempt to index duplicate dimension '%s' on chart '%s'", rd->id, st->id);
 
-    calc_link_to_rrddim(rd);
+    rrddim_flag_set(rd, RRDDIM_FLAG_PENDING_FOREACH_ALARM);
+    rrdset_flag_set(st, RRDSET_FLAG_PENDING_FOREACH_ALARMS);
+    rrdhost_flag_set(host, RRDHOST_FLAG_PENDING_FOREACH_ALARMS);
 
     ml_new_dimension(rd);
 
@@ -503,6 +483,10 @@ void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
         error("RRDDIM: INTERNAL ERROR: attempt to remove from index dimension '%s' on chart '%s', removed a different dimension.", rd->id, st->id);
 
     // free(rd->annotations);
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+    if (!netdata_exit)
+        aclk_send_dimension_update(rd);
+#endif
 
     RRD_MEMORY_MODE rrd_memory_mode = rd->rrd_memory_mode;
     switch(rrd_memory_mode) {
@@ -511,6 +495,7 @@ void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
         case RRD_MEMORY_MODE_RAM:
             debug(D_RRD_CALLS, "Unmapping dimension '%s'.", rd->name);
             freez((void *)rd->id);
+            freez((void *)rd->name);
             freez(rd->cache_filename);
             freez(rd->state);
             munmap(rd, rd->memsize);
@@ -521,6 +506,7 @@ void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
         case RRD_MEMORY_MODE_DBENGINE:
             debug(D_RRD_CALLS, "Removing dimension '%s'.", rd->name);
             freez((void *)rd->id);
+            freez((void *)rd->name);
             freez(rd->cache_filename);
             freez(rd->state);
             freez(rd);
@@ -546,6 +532,7 @@ int rrddim_hide(RRDSET *st, const char *id) {
         error("Cannot find dimension with id '%s' on stats '%s' (%s) on host '%s'.", id, st->name, st->id, host->hostname);
         return 1;
     }
+    (void) sql_set_dimension_option(&rd->state->metric_uuid, "hidden");
 
     rrddim_flag_set(rd, RRDDIM_FLAG_HIDDEN);
 #ifdef ENABLE_ACLK
@@ -563,6 +550,7 @@ int rrddim_unhide(RRDSET *st, const char *id) {
         error("Cannot find dimension with id '%s' on stats '%s' (%s) on host '%s'.", id, st->name, st->id, host->hostname);
         return 1;
     }
+    (void) sql_set_dimension_option(&rd->state->metric_uuid, NULL);
 
     rrddim_flag_clear(rd, RRDDIM_FLAG_HIDDEN);
 #ifdef ENABLE_ACLK

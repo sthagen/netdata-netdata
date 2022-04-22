@@ -385,16 +385,14 @@ RRDHOST *rrdhost_create(const char *hostname,
     // ------------------------------------------------------------------------
     // init new ML host and update system_info to let upstreams know
     // about ML functionality
+    //
+
+    if (is_localhost && host->system_info) {
+        host->system_info->ml_capable = ml_capable();
+        host->system_info->ml_enabled = ml_enabled(host);
+    }
 
     ml_new_host(host);
-    if (is_localhost && host->system_info) {
-#ifndef ENABLE_ML
-        host->system_info->ml_capable = 0;
-#else
-        host->system_info->ml_capable = 1;
-#endif
-        host->system_info->ml_enabled = host->ml_host != NULL;
-    }
 
     info("Host '%s' (at registry as '%s') with guid '%s' initialized"
                  ", os '%s'"
@@ -642,8 +640,6 @@ RRDHOST *rrdhost_find_or_create(
         rrdhost_unlock(host);
     }
 
-    rrdhost_cleanup_orphan_hosts_nolock(host);
-
     rrd_unlock();
 
     return host;
@@ -652,7 +648,7 @@ inline int rrdhost_should_be_removed(RRDHOST *host, RRDHOST *protected_host, tim
     if(host != protected_host
        && host != localhost
        && rrdhost_flag_check(host, RRDHOST_FLAG_ORPHAN)
-       && host->receiver
+       && !host->receiver
        && host->senders_disconnected_time
        && host->senders_disconnected_time + rrdhost_free_orphan_time < now)
         return 1;
@@ -722,7 +718,7 @@ int rrd_init(char *hostname, struct rrdhost_system_info *system_info) {
             , netdata_configured_timezone
             , netdata_configured_abbrev_timezone
             , netdata_configured_utc_offset
-            , config_get(CONFIG_SECTION_BACKEND, "host tags", "")
+            , ""
             , program_name
             , program_version
             , default_rrd_update_every
@@ -810,6 +806,9 @@ void rrdhost_system_info_free(struct rrdhost_system_info *system_info) {
     info("SYSTEM_INFO: free %p", system_info);
 
     if(likely(system_info)) {
+        freez(system_info->cloud_provider_type);
+        freez(system_info->cloud_instance_type);
+        freez(system_info->cloud_instance_region);
         freez(system_info->host_os_name);
         freez(system_info->host_os_id);
         freez(system_info->host_os_id_like);
@@ -834,6 +833,9 @@ void rrdhost_system_info_free(struct rrdhost_system_info *system_info) {
         freez(system_info->container);
         freez(system_info->container_detection);
         freez(system_info->is_k8s_node);
+        freez(system_info->install_type);
+        freez(system_info->prebuilt_arch);
+        freez(system_info->prebuilt_dist);
         freez(system_info);
     }
 }
@@ -845,6 +847,10 @@ void rrdhost_free(RRDHOST *host) {
     info("Freeing all memory for host '%s'...", host->hostname);
 
     rrd_check_wrlock();     // make sure the RRDs are write locked
+
+    rrdhost_wrlock(host);
+    ml_delete_host(host);
+    rrdhost_unlock(host);
 
     // ------------------------------------------------------------------------
     // clean up streaming
@@ -877,7 +883,20 @@ void rrdhost_free(RRDHOST *host) {
 
 
     rrdhost_wrlock(host);   // lock this RRDHOST
-
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+    struct aclk_database_worker_config *wc =  host->dbsync_worker;
+    if (wc && !netdata_exit) {
+        struct aclk_database_cmd cmd;
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.opcode = ACLK_DATABASE_ORPHAN_HOST;
+        struct aclk_completion compl ;
+        init_aclk_completion(&compl );
+        cmd.completion = &compl ;
+        aclk_database_enq_cmd(wc, &cmd);
+        wait_for_aclk_completion(&compl );
+        destroy_aclk_completion(&compl );
+    }
+#endif
     // ------------------------------------------------------------------------
     // release its children resources
 
@@ -921,8 +940,6 @@ void rrdhost_free(RRDHOST *host) {
     if (host->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE && host->rrdeng_ctx != &multidb_ctx)
         rrdeng_exit(host->rrdeng_ctx);
 #endif
-
-    ml_delete_host(host);
 
     // ------------------------------------------------------------------------
     // remove it from the indexes
@@ -980,7 +997,10 @@ void rrdhost_free(RRDHOST *host) {
     freez(host->node_id);
 
     freez(host);
-
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+    if (wc)
+        wc->is_orphan = 0;
+#endif
     rrd_hosts_available--;
 }
 
@@ -1018,6 +1038,18 @@ void rrdhost_save_charts(RRDHOST *host) {
 static struct label *rrdhost_load_auto_labels(void)
 {
     struct label *label_list = NULL;
+
+    if (localhost->system_info->cloud_provider_type)
+        label_list =
+            add_label_to_list(label_list, "_cloud_provider_type", localhost->system_info->cloud_provider_type, LABEL_SOURCE_AUTO);
+
+    if (localhost->system_info->cloud_instance_type)
+        label_list =
+            add_label_to_list(label_list, "_cloud_instance_type", localhost->system_info->cloud_instance_type, LABEL_SOURCE_AUTO);
+
+    if (localhost->system_info->cloud_instance_region)
+        label_list =
+            add_label_to_list(label_list, "_cloud_instance_region", localhost->system_info->cloud_instance_region, LABEL_SOURCE_AUTO);
 
     if (localhost->system_info->host_os_name)
         label_list =
@@ -1070,6 +1102,18 @@ static struct label *rrdhost_load_auto_labels(void)
     if (localhost->system_info->is_k8s_node)
         label_list =
             add_label_to_list(label_list, "_is_k8s_node", localhost->system_info->is_k8s_node, LABEL_SOURCE_AUTO);
+
+    if (localhost->system_info->install_type)
+        label_list =
+            add_label_to_list(label_list, "_install_type", localhost->system_info->install_type, LABEL_SOURCE_AUTO);
+
+    if (localhost->system_info->prebuilt_arch)
+        label_list =
+            add_label_to_list(label_list, "_prebuilt_arch", localhost->system_info->prebuilt_arch, LABEL_SOURCE_AUTO);
+
+    if (localhost->system_info->prebuilt_dist)
+        label_list =
+            add_label_to_list(label_list, "_prebuilt_dist", localhost->system_info->prebuilt_dist, LABEL_SOURCE_AUTO);
 
     label_list = add_aclk_host_labels(label_list);
 
@@ -1206,50 +1250,6 @@ struct label *parse_json_tags(struct label *label_list, const char *tags)
     return label_list;
 }
 
-static struct label *rrdhost_load_labels_from_tags(void)
-{
-    if (!localhost->tags)
-        return NULL;
-
-    struct label *label_list = NULL;
-    BACKEND_TYPE type = BACKEND_TYPE_UNKNOWN;
-
-    if (config_exists(CONFIG_SECTION_BACKEND, "enabled")) {
-        if (config_get_boolean(CONFIG_SECTION_BACKEND, "enabled", CONFIG_BOOLEAN_NO) != CONFIG_BOOLEAN_NO) {
-            const char *type_name = config_get(CONFIG_SECTION_BACKEND, "type", "graphite");
-            type = backend_select_type(type_name);
-        }
-    }
-
-    switch (type) {
-        case BACKEND_TYPE_GRAPHITE:
-            label_list = parse_simple_tags(
-                label_list, localhost->tags, '=', ';', DO_NOT_STRIP_QUOTES, DO_NOT_STRIP_QUOTES,
-                DO_NOT_SKIP_ESCAPED_CHARACTERS);
-            break;
-        case BACKEND_TYPE_OPENTSDB_USING_TELNET:
-            label_list = parse_simple_tags(
-                label_list, localhost->tags, '=', ' ', DO_NOT_STRIP_QUOTES, DO_NOT_STRIP_QUOTES,
-                DO_NOT_SKIP_ESCAPED_CHARACTERS);
-            break;
-        case BACKEND_TYPE_OPENTSDB_USING_HTTP:
-            label_list = parse_simple_tags(
-                label_list, localhost->tags, ':', ',', STRIP_QUOTES, STRIP_QUOTES,
-                DO_NOT_SKIP_ESCAPED_CHARACTERS);
-            break;
-        case BACKEND_TYPE_JSON:
-            label_list = parse_json_tags(label_list, localhost->tags);
-            break;
-        default:
-            label_list = parse_simple_tags(
-                label_list, localhost->tags, '=', ',', DO_NOT_STRIP_QUOTES, STRIP_QUOTES,
-                DO_NOT_SKIP_ESCAPED_CHARACTERS);
-            break;
-    }
-
-    return label_list;
-}
-
 static struct label *rrdhost_load_kubernetes_labels(void)
 {
     struct label *l=NULL;
@@ -1313,10 +1313,8 @@ void reload_host_labels(void)
     struct label *from_auto = rrdhost_load_auto_labels();
     struct label *from_k8s = rrdhost_load_kubernetes_labels();
     struct label *from_config = rrdhost_load_config_labels();
-    struct label *from_tags = rrdhost_load_labels_from_tags();
 
     struct label *new_labels = merge_label_lists(from_auto, from_k8s);
-    new_labels = merge_label_lists(new_labels, from_tags);
     new_labels = merge_label_lists(new_labels, from_config);
 
     rrdhost_rdlock(localhost);
@@ -1489,6 +1487,11 @@ restart_after_removal:
                             }
                             continue;
                         }
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+                        else {
+                            aclk_send_dimension_update(rd);
+                        }
+#endif
                     }
                     last = rd;
                     rd = rd->next;
@@ -1518,6 +1521,10 @@ restart_after_removal:
             rrdset_free(st);
             goto restart_after_removal;
         }
+#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+        else
+            sql_check_chart_liveness(st);
+#endif
     }
 }
 
@@ -1553,6 +1560,18 @@ int rrdhost_set_system_info_variable(struct rrdhost_system_info *system_info, ch
 
     if (!strcmp(name, "NETDATA_PROTOCOL_VERSION"))
         return res;
+    else if(!strcmp(name, "NETDATA_INSTANCE_CLOUD_TYPE")){
+        freez(system_info->cloud_provider_type);
+        system_info->cloud_provider_type = strdupz(value);
+    }
+    else if(!strcmp(name, "NETDATA_INSTANCE_CLOUD_INSTANCE_TYPE")){
+        freez(system_info->cloud_instance_type);
+        system_info->cloud_instance_type = strdupz(value);
+    }
+    else if(!strcmp(name, "NETDATA_INSTANCE_CLOUD_INSTANCE_REGION")){
+        freez(system_info->cloud_instance_region);
+        system_info->cloud_instance_region = strdupz(value);
+    }
     else if(!strcmp(name, "NETDATA_CONTAINER_OS_NAME")){
         freez(system_info->container_os_name);
         system_info->container_os_name = strdupz(value);
@@ -1580,6 +1599,7 @@ int rrdhost_set_system_info_variable(struct rrdhost_system_info *system_info, ch
     else if(!strcmp(name, "NETDATA_HOST_OS_NAME")){
         freez(system_info->host_os_name);
         system_info->host_os_name = strdupz(value);
+        json_fix_string(system_info->host_os_name);
     }
     else if(!strcmp(name, "NETDATA_HOST_OS_ID")){
         freez(system_info->host_os_id);

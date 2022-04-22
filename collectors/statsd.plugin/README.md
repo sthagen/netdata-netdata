@@ -27,6 +27,10 @@ On these charts, we can have alarms as with any metric and chart.
   - **Description:** k6 is a developer-centric, free and open-source load testing tool built for making performance testing a productive and enjoyable experience.
   - [Documentation](/collectors/statsd.plugin/k6.md)
   - [Configuration](https://github.com/netdata/netdata/blob/master/collectors/statsd.plugin/k6.conf)
+- [Asterisk](https://www.asterisk.org/)
+  - **Description:** Asterisk is an Open Source PBX and telephony toolkit.
+  - [Documentation](/collectors/statsd.plugin/asterisk.md)
+  - [Configuration](https://github.com/netdata/netdata/blob/master/collectors/statsd.plugin/asterisk.conf)
 
 ## Metrics supported by Netdata
 
@@ -611,4 +615,4 @@ The function is smart enough to call `nc` just once and pass all the metrics to 
 
 If you have gotten thus far, make sure to check out our [community forums](https://community.netdata.cloud) to share your experience using Netdata with StatsD.
 
-[![analytics](https://www.google-analytics.com/collect?v=1&aip=1&t=pageview&_s=1&ds=github&dr=https%3A%2F%2Fgithub.com%2Fnetdata%2Fnetdata&dl=https%3A%2F%2Fmy-netdata.io%2Fgithub%2Fcollectors%2Fstatsd.plugin%2FREADME&_u=MAC~&cid=5792dfd7-8dc4-476b-af31-da2fdb9f93d2&tid=UA-64295674-3)](<>)
+

@@ -21,7 +21,7 @@ if [ -z "${VIRTUALIZATION}" ]; then
   if [ -n "$(command -v systemd-detect-virt 2> /dev/null)" ]; then
     VIRTUALIZATION="$(systemd-detect-virt -v)"
     VIRT_DETECTION="systemd-detect-virt"
-    CONTAINER="$(systemd-detect-virt -c)"
+    CONTAINER=${CONTAINER:-$(systemd-detect-virt -c)}
     CONT_DETECTION="systemd-detect-virt"
   else
     if grep -q "^flags.*hypervisor" /proc/cpuinfo 2> /dev/null; then
@@ -153,7 +153,6 @@ if [ "${CONTAINER}" = "unknown" ] || [ "${CONTAINER}" = "none" ]; then
 else
   # Otherwise try and use a user-supplied bind-mount into the container to resolve the host details
   if [ -e "/host/etc/os-release" ]; then
-    OS_DETECTION="/etc/os-release"
     eval "$(grep -E "^(NAME|ID|ID_LIKE|VERSION|VERSION_ID)=" < /host/etc/os-release | sed 's/^/HOST_/')"
     HOST_OS_DETECTION="/host/etc/os-release"
   fi
@@ -197,10 +196,14 @@ if [ -n "${lscpu}" ] && lscpu > /dev/null 2>&1; then
   LCPU_COUNT="$(echo "${lscpu_output}" | grep "^CPU(s):" | cut -f 2 -d ':' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
   CPU_VENDOR="$(echo "${lscpu_output}" | grep "^Vendor ID:" | cut -f 2 -d ':' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
   CPU_MODEL="$(echo "${lscpu_output}" | grep "^Model name:" | cut -f 2 -d ':' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  possible_cpu_freq="$(echo "${lscpu_output}" | grep -F "CPU max MHz:" | cut -f 2 -d ':' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -o '^[0-9]*') MHz"
-  if [ "${possible_cpu_freq}" = " MHz" ]; then
-    possible_cpu_freq="$(echo "${lscpu_output}" | grep -F "CPU MHz:" | cut -f 2 -d ':' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -o '^[0-9]*') MHz"
+  possible_cpu_freq="$(echo "${lscpu_output}" | grep -F "CPU max MHz:" | cut -f 2 -d ':' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -o '^[0-9]*')"
+  if [ -z "$possible_cpu_freq" ]; then
+    possible_cpu_freq="$(echo "${lscpu_output}" | grep -F "CPU MHz:" | cut -f 2 -d ':' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -o '^[0-9]*')"
   fi
+  if [ -z "$possible_cpu_freq" ]; then
+    possible_cpu_freq="$(echo "${lscpu_output}" | grep "^Model name:" | grep -Eo "[0-9\.]+GHz" | grep -o "^[0-9\.]*" | awk '{print int($0*1000)}')"
+  fi
+  [ -n "$possible_cpu_freq" ] && possible_cpu_freq="${possible_cpu_freq} MHz"
 elif [ -n "${dmidecode}" ] && dmidecode -t processor > /dev/null 2>&1; then
   dmidecode_output="$(${dmidecode} -t processor 2> /dev/null)"
   CPU_INFO_SOURCE="dmidecode"
@@ -215,6 +218,13 @@ else
   elif [ "${KERNEL_NAME}" = FreeBSD ]; then
     CPU_INFO_SOURCE="sysctl"
     LCPU_COUNT="$(sysctl -n kern.smp.cpus)"
+    if ! possible_cpu_freq=$(sysctl -n machdep.tsc_freq 2> /dev/null); then
+      possible_cpu_freq=$(sysctl -n hw.model 2> /dev/null | grep -Eo "[0-9\.]+GHz" | grep -o "^[0-9\.]*" | awk '{print int($0*1000)}')
+      [ -n "$possible_cpu_freq" ] && possible_cpu_freq="${possible_cpu_freq} MHz"
+    fi
+  elif [ "${KERNEL_NAME}" = Darwin ]; then
+    CPU_INFO_SOURCE="sysctl"
+    LCPU_COUNT="$(sysctl -n hw.logicalcpu)"
   elif [ -d /sys/devices/system/cpu ]; then
     CPU_INFO_SOURCE="sysfs"
     # This is potentially more accurate than checking `/proc/cpuinfo`.
@@ -224,8 +234,15 @@ else
     LCPU_COUNT="$(grep -c ^processor /proc/cpuinfo)"
   fi
 
-  # If we have GNU uname, we can use that to get CPU info (probably).
-  if uname --version 2> /dev/null | grep -qF 'GNU coreutils'; then
+  if [ "${KERNEL_NAME}" = Darwin ]; then
+    CPU_MODEL="$(sysctl -n machdep.cpu.brand_string)"
+    if [ "${ARCHITECTURE}" = "x86_64" ]; then
+      CPU_VENDOR="$(sysctl -n machdep.cpu.vendor)"
+    else
+      CPU_VENDOR="Apple"
+    fi
+    echo "${CPU_INFO_SOURCE}" | grep -qv sysctl && CPU_INFO_SOURCE="${CPU_INFO_SOURCE} sysctl"
+  elif uname --version 2> /dev/null | grep -qF 'GNU coreutils'; then
     CPU_INFO_SOURCE="${CPU_INFO_SOURCE} uname"
     CPU_MODEL="$(uname -p)"
     CPU_VENDOR="$(uname -i)"
@@ -245,12 +262,15 @@ else
   fi
 fi
 
-if [ -r /sys/devices/system/cpu/cpu0/cpufreq/base_frequency ]; then
+if [ "${KERNEL_NAME}" = Darwin ] && [ "${ARCHITECTURE}" = "x86_64" ]; then
+  CPU_FREQ="$(sysctl -n hw.cpufrequency)"
+elif [ -r /sys/devices/system/cpu/cpu0/cpufreq/base_frequency ]; then
   if (echo "${CPU_INFO_SOURCE}" | grep -qv sysfs); then
     CPU_INFO_SOURCE="${CPU_INFO_SOURCE} sysfs"
   fi
 
-  CPU_FREQ="$(cat /sys/devices/system/cpu/cpu0/cpufreq/base_frequency)"
+  value="$(cat /sys/devices/system/cpu/cpu0/cpufreq/base_frequency)"
+  CPU_FREQ="$((value * 1000))"
 elif [ -n "${possible_cpu_freq}" ]; then
   CPU_FREQ="${possible_cpu_freq}"
 elif [ -r /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq ]; then
@@ -258,7 +278,14 @@ elif [ -r /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq ]; then
     CPU_INFO_SOURCE="${CPU_INFO_SOURCE} sysfs"
   fi
 
-  CPU_FREQ="$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq)"
+  value="$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq)"
+  CPU_FREQ="$((value * 1000))"
+elif [ -r /proc/cpuinfo ]; then
+  if (echo "${CPU_INFO_SOURCE}" | grep -qv procfs); then
+    CPU_INFO_SOURCE="${CPU_INFO_SOURCE} procfs"
+  fi
+  value=$(grep "cpu MHz" /proc/cpuinfo 2>/dev/null | grep -o "[0-9]*" | head -n 1 | awk '{print int($0*1000000)}')
+  [ -n "$value" ] && CPU_FREQ="$value"
 fi
 
 freq_units="$(echo "${CPU_FREQ}" | cut -f 2 -d ' ')"
@@ -376,6 +403,47 @@ elif pgrep "kubelet"; then
   HOST_IS_K8S_NODE="true"
 fi
 
+# ------------------------------------------------------------------------------------------------
+# Detect instance metadata for VMs running on cloud providers
+
+CLOUD_TYPE="unknown"
+CLOUD_INSTANCE_TYPE="unknown"
+CLOUD_INSTANCE_REGION="unknown"
+
+if [ "${VIRTUALIZATION}" != "none" ] && command -v curl > /dev/null 2>&1; then
+  # Try AWS IMDSv2
+  if [ "${CLOUD_TYPE}" = "unknown" ]; then
+    AWS_IMDS_TOKEN="$(curl --fail -s -m 5 --noproxy "*" -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
+    if [ -n "${AWS_IMDS_TOKEN}" ]; then
+      CLOUD_TYPE="AWS"
+      CLOUD_INSTANCE_TYPE="$(curl --fail -s -m 5 --noproxy "*" -H "X-aws-ec2-metadata-token: $AWS_IMDS_TOKEN" -v "http://169.254.169.254/latest/meta-data/instance-type" 2> /dev/null)"
+      CLOUD_INSTANCE_REGION="$(curl --fail -s -m 5 --noproxy "*" -H "X-aws-ec2-metadata-token: $AWS_IMDS_TOKEN" -v "http://169.254.169.254/latest/meta-data/placement/region" 2> /dev/null)"
+    fi
+  fi
+
+  # Try GCE computeMetadata v1
+  if [ "${CLOUD_TYPE}" = "unknown" ]; then
+    if [ -n "$(curl --fail -s -m 5 --noproxy "*" -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1")" ]; then
+      CLOUD_TYPE="GCP"
+      CLOUD_INSTANCE_TYPE="$(curl --fail -s -m 5 --noproxy "*" -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/machine-type")"
+      [ -n "$CLOUD_INSTANCE_TYPE" ] && CLOUD_INSTANCE_TYPE=$(basename "$CLOUD_INSTANCE_TYPE")
+      CLOUD_INSTANCE_REGION="$(curl --fail -s -m 5 --noproxy "*" -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/zone")"
+      [ -n "$CLOUD_INSTANCE_REGION" ] && CLOUD_INSTANCE_REGION=$(basename "$CLOUD_INSTANCE_REGION") && CLOUD_INSTANCE_REGION=${CLOUD_INSTANCE_REGION%-*}
+    fi
+  fi
+
+  # TODO: needs to be tested in Microsoft Azure
+  # Try Azure IMDS
+  # if [ "${CLOUD_TYPE}" = "unknown" ]; then
+  #   AZURE_IMDS_DATA="$(curl --fail -s -m 5 -H "Metadata: true" --noproxy "*" "http://169.254.169.254/metadata/instance?version=2021-10-01")"
+  #   if [ -n "${AZURE_IMDS_DATA}" ]; then
+  #     CLOUD_TYPE="Azure"
+  #     CLOUD_INSTANCE_TYPE="$(curl --fail -s -m 5 -H "Metadata: true" --noproxy "*" "http://169.254.169.254/metadata/instance/compute/vmSize?version=2021-10-01&format=text")"
+  #     CLOUD_INSTANCE_REGION="$(curl --fail -s -m 5 -H "Metadata: true" --noproxy "*" "http://169.254.169.254/metadata/instance/compute/location?version=2021-10-01&format=text")"
+  #   fi
+  # fi
+fi
+
 echo "NETDATA_CONTAINER_OS_NAME=${CONTAINER_NAME}"
 echo "NETDATA_CONTAINER_OS_ID=${CONTAINER_ID}"
 echo "NETDATA_CONTAINER_OS_ID_LIKE=${CONTAINER_ID_LIKE}"
@@ -406,3 +474,6 @@ echo "NETDATA_SYSTEM_TOTAL_RAM=${TOTAL_RAM}"
 echo "NETDATA_SYSTEM_RAM_DETECTION=${RAM_DETECTION}"
 echo "NETDATA_SYSTEM_TOTAL_DISK_SIZE=${DISK_SIZE}"
 echo "NETDATA_SYSTEM_DISK_DETECTION=${DISK_DETECTION}"
+echo "NETDATA_INSTANCE_CLOUD_TYPE=${CLOUD_TYPE}"
+echo "NETDATA_INSTANCE_CLOUD_INSTANCE_TYPE=${CLOUD_INSTANCE_TYPE}"
+echo "NETDATA_INSTANCE_CLOUD_INSTANCE_REGION=${CLOUD_INSTANCE_REGION}"

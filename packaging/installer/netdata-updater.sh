@@ -30,6 +30,8 @@
 
 set -e
 
+PACKAGES_SCRIPT="https://raw.githubusercontent.com/netdata/netdata/master/packaging/installer/install-required-packages.sh"
+
 script_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)"
 
 if [ -x "${script_dir}/netdata-updater" ]; then
@@ -46,32 +48,195 @@ else
   INTERACTIVE=1
 fi
 
+if [ -n "${script_source}" ]; then
+  script_name="$(basename "${script_source}")"
+else
+  script_name="netdata-updater.sh"
+fi
+
 info() {
-  echo >&3 "$(date) : INFO: " "${@}"
+  echo >&3 "$(date) : INFO: ${script_name}: " "${@}"
 }
 
 error() {
-  echo >&3 "$(date) : ERROR: " "${@}"
+  echo >&3 "$(date) : ERROR: ${script_name}: " "${@}"
 }
 
-: "${ENVIRONMENT_FILE:=THIS_SHOULD_BE_REPLACED_BY_INSTALLER_SCRIPT}"
+fatal() {
+  echo >&3 "$(date) : FATAL: ${script_name}: FAILED TO UPDATE NETDATA: " "${@}"
+  exit 1
+}
 
-if [ "${ENVIRONMENT_FILE}" = "THIS_SHOULD_BE_REPLACED_BY_INSTALLER_SCRIPT" ]; then
-  if [ -r "${script_dir}/../../../etc/netdata/.environment" ]; then
-    ENVIRONMENT_FILE="${script_dir}/../../../etc/netdata/.environment"
-  elif [ -r "/etc/netdata/.environment" ]; then
-    ENVIRONMENT_FILE="/etc/netdata/.environment"
-  elif [ -r "/opt/netdata/etc/netdata/.environment" ]; then
-    ENVIRONMENT_FILE="/opt/netdata/etc/netdata/.environment"
+issystemd() {
+  # if the directory /lib/systemd/system OR /usr/lib/systemd/system (SLES 12.x) does not exit, it is not systemd
+  if [ ! -d /lib/systemd/system ] && [ ! -d /usr/lib/systemd/system ]; then
+    return 1
+  fi
+
+  # if there is no systemctl command, it is not systemd
+  systemctl=$(command -v systemctl 2> /dev/null)
+  if [ -z "${systemctl}" ] || [ ! -x "${systemctl}" ]; then
+    return 1
+  fi
+
+  # if pid 1 is systemd, it is systemd
+  [ "$(basename "$(readlink /proc/1/exe)" 2> /dev/null)" = "systemd" ] && return 0
+
+  # if systemd is not running, it is not systemd
+  pids=$(safe_pidof systemd 2> /dev/null)
+  [ -z "${pids}" ] && return 1
+
+  # check if the running systemd processes are not in our namespace
+  myns="$(readlink /proc/self/ns/pid 2> /dev/null)"
+  for p in ${pids}; do
+    ns="$(readlink "/proc/${p}/ns/pid" 2> /dev/null)"
+
+    # if pid of systemd is in our namespace, it is systemd
+    [ -n "${myns}" ] && [ "${myns}" = "${ns}" ] && return 0
+  done
+
+  # else, it is not systemd
+  return 1
+}
+
+_get_intervaldir() {
+  if [ -d /etc/cron.daily ]; then
+    echo /etc/cron.daily
+  elif [ -d /etc/periodic/daily ]; then
+    echo /etc/periodic/daily
   else
-    envpath="$(find / -type d \( -path /sys -o -path /proc -o -path /dev \) -prune -false -o -path '*netdata/.environment' -type f  2> /dev/null | head -n 1)"
-    if [ -r "${envpath}" ]; then
-      ENVIRONMENT_FILE="${envpath}"
-    else
-      fatal "Cannot find environment file, unable to update."
+    return 1
+  fi
+
+  return 0
+}
+
+_get_scheduler_type() {
+  if _get_intervaldir > /dev/null ; then
+    echo 'interval'
+  elif issystemd ; then
+    echo 'systemd'
+  elif [ -d /etc/cron.d ] ; then
+    echo 'crontab'
+  else
+    echo 'none'
+  fi
+}
+
+install_build_dependencies() {
+  bash="$(command -v bash 2> /dev/null)"
+
+  if [ -z "${bash}" ] || [ ! -x "${bash}" ]; then
+    error "Unable to find a usable version of \`bash\` (required for local build)."
+    return 1
+  fi
+
+  info "Fetching dependency handling script..."
+  download "${PACKAGES_SCRIPT}" "./install-required-packages.sh" || true
+
+  if [ ! -s "./install-required-packages.sh" ]; then
+    error "Downloaded dependency installation script is empty."
+  else
+    info "Running dependency handling script..."
+
+    opts="--dont-wait --non-interactive"
+
+    # shellcheck disable=SC2086
+    if ! "${bash}" "./install-required-packages.sh" ${opts} netdata >&3 2>&3; then
+      error "Installing build dependencies failed. The update should still work, but you might be missing some features."
     fi
   fi
-fi
+}
+
+enable_netdata_updater() {
+  updater_type="$(echo "${1}" | tr '[:upper:]' '[:lower:]')"
+  case "${updater_type}" in
+    systemd|interval|crontab)
+      updater_type="${1}"
+      ;;
+    "")
+      updater_type="$(_get_scheduler_type)"
+      ;;
+    *)
+      error "Unrecognized updater type ${updater_type} requested. Supported types are 'systemd', 'interval', and 'crontab'."
+      exit 1
+      ;;
+  esac
+
+  case "${updater_type}" in
+    "systemd")
+      if issystemd; then
+        systemctl enable netdata-updater.timer
+
+        info "Auto-updating has been ENABLED using a systemd timer unit.\n"
+        info "If the update process fails, the failure will be logged to the systemd journal just like a regular service failure."
+        info "Successful updates should produce empty logs."
+      else
+        error "Systemd-based auto-update scheduling requested, but this does not appear to be a systemd system."
+        error "Auto-updates have NOT been enabled."
+        return 1
+      fi
+      ;;
+    "interval")
+      if _get_intervaldir > /dev/null; then
+        ln -sf "${NETDATA_PREFIX}/usr/libexec/netdata/netdata-updater.sh" "$(_get_intervaldir)/netdata-updater"
+
+        info "Auto-updating has been ENABLED through cron, updater script linked to $(_get_intervaldir)/netdata-updater\n"
+        info "If the update process fails and you have email notifications set up correctly for cron on this system, you should receive an email notification of the failure."
+        info "Successful updates will not send an email."
+      else
+        error "Interval-based auto-update scheduling requested, but I could not find an interval scheduling directory."
+        error "Auto-updates have NOT been enabled."
+        return 1
+      fi
+      ;;
+    "crontab")
+      if [ -d "/etc/cron.d" ]; then
+        cat > "/etc/cron.d/netdata-updater" <<-EOF
+	2 57 * * * root ${NETDATA_PREFIX}/netdata-updater.sh
+	EOF
+
+        info "Auto-updating has been ENABLED through cron, using a crontab at /etc/cron.d/netdata-updater\n"
+        info "If the update process fails and you have email notifications set up correctly for cron on this system, you should receive an email notification of the failure."
+        info "Successful updates will not send an email."
+      else
+        error "Crontab-based auto-update scheduling requested, but there is no '/etc/cron.d'."
+        error "Auto-updates have NOT been enabled."
+        return 1
+      fi
+      ;;
+    *)
+      error "Unable to determine what type of auto-update scheduling to use."
+      error "Auto-updates have NOT been enabled."
+      return 1
+  esac
+
+  return 0
+}
+
+disable_netdata_updater() {
+  if issystemd && ( systemctl list-units --full -all | grep -Fq "netdata-updater.timer" ) ; then
+    systemctl disable netdata-updater.timer
+  fi
+
+  if [ -d /etc/cron.daily ]; then
+    rm -f /etc/cron.daily/netdata-updater.sh
+    rm -f /etc/cron.daily/netdata-updater
+  fi
+
+  if [ -d /etc/periodic/daily ]; then
+    rm -f /etc/periodic/daily/netdata-updater.sh
+    rm -f /etc/periodic/daily/netdata-updater
+  fi
+
+  if [ -d /etc/cron.d ]; then
+    rm -f /etc/cron.d/netdata-updater
+  fi
+
+  info "Auto-updates have been DISABLED."
+
+  return 0
+}
 
 str_in_list() {
   printf "%s\n" "${2}" | tr ' ' "\n" | grep -qE "^${1}\$"
@@ -88,12 +253,6 @@ safe_sha256sum() {
   else
     fatal "I could not find a suitable checksum binary to use"
   fi
-}
-
-# this is what we will do if it fails (head-less only)
-fatal() {
-  error "FAILED TO UPDATE NETDATA : ${1}"
-  exit 1
 }
 
 cleanup() {
@@ -117,7 +276,7 @@ _cannot_use_tmpdir() {
 
   if printf '#!/bin/sh\necho SUCCESS\n' > "${testfile}" ; then
     if chmod +x "${testfile}" ; then
-      if [ "$("${testfile}")" = "SUCCESS" ] ; then
+      if [ "$("${testfile}" 2>/dev/null)" = "SUCCESS" ] ; then
         ret=1
       fi
     fi
@@ -199,16 +358,27 @@ get_netdata_latest_tag() {
 newer_commit_date() {
   info "Checking if a newer version of the updater script is available."
 
+  commit_check_url="https://api.github.com/repos/netdata/netdata/commits?path=packaging%2Finstaller%2Fnetdata-updater.sh&page=1&per_page=1"
+  python_version_check="from __future__ import print_function;import sys,json;data = json.load(sys.stdin);print(data[0]['commit']['committer']['date'] if isinstance(data, list) else '')"
+
   if command -v jq > /dev/null 2>&1; then
-    commit_date="$(_safe_download "https://api.github.com/repos/netdata/netdata/commits?path=packaging%2Finstaller%2Fnetdata-updater.sh&page=1&per_page=1" /dev/stdout | jq '.[0].commit.committer.date' | tr -d '"')"
+    commit_date="$(_safe_download "${commit_check_url}" /dev/stdout | jq '.[0].commit.committer.date' 2>/dev/null | tr -d '"')"
   elif command -v python > /dev/null 2>&1;then
-    commit_date="$(_safe_download "https://api.github.com/repos/netdata/netdata/commits?path=packaging%2Finstaller%2Fnetdata-updater.sh&page=1&per_page=1" /dev/stdout | python -c 'from __future__ import print_function;import sys,json;print(json.load(sys.stdin)[0]["commit"]["committer"]["date"])')"
+    commit_date="$(_safe_download "${commit_check_url}" /dev/stdout | python -c "${python_version_check}")"
   elif command -v python3 > /dev/null 2>&1;then
-    commit_date="$(_safe_download "https://api.github.com/repos/netdata/netdata/commits?path=packaging%2Finstaller%2Fnetdata-updater.sh&page=1&per_page=1" /dev/stdout | python3 -c 'from __future__ import print_function;import sys,json;print(json.load(sys.stdin)[0]["commit"]["committer"]["date"])')"
+    commit_date="$(_safe_download "${commit_check_url}" /dev/stdout | python3 -c "${python_version_check}")"
   fi
 
   if [ -z "${commit_date}" ] ; then
-    commit_date="9999-12-31T23:59:59Z"
+    return 0
+  elif [ "$(uname)" = "Linux" ]; then
+    commit_date="$(date -d "${commit_date}" +%s)"
+  else # assume BSD-style `date` if we are not on Linux
+    commit_date="$(/bin/date -j -f "%Y-%m-%dT%H:%M:%SZ" "${commit_date}" +%s 2>/dev/null)"
+
+    if [ -z "${commit_date}" ]; then
+        return 0
+    fi
   fi
 
   if [ -e "${script_source}" ]; then
@@ -217,7 +387,7 @@ newer_commit_date() {
     script_date="$(date +%s)"
   fi
 
-  [ "$(date -d "${commit_date}" +%s)" -ge "${script_date}" ]
+  [ "${commit_date}" -ge "${script_date}" ]
 }
 
 self_update() {
@@ -269,7 +439,19 @@ get_latest_version() {
   fi
 }
 
+validate_environment_file() {
+  if [ -n "${RELEASE_CHANNEL}" ] && [ -n "${NETDATA_PREFIX}" ] && [ -n "${REINSTALL_OPTIONS}" ] && [ -n "${IS_NETDATA_STATIC_BINARY}" ]; then
+    return 0
+  else
+    error "Environment file located at ${ENVIRONMENT_FILE} is not valid, unable to update."
+  fi
+}
+
 update_available() {
+  if [ "$NETDATA_FORCE_UPDATE" = "1" ]; then
+     info "Force update requested"
+     return 0
+  fi
   basepath="$(dirname "$(dirname "$(dirname "${NETDATA_LIB_DIR}")")")"
   searchpath="${basepath}/bin:${basepath}/sbin:${basepath}/usr/bin:${basepath}/usr/sbin:${PATH}"
   searchpath="${basepath}/netdata/bin:${basepath}/netdata/sbin:${basepath}/netdata/usr/bin:${basepath}/netdata/usr/sbin:${searchpath}"
@@ -333,10 +515,14 @@ update_build() {
   ndtmpdir=$(create_tmp_directory)
   cd "$ndtmpdir" || exit 1
 
+  install_build_dependencies
+
   if update_available; then
     download "${NETDATA_TARBALL_CHECKSUM_URL}" "${ndtmpdir}/sha256sum.txt" >&3 2>&3
     download "${NETDATA_TARBALL_URL}" "${ndtmpdir}/netdata-latest.tar.gz"
-    if [ -n "${NETDATA_TARBALL_CHECKSUM}" ] && grep "${NETDATA_TARBALL_CHECKSUM}" sha256sum.txt >&3 2>&3; then
+    if [ -n "${NETDATA_TARBALL_CHECKSUM}" ] &&
+      grep "${NETDATA_TARBALL_CHECKSUM}" sha256sum.txt >&3 2>&3 &&
+      [ "$NETDATA_FORCE_UPDATE" != "1" ]; then
       info "Newest version is already installed"
     else
       if ! grep netdata-latest.tar.gz sha256sum.txt | safe_sha256sum -c - >&3 2>&3; then
@@ -379,6 +565,10 @@ update_build() {
     if [ -e "${NETDATA_PREFIX}/etc/netdata/.install-type" ] ; then
       install_type="$(cat "${NETDATA_PREFIX}"/etc/netdata/.install-type)"
     else
+      install_type="INSTALL_TYPE='legacy-build'"
+    fi
+
+    if [ "${INSTALL_TYPE}" = "custom" ] && [ -f "${NETDATA_PREFIX}" ]; then
       install_type="INSTALL_TYPE='legacy-build'"
     fi
 
@@ -485,19 +675,19 @@ update_binpkg() {
     debian)
       pm_cmd="apt-get"
       repo_subcmd="update"
-      upgrade_cmd="upgrade"
+      upgrade_cmd="--only-upgrade install"
       pkg_install_opts="${interactive_opts}"
       repo_update_opts="${interactive_opts}"
-      pkg_installed_check="dpkg -l"
+      pkg_installed_check="dpkg -s"
       INSTALL_TYPE="binpkg-deb"
       ;;
     ubuntu)
       pm_cmd="apt-get"
       repo_subcmd="update"
-      upgrade_cmd="upgrade"
+      upgrade_cmd="--only-upgrade install"
       pkg_install_opts="${interactive_opts}"
       repo_update_opts="${interactive_opts}"
-      pkg_installed_check="dpkg -l"
+      pkg_installed_check="dpkg -s"
       INSTALL_TYPE="binpkg-deb"
       ;;
     centos)
@@ -574,6 +764,50 @@ ndtmpdir=
 
 trap cleanup EXIT
 
+if [ -t 2 ]; then
+  # we are running on a terminal
+  # open fd 3 and send it to stderr
+  exec 3>&2
+else
+  # we are headless
+  # create a temporary file for the log
+  logfile="$(mktemp -t netdata-updater.log.XXXXXX)"
+  # open fd 3 and send it to logfile
+  exec 3> "${logfile}"
+fi
+
+: "${ENVIRONMENT_FILE:=THIS_SHOULD_BE_REPLACED_BY_INSTALLER_SCRIPT}"
+
+if [ "${ENVIRONMENT_FILE}" = "THIS_SHOULD_BE_REPLACED_BY_INSTALLER_SCRIPT" ]; then
+  if [ -r "${script_dir}/../../../etc/netdata/.environment" ] || [ -r "${script_dir}/../../../etc/netdata/.install-type" ]; then
+    ENVIRONMENT_FILE="${script_dir}/../../../etc/netdata/.environment"
+  elif [ -r "/etc/netdata/.environment" ] || [ -r "/etc/netdata/.install-type" ]; then
+    ENVIRONMENT_FILE="/etc/netdata/.environment"
+  elif [ -r "/opt/netdata/etc/netdata/.environment" ] || [ -r "/opt/netdata/etc/netdata/.install-type" ]; then
+    ENVIRONMENT_FILE="/opt/netdata/etc/netdata/.environment"
+  else
+    envpath="$(find / -type d \( -path /sys -o -path /proc -o -path /dev \) -prune -false -o -path '*netdata/.environment' -type f  2> /dev/null | head -n 1)"
+    itpath="$(find / -type d \( -path /sys -o -path /proc -o -path /dev \) -prune -false -o -path '*netdata/.install-type' -type f  2> /dev/null | head -n 1)"
+    if [ -r "${envpath}" ]; then
+      ENVIRONMENT_FILE="${envpath}"
+    elif [ -r "${itpath}" ]; then
+      ENVIRONMENT_FILE="$(dirname "${itpath}")/.environment"
+    else
+      fatal "Cannot find environment file or install type file, unable to update."
+    fi
+  fi
+fi
+
+if [ -r "${ENVIRONMENT_FILE}" ] ; then
+  # shellcheck source=/dev/null
+  . "${ENVIRONMENT_FILE}" || exit 1
+fi
+
+if [ -r "$(dirname "${ENVIRONMENT_FILE}")/.install-type" ]; then
+  # shellcheck source=/dev/null
+  . "$(dirname "${ENVIRONMENT_FILE}")/.install-type" || exit 1
+fi
+
 while [ -n "${1}" ]; do
   if [ "${1}" = "--not-running-from-cron" ]; then
     NETDATA_NOT_RUNNING_FROM_CRON=1
@@ -581,9 +815,18 @@ while [ -n "${1}" ]; do
   elif [ "${1}" = "--no-updater-self-update" ]; then
     NETDATA_NO_UPDATER_SELF_UPDATE=1
     shift 1
+  elif [ "${1}" = "--force-update" ]; then
+    NETDATA_FORCE_UPDATE=1
+    shift 1
   elif [ "${1}" = "--tmpdir-path" ]; then
     NETDATA_TMPDIR_PATH="${2}"
     shift 2
+  elif [ "${1}" = "--enable-auto-updates" ]; then
+    enable_netdata_updater "${2}"
+    exit $?
+  elif [ "${1}" = "--disable-auto-updates" ]; then
+    disable_netdata_updater
+    exit $?
   else
     break
   fi
@@ -601,14 +844,6 @@ if [ ! -t 1 ] && [ -z "${NETDATA_NOT_RUNNING_FROM_CRON}" ]; then
     sleep $(((rnd % 3600) + 1))
 fi
 
-# shellcheck source=/dev/null
-. "${ENVIRONMENT_FILE}" || exit 1
-
-if [ -f "$(dirname "${ENVIRONMENT_FILE}")/.install-type" ]; then
-  # shellcheck source=/dev/null
-  . "$(dirname "${ENVIRONMENT_FILE}")/.install-type" || exit 1
-fi
-
 # We dont expect to find lib dir variable on older installations, so load this path if none found
 export NETDATA_LIB_DIR="${NETDATA_LIB_DIR:-${NETDATA_PREFIX}/var/lib/netdata}"
 
@@ -618,20 +853,8 @@ export NETDATA_LIB_DIR="${NETDATA_LIB_DIR:-${NETDATA_PREFIX}/var/lib/netdata}"
 # Grab the nightlies baseurl (defaulting to our Google Storage bucket)
 export NETDATA_NIGHTLIES_BASEURL="${NETDATA_NIGHTLIES_BASEURL:-https://storage.googleapis.com/netdata-nightlies}"
 
-if [ "${INSTALL_UID}" != "$(id -u)" ]; then
+if echo "$INSTALL_TYPE" | grep -qv ^binpkg && [ "${INSTALL_UID}" != "$(id -u)" ]; then
   fatal "You are running this script as user with uid $(id -u). We recommend to run this script as root (user with uid 0)"
-fi
-
-if [ -t 2 ]; then
-  # we are running on a terminal
-  # open fd 3 and send it to stderr
-  exec 3>&2
-else
-  # we are headless
-  # create a temporary file for the log
-  logfile="$(mktemp -t netdata-updater.log.XXXXXX)"
-  # open fd 3 and send it to logfile
-  exec 3> "${logfile}"
 fi
 
 self_update
@@ -639,10 +862,12 @@ self_update
 # shellcheck disable=SC2153
 case "${INSTALL_TYPE}" in
     *-build)
+      validate_environment_file || exit 1
       set_tarball_urls "${RELEASE_CHANNEL}" "${IS_NETDATA_STATIC_BINARY}"
       update_build && exit 0
       ;;
     *-static*)
+      validate_environment_file || exit 1
       set_tarball_urls "${RELEASE_CHANNEL}" "${IS_NETDATA_STATIC_BINARY}"
       update_static && exit 0
       ;;
@@ -650,15 +875,16 @@ case "${INSTALL_TYPE}" in
       update_binpkg && exit 0
       ;;
     "") # Fallback case for no `.install-type` file. This just works like the old install type detection.
+      validate_environment_file || exit 1
       update_legacy
       ;;
     custom)
-      # At this point, we _should_ have a valid `.environment` file, but it0s best to just check.
+      # At this point, we _should_ have a valid `.environment` file, but it's best to just check.
       # If we do, then behave like the legacy updater.
-      if [ -n "${RELEASE_CHANNEL}" ] && [ -n "${NETDATA_PREFIX}" ] && [ -n "${REINSTALL_OPTIONS}" ]; then
+      if validate_environment_file; then
         update_legacy
       else
-        fatal "This script does not support updating custom installations."
+        fatal "This script does not support updating custom installations without valid environment files."
       fi
       ;;
     oci)

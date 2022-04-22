@@ -279,7 +279,7 @@ static char *ebpf_select_kernel_name(uint32_t selector)
 {
     static char *kernel_names[] = { NETDATA_IDX_STR_V3_10, NETDATA_IDX_STR_V4_14, NETDATA_IDX_STR_V4_16,
                                     NETDATA_IDX_STR_V4_18, NETDATA_IDX_STR_V5_4,  NETDATA_IDX_STR_V5_10,
-                                    NETDATA_IDX_STR_V5_11, NETDATA_IDX_STR_V5_15
+                                    NETDATA_IDX_STR_V5_11, NETDATA_IDX_STR_V5_15, NETDATA_IDX_STR_V5_16
                                   };
 
     return kernel_names[selector];
@@ -301,7 +301,9 @@ static int ebpf_select_max_index(int is_rhf, uint32_t kver)
         if (kver >= NETDATA_EBPF_KERNEL_4_11)
             return NETDATA_IDX_V4_18;
     } else { // Kernels from kernel.org
-        if (kver >= NETDATA_EBPF_KERNEL_5_15)
+        if (kver >= NETDATA_EBPF_KERNEL_5_16)
+            return NETDATA_IDX_V5_16;
+        else if (kver >= NETDATA_EBPF_KERNEL_5_15)
             return NETDATA_IDX_V5_15;
         else if (kver >= NETDATA_EBPF_KERNEL_5_11)
             return NETDATA_IDX_V5_11;
@@ -451,14 +453,53 @@ void ebpf_update_pid_table(ebpf_local_maps_t *pid, ebpf_module_t *em)
     pid->user_input = em->pid_map_size;
 }
 
-void ebpf_update_map_sizes(struct bpf_object *program, ebpf_module_t *em)
+/**
+ * Update map size
+ *
+ * Update map size with information read from configuration files.
+ *
+ * @param map       the structure with file descriptor to update.
+ * @param lmap      the structure with information from configuration files.
+ * @param em        the structure with information about how the module/thread is working.
+ * @param map_name  the name of the file used to log.
+ */
+void ebpf_update_map_size(struct bpf_map *map, ebpf_local_maps_t *lmap, ebpf_module_t *em, const char *map_name)
+{
+    uint32_t apps_type = NETDATA_EBPF_MAP_PID | NETDATA_EBPF_MAP_RESIZABLE;
+    if (lmap->user_input && lmap->user_input != lmap->internal_input) {
+#ifdef NETDATA_INTERNAL_CHECKS
+        info("Changing map %s from size %u to %u ", map_name, lmap->internal_input, lmap->user_input);
+#endif
+#ifdef LIBBPF_MAJOR_VERSION
+        bpf_map__set_max_entries(map, lmap->user_input);
+#else
+        bpf_map__resize(map, lmap->user_input);
+#endif
+    } else if (((lmap->type & apps_type) == apps_type) && (!em->apps_charts) && (!em->cgroup_charts)) {
+        lmap->user_input = ND_EBPF_DEFAULT_MIN_PID;
+#ifdef LIBBPF_MAJOR_VERSION
+        bpf_map__set_max_entries(map, lmap->user_input);
+#else
+        bpf_map__resize(map, lmap->user_input);
+#endif
+    }
+}
+
+/**
+ * Update Legacy map sizes
+ *
+ * Update map size for eBPF legacy code.
+ *
+ * @param program the structure with values read from binary.
+ * @param em      the structure with information about how the module/thread is working.
+ */
+static void ebpf_update_legacy_map_sizes(struct bpf_object *program, ebpf_module_t *em)
 {
     struct bpf_map *map;
     ebpf_local_maps_t *maps = em->maps;
     if (!maps)
         return;
 
-    uint32_t apps_type = NETDATA_EBPF_MAP_PID | NETDATA_EBPF_MAP_RESIZABLE;
     bpf_map__for_each(map, program)
     {
         const char *map_name = bpf_map__name(map);
@@ -467,15 +508,7 @@ void ebpf_update_map_sizes(struct bpf_object *program, ebpf_module_t *em)
             ebpf_local_maps_t *w = &maps[i];
             if (w->type & NETDATA_EBPF_MAP_RESIZABLE) {
                 if (!strcmp(w->name, map_name)) {
-                    if (w->user_input && w->user_input != w->internal_input) {
-#ifdef NETDATA_INTERNAL_CHECKS
-                        info("Changing map %s from size %u to %u ", map_name, w->internal_input, w->user_input);
-#endif
-                        bpf_map__resize(map, w->user_input);
-                    } else if (((w->type & apps_type) == apps_type) && (!em->apps_charts) && (!em->cgroup_charts)) {
-                        w->user_input = ND_EBPF_DEFAULT_MIN_PID;
-                        bpf_map__resize(map, w->user_input);
-                    }
+                    ebpf_update_map_size(map, w, em, map_name);
                 }
             }
 
@@ -564,7 +597,32 @@ static void ebpf_update_maps(ebpf_module_t *em, struct bpf_object *obj)
     }
 }
 
-static void ebpf_update_controller(ebpf_module_t *em, struct bpf_object *obj)
+/**
+ * Update Controller
+ *
+ * Update controller value with user input.
+ *
+ * @param fd   the table file descriptor
+ * @param em   structure with information about eBPF program we will load.
+ */
+void ebpf_update_controller(int fd, ebpf_module_t *em)
+{
+    uint32_t key = NETDATA_CONTROLLER_APPS_ENABLED;
+    uint32_t value = em->apps_charts | em->cgroup_charts;
+    int ret = bpf_map_update_elem(fd, &key, &value, 0);
+    if (ret)
+        error("Add key(%u) for controller table failed.", key);
+}
+
+/**
+ * Update Legacy controller
+ *
+ * Update legacy controller table when eBPF program has it.
+ *
+ * @param em   structure with information about eBPF program we will load.
+ * @param obj  bpf object with tables.
+ */
+static void ebpf_update_legacy_controller(ebpf_module_t *em, struct bpf_object *obj)
 {
     ebpf_local_maps_t *maps = em->maps;
     if (!maps)
@@ -580,11 +638,7 @@ static void ebpf_update_controller(ebpf_module_t *em, struct bpf_object *obj)
                 w->type &= ~NETDATA_EBPF_MAP_CONTROLLER;
                 w->type |= NETDATA_EBPF_MAP_CONTROLLER_UPDATED;
 
-                uint32_t key = NETDATA_CONTROLLER_APPS_ENABLED;
-                int value = em->apps_charts | em->cgroup_charts;
-                int ret = bpf_map_update_elem(w->map_fd, &key, &value, 0);
-                if (ret)
-                    error("Add key(%u) for controller table failed.", key);
+                ebpf_update_controller(w->map_fd, em);
             }
             i++;
         }
@@ -620,7 +674,7 @@ struct bpf_link **ebpf_load_program(char *plugins_dir, ebpf_module_t *em, int kv
         return NULL;
     }
 
-    ebpf_update_map_sizes(*obj, em);
+    ebpf_update_legacy_map_sizes(*obj, em);
 
     if (bpf_object__load(*obj)) {
         error("ERROR: loading BPF object file failed %s\n", lpath);
@@ -629,7 +683,7 @@ struct bpf_link **ebpf_load_program(char *plugins_dir, ebpf_module_t *em, int kv
     }
 
     ebpf_update_maps(em, *obj);
-    ebpf_update_controller(em, *obj);
+    ebpf_update_legacy_controller(em, *obj);
 
     size_t count_programs =  ebpf_count_programs(*obj);
 
@@ -716,14 +770,131 @@ static void ebpf_select_mode_string(char *output, size_t len, netdata_run_mode_t
 }
 
 /**
+ * Convert string to load mode
+ *
+ * Convert the string given as argument to value present in enum.
+ *
+ * @param str  value read from configuraion file.
+ *
+ * @return It returns the value to be used.
+ */
+netdata_ebpf_load_mode_t epbf_convert_string_to_load_mode(char *str)
+{
+    if (!strcasecmp(str, EBPF_CFG_CORE_PROGRAM))
+        return EBPF_LOAD_CORE;
+    else if (!strcasecmp(str, EBPF_CFG_LEGACY_PROGRAM))
+        return EBPF_LOAD_LEGACY;
+
+    return EBPF_LOAD_PLAY_DICE;
+}
+
+/**
+ * Convert load mode to string
+ *
+ * @param mode value that will select the string
+ *
+ * @return It returns the string associated to mode.
+ */
+static char *ebpf_convert_load_mode_to_string(netdata_ebpf_load_mode_t mode)
+{
+    if (mode == EBPF_LOAD_CORE)
+        return EBPF_CFG_CORE_PROGRAM;
+    else if (mode == EBPF_LOAD_LEGACY)
+        return EBPF_CFG_LEGACY_PROGRAM;
+
+    return EBPF_CFG_DEFAULT_PROGRAM;
+}
+
+/**
+ *  CO-RE type
+ *
+ *  Select the preferential type of CO-RE
+ *
+ *  @param str    value read from configuration file.
+ *  @param lmode  load mode used by collector.
+ */
+netdata_ebpf_program_loaded_t ebpf_convert_core_type(char *str, netdata_run_mode_t lmode)
+{
+    if (!strcasecmp(str, EBPF_CFG_ATTACH_TRACEPOINT))
+        return EBPF_LOAD_TRACEPOINT;
+    else if (!strcasecmp(str, EBPF_CFG_ATTACH_PROBE)) {
+        return (lmode == MODE_ENTRY) ? EBPF_LOAD_PROBE : EBPF_LOAD_RETPROBE;
+    }
+
+    return EBPF_LOAD_TRAMPOLINE;
+}
+
+#ifdef LIBBPF_MAJOR_VERSION
+/**
+ * Adjust Thread Load
+ *
+ * Adjust thread configuraton according specified load.
+ *
+ * @param mod   the main structure that will be adjusted.
+ * @param file  the btf file used with thread.
+ */
+void ebpf_adjust_thread_load(ebpf_module_t *mod, struct btf *file)
+{
+    if (!file) {
+        mod->load = EBPF_LOAD_LEGACY;
+    } else if (mod->load == EBPF_LOAD_PLAY_DICE && file) {
+        mod->load = EBPF_LOAD_CORE;
+    }
+}
+
+/**
+ *
+ * @param filename
+ * @return
+ */
+struct btf *ebpf_parse_btf_file(const char *filename)
+{
+    struct btf *bf = btf__parse(filename, NULL);
+    if (libbpf_get_error(bf)) {
+        fprintf(stderr, "Cannot parse btf file");
+        btf__free(bf);
+        return NULL;
+    }
+
+    return bf;
+}
+#endif
+
+/**
+ * Update target with configuration
+ *
+ * Update target load mode with value.
+ *
+ * @param em       the module structure
+ * @param value    value used to update.
+ */
+static void ebpf_update_target_with_conf(ebpf_module_t *em, netdata_ebpf_program_loaded_t value)
+{
+    netdata_ebpf_targets_t *targets = em->targets;
+    if (!targets) {
+        return;
+    }
+
+    int i = 0;
+    while (targets[i].name) {
+        targets[i].mode = value;
+        i++;
+    }
+}
+
+/**
+ * Update Module using config
+ *
+ * Update configuration for a specific thread.
+ *
  * @param modules   structure that will be updated
  */
 void ebpf_update_module_using_config(ebpf_module_t *modules)
 {
     char default_value[EBPF_MAX_MODE_LENGTH + 1];
     ebpf_select_mode_string(default_value, EBPF_MAX_MODE_LENGTH, modules->mode);
-    char *mode = appconfig_get(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_LOAD_MODE, default_value);
-    modules->mode = ebpf_select_mode(mode);
+    char *value = appconfig_get(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_LOAD_MODE, default_value);
+    modules->mode = ebpf_select_mode(value);
 
     modules->update_every = (int)appconfig_get_number(modules->cfg, EBPF_GLOBAL_SECTION,
                                                      EBPF_CFG_UPDATE_EVERY, modules->update_every);
@@ -733,8 +904,15 @@ void ebpf_update_module_using_config(ebpf_module_t *modules)
 
     modules->pid_map_size = (uint32_t)appconfig_get_number(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_PID_SIZE,
                                                            modules->pid_map_size);
-}
 
+    value = ebpf_convert_load_mode_to_string(modules->load);
+    value = appconfig_get(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_TYPE_FORMAT, value);
+    modules->load = epbf_convert_string_to_load_mode(value);
+
+    value = appconfig_get(modules->cfg, EBPF_GLOBAL_SECTION, EBPF_CFG_CORE_ATTACH, EBPF_CFG_ATTACH_TRAMPOLINE);
+    netdata_ebpf_program_loaded_t fill_lm = ebpf_convert_core_type(value, modules->mode);
+    ebpf_update_target_with_conf(modules, fill_lm);
+}
 
 /**
  * Update module
@@ -990,4 +1168,46 @@ int ebpf_enable_tracing_values(char *subsys, char *eventname)
 int ebpf_disable_tracing_values(char *subsys, char *eventname)
 {
     return ebpf_change_tracing_values(subsys, eventname, "0");
+}
+
+/**
+ * Select PC prefix
+ *
+ * Identify the prefix to run on PC architecture.
+ *
+ * @return It returns 32 or 64 according to host arch.
+ */
+static uint32_t ebpf_select_pc_prefix()
+{
+    long counter = 1;
+    uint32_t i;
+    for (i = 0; i < 128; i++) {
+        counter <<= 1;
+        if (counter < 0)
+            break;
+    }
+
+    return counter;
+}
+
+/**
+ * Select Host Prefix
+ *
+ * Select prefix to syscall when host is running a kernel newer than 4.17.0
+ *
+ * @param output the vector to store data.
+ * @param length length of output vector.
+ * @param syscall the syscall that prefix will be attached;
+ * @param kver    the current kernel version in format MAJOR*65536 + MINOR*256 + PATCH
+ */
+void ebpf_select_host_prefix(char *output, size_t length, char *syscall, int kver)
+{
+    if (kver < NETDATA_EBPF_KERNEL_4_17)
+        snprintfz(output, length, "sys_%s", syscall);
+    else {
+        uint32_t arch = ebpf_select_pc_prefix();
+        // Prefix selected according https://www.kernel.org/doc/html/latest/process/adding-syscalls.html
+        char *prefix = (arch == 32) ? "__ia32" : "__x64";
+        snprintfz(output, length, "%s_sys_%s", prefix, syscall);
+    }
 }

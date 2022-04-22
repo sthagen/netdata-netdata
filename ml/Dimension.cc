@@ -125,9 +125,15 @@ MLResult TrainableDimension::trainModel() {
     if (!CNs)
         return MLResult::MissingData;
 
-    SamplesBuffer SB = SamplesBuffer(CNs, N, 1, Cfg.DiffN, Cfg.SmoothN, Cfg.LagN);
+    unsigned TargetNumSamples = Cfg.MaxTrainSamples * Cfg.RandomSamplingRatio;
+    double SamplingRatio = std::min(static_cast<double>(TargetNumSamples) / N, 1.0);
+
+    SamplesBuffer SB = SamplesBuffer(CNs, N, 1, Cfg.DiffN, Cfg.SmoothN, Cfg.LagN,
+                                     SamplingRatio, Cfg.RandomNums);
     KM.train(SB, Cfg.MaxKMeansIters);
+
     Trained = true;
+    ConstantModel = true;
 
     delete[] CNs;
     return MLResult::Success;
@@ -146,6 +152,10 @@ void PredictableDimension::addValue(CalculatedNumber Value, bool Exists) {
     }
 
     std::rotate(std::begin(CNs), std::begin(CNs) + 1, std::end(CNs));
+
+    if (CNs[N - 1] != Value)
+        ConstantModel = false;
+
     CNs[N - 1] = Value;
 }
 
@@ -157,7 +167,8 @@ std::pair<MLResult, bool> PredictableDimension::predict() {
     CalculatedNumber *TmpCNs = new CalculatedNumber[N * (Cfg.LagN + 1)]();
     std::memcpy(TmpCNs, CNs.data(), N * sizeof(CalculatedNumber));
 
-    SamplesBuffer SB = SamplesBuffer(TmpCNs, N, 1, Cfg.DiffN, Cfg.SmoothN, Cfg.LagN);
+    SamplesBuffer SB = SamplesBuffer(TmpCNs, N, 1, Cfg.DiffN, Cfg.SmoothN, Cfg.LagN,
+                                     1.0, Cfg.RandomNums);
     AnomalyScore = computeAnomalyScore(SB);
     delete[] TmpCNs;
 

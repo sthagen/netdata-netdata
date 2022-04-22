@@ -404,6 +404,44 @@ int unit_test_buffer() {
     return 0;
 }
 
+int unit_test_static_threads() {
+    struct netdata_static_thread *static_threads = static_threads_get();
+
+    /*
+     * make sure enough static threads have been registered
+     */
+    if (!static_threads) {
+        fprintf(stderr, "empty static_threads array\n");
+        return 1;
+    }
+
+    int n;
+    for (n = 0; static_threads[n].start_routine != NULL; n++) {}
+
+    if (n < 2) {
+        fprintf(stderr, "only %d static threads registered", n);
+        freez(static_threads);
+        return 1;
+    }
+
+    /*
+     * verify that each thread's start routine is unique.
+     */
+    for (int i = 0; i != n - 1; i++) {
+        for (int j = i + 1; j != n; j++) {
+            if (static_threads[i].start_routine != static_threads[j].start_routine)
+                continue;
+
+            fprintf(stderr, "Found duplicate threads with name: %s\n", static_threads[i].name);
+            freez(static_threads);
+            return 1;
+        }
+    }
+
+    freez(static_threads);
+    return 0;
+}
+
 // --------------------------------------------------------------------------------------------------------------------
 
 struct feed_values {
@@ -1521,7 +1559,7 @@ static RRDHOST *dbengine_rrdhost_find_or_create(char *name)
             , netdata_configured_timezone
             , netdata_configured_abbrev_timezone
             , netdata_configured_utc_offset
-            , config_get(CONFIG_SECTION_BACKEND, "host tags", "")
+            , ""
             , program_name
             , program_version
             , default_rrd_update_every
@@ -1694,7 +1732,7 @@ static int test_dbengine_check_rrdr(RRDSET *st[CHARTS], RRDDIM *rd[CHARTS][DIMS]
     update_every = REGION_UPDATE_EVERY[current_region];
     long points = (time_end - time_start) / update_every;
     for (i = 0 ; i < CHARTS ; ++i) {
-        RRDR *r = rrd2rrdr(st[i], points, time_start + update_every, time_end, RRDR_GROUPING_AVERAGE, 0, 0, NULL, NULL);
+        RRDR *r = rrd2rrdr(st[i], points, time_start + update_every, time_end, RRDR_GROUPING_AVERAGE, 0, 0, NULL, NULL, 0);
         if (!r) {
             fprintf(stderr, "    DB-engine unittest %s: empty RRDR ### E R R O R ###\n", st[i]->name);
             return ++errors;
@@ -1813,7 +1851,7 @@ int test_dbengine(void)
     long points = (time_end[REGIONS - 1] - time_start[0]) / update_every; // cover all time regions with RRDR
     long point_offset = (time_start[current_region] - time_start[0]) / update_every;
     for (i = 0 ; i < CHARTS ; ++i) {
-        RRDR *r = rrd2rrdr(st[i], points, time_start[0] + update_every, time_end[REGIONS - 1], RRDR_GROUPING_AVERAGE, 0, 0, NULL, NULL);
+        RRDR *r = rrd2rrdr(st[i], points, time_start[0] + update_every, time_end[REGIONS - 1], RRDR_GROUPING_AVERAGE, 0, 0, NULL, NULL, 0);
         if (!r) {
             fprintf(stderr, "    DB-engine unittest %s: empty RRDR ### E R R O R ###\n", st[i]->name);
             ++errors;

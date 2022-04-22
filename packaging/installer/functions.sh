@@ -632,7 +632,7 @@ stop_all_netdata() {
     fi
   fi
 
-  if [ -n "$(netdata_pids)" ] && [ -n "$(type netdatacli)" ]; then
+  if [ -n "$(netdata_pids)" ] && [ -n "$(command -v netdatacli)" ]; then
     netdatacli shutdown-agent
     sleep 20
   fi
@@ -667,7 +667,7 @@ restart_netdata() {
     # shellcheck disable=SC2086
     run ${NETDATA_INSTALLER_START_CMD} && started=1
 
-    if [ ${started} -eq 1 ] && [ -z "$(netdata_pids)" ]; then
+    if [ ${started} -eq 1 ] && sleep 5 && [ -z "$(netdata_pids)" ]; then
       echo >&2 "Ooops! it seems netdata is not started."
       started=0
     fi
@@ -677,12 +677,13 @@ restart_netdata() {
       # shellcheck disable=SC2086
       run ${NETDATA_INSTALLER_START_CMD} && started=1
     fi
+
+    if [ ${started} -eq 1 ] && sleep 5 && [ -z "$(netdata_pids)" ]; then
+      echo >&2 "Hm... it seems netdata is still not started."
+      started=0
+    fi
   fi
 
-  if [ ${started} -eq 1 ] && [ -z "$(netdata_pids)" ]; then
-    echo >&2 "Hm... it seems netdata is still not started."
-    started=0
-  fi
 
   if [ ${started} -eq 0 ]; then
     # still not started... another forced attempt, just run the binary
@@ -949,76 +950,6 @@ cleanup_old_netdata_updater() {
     systemctl disable netdata-updater.timer
     rm -f "$(get_systemd_service_dir)/netdata-updater.timer"
     rm -f "$(get_systemd_service_dir)/netdata-updater.service"
-  fi
-
-  if [ -d /etc/cron.daily ]; then
-    rm -f /etc/cron.daily/netdata-updater.sh
-    rm -f /etc/cron.daily/netdata-updater
-  fi
-
-  if [ -d /etc/periodic/daily ]; then
-    rm -f /etc/periodic/daily/netdata-updater.sh
-    rm -f /etc/periodic/daily/netdata-updater
-  fi
-
-  if [ -d /etc/cron.d ]; then
-    rm -f /etc/cron.d/netdata-updater
-  fi
-
-  return 0
-}
-
-enable_netdata_updater() {
-
-  if [ -n "${1}" ] ; then
-    updater_type="${1}"
-  else
-    updater_type="$(_get_scheduler_type)"
-  fi
-
-  case "${updater_type}" in
-    "systemd")
-      systemctl enable netdata-updater.timer
-
-      echo >&2 "Auto-updating has been enabled using a systemd timer unit."
-      echo >&2
-      echo >&2 "If the update process fails, the failure will be logged to the systemd journal just like a regular service failure."
-      echo >&2 "Successful updates should produce empty logs."
-      echo >&2
-      ;;
-    "interval")
-      ln -sf "${NETDATA_PREFIX}/usr/libexec/netdata/netdata-updater.sh" "$(_get_intervaldir)/netdata-updater"
-
-      echo >&2 "Auto-updating has been enabled through cron, updater script linked to ${TPUT_RED}${TPUT_BOLD}$(_get_intervaldir)/netdata-updater${TPUT_RESET}"
-      echo >&2
-      echo >&2 "If the update process fails and you have email notifications set up correctly for cron on this system, you should receive an email notification of the failure."
-      echo >&2 "Successful updates will not send an email."
-      echo >&2
-      ;;
-    "crontab")
-      cat "${NETDATA_SOURCE_DIR}/system/netdata.crontab" > "/etc/cron.d/netdata-updater"
-
-      echo >&2 "Auto-updating has been enabled through cron, using a crontab at ${TPUT_RED}${TPUT_BOLD}/etc/cron.d/netdata-updater${TPUT_RESET}"
-      echo >&2
-      echo >&2 "If the update process fails and you have email notifications set up correctly for cron on this system, you should receive an email notification of the failure."
-      echo >&2 "Successful updates will not send an email."
-      echo >&2
-      ;;
-    *)
-      echo >&2 "Unable to determine what type of auto-update scheduling to use, not enabling auto-updates."
-      echo >&2
-      return 1
-  esac
-
-  return 0
-}
-
-disable_netdata_updater() {
-  echo >&2 "You chose *NOT* to enable auto-update, removing any links to the updater from cron (it may have happened if you are reinstalling)"
-  echo >&2
-
-  if issystemd && [ -n "$(get_systemd_service_dir)" ] ; then
-    systemctl disable netdata-updater.timer
   fi
 
   if [ -d /etc/cron.daily ]; then

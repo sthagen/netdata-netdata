@@ -84,6 +84,7 @@ void * wal_get_transaction_buffer(struct rrdengine_worker_config* wc, unsigned s
         if (unlikely(ret)) {
             fatal("posix_memalign:%s", strerror(ret));
         }
+        memset(ctx->commit_log.buf, 0, buf_size);
         buf_pos = ctx->commit_log.buf_pos = 0;
         ctx->commit_log.buf_size =  buf_size;
     }
@@ -210,6 +211,7 @@ int create_journal_file(struct rrdengine_journalfile *journalfile, struct rrdeng
     if (unlikely(ret)) {
         fatal("posix_memalign:%s", strerror(ret));
     }
+    memset(superblock, 0, sizeof(*superblock));
     (void) strncpy(superblock->magic_number, RRDENG_JF_MAGIC, RRDENG_MAGIC_SZ);
     (void) strncpy(superblock->version, RRDENG_JF_VER, RRDENG_VER_SZ);
 
@@ -428,7 +430,7 @@ static uint64_t iterate_transactions(struct rrdengine_instance *ctx, struct rrde
         iov = uv_buf_init(buf, size_bytes);
         ret = uv_fs_read(NULL, &req, file, &iov, 1, pos, NULL);
         if (ret < 0) {
-            error("uv_fs_read: pos=%lu, %s", pos, uv_strerror(ret));
+            error("uv_fs_read: pos=%"PRIu64", %s", pos, uv_strerror(ret));
             uv_fs_req_cleanup(&req);
             goto skip_file;
         }

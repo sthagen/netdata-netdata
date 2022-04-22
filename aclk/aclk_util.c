@@ -41,6 +41,7 @@ void aclk_env_t_destroy(aclk_env_t *env) {
         for (size_t i = 0; i < env->transport_count; i++) {
             if(env->transports[i]) {
                 aclk_transport_desc_t_destroy(env->transports[i]);
+                freez(env->transports[i]);
                 env->transports[i] = NULL;
             }
         }
@@ -64,7 +65,7 @@ int aclk_env_has_capa(const char *capa)
 
 #ifdef ACLK_LOG_CONVERSATION_DIR
 volatile int aclk_conversation_log_counter = 0;
-#if !defined(HAVE_C___ATOMIC) || defined(NETDATA_NO_ATOMIC_INSTRUCTIONS)
+#if !defined(HAVE_C___ATOMIC)
 netdata_mutex_t aclk_conversation_log_mutex = NETDATA_MUTEX_INITIALIZER;
 int aclk_get_conv_log_next()
 {

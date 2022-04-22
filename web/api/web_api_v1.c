@@ -137,15 +137,24 @@ char *get_mgmt_api_key(void) {
 
         // save it
         fd = open(api_key_filename, O_WRONLY|O_CREAT|O_TRUNC, 444);
-        if(fd == -1)
-            fatal("Cannot create unique management API key file '%s'. Please fix this.", api_key_filename);
+        if(fd == -1) {
+            error("Cannot create unique management API key file '%s'. Please adjust config parameter 'netdata management api key file' to a proper path and file.", api_key_filename);
+            goto temp_key;
+        }
 
-        if(write(fd, guid, GUID_LEN) != GUID_LEN)
-            fatal("Cannot write the unique management API key file '%s'. Please fix this.", api_key_filename);
+        if(write(fd, guid, GUID_LEN) != GUID_LEN) {
+            error("Cannot write the unique management API key file '%s'. Please adjust config parameter 'netdata management api key file' to a proper path and file with enough space left.", api_key_filename);
+            close(fd);
+            goto temp_key;
+        }
 
         close(fd);
     }
 
+    return guid;
+
+temp_key:
+    info("You can still continue to use the alarm management API using the authorization token %s during this Netdata session only.", guid);
     return guid;
 }
 
@@ -401,13 +410,16 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
 
     time_t last_timestamp_in_data = 0, google_timestamp = 0;
 
-    char *chart = NULL
-    , *before_str = NULL
-    , *after_str = NULL
-    , *group_time_str = NULL
-    , *points_str = NULL
-    , *context = NULL
-    , *chart_label_key = NULL;
+    char *chart = NULL;
+    char *before_str = NULL;
+    char *after_str = NULL;
+    char *group_time_str = NULL;
+    char *points_str = NULL;
+    char *timeout_str = NULL;
+    char *max_anomaly_rates_str = NULL;
+    char *context = NULL;
+    char *chart_label_key = NULL;
+    char *chart_labels_filter = NULL;
 
     int group = RRDR_GROUPING_AVERAGE;
     uint32_t format = DATASOURCE_JSON;
@@ -428,6 +440,7 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
 
         if(!strcmp(name, "context")) context = value;
         else if(!strcmp(name, "chart_label_key")) chart_label_key = value;
+        else if(!strcmp(name, "chart_labels_filter")) chart_labels_filter = value;
         else if(!strcmp(name, "chart")) chart = value;
         else if(!strcmp(name, "dimension") || !strcmp(name, "dim") || !strcmp(name, "dimensions") || !strcmp(name, "dims")) {
             if(!dimensions) dimensions = buffer_create(100);
@@ -437,6 +450,7 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
         else if(!strcmp(name, "after")) after_str = value;
         else if(!strcmp(name, "before")) before_str = value;
         else if(!strcmp(name, "points")) points_str = value;
+        else if(!strcmp(name, "timeout")) timeout_str = value;
         else if(!strcmp(name, "gtime")) group_time_str = value;
         else if(!strcmp(name, "group")) {
             group = web_client_api_request_v1_data_group(value, RRDR_GROUPING_AVERAGE);
@@ -484,6 +498,9 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
                     outFileName = tqx_value;
             }
         }
+        else if(!strcmp(name, "max_anomaly_rates")) {
+            max_anomaly_rates_str = value;
+        }
     }
 
     // validate the google parameters given
@@ -507,16 +524,21 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
         uint32_t context_hash = simple_hash(context);
 
         rrdhost_rdlock(host);
+        char *words[MAX_CHART_LABELS_FILTER];
+        uint32_t hash_key_list[MAX_CHART_LABELS_FILTER];
+        int word_count = 0;
         rrdset_foreach_read(st1, host) {
             if (st1->hash_context == context_hash && !strcmp(st1->context, context) &&
-                (!chart_label_key || rrdset_contains_label_keylist(st1, chart_label_key)))
-                build_context_param_list(&context_param_list, st1);
+                (!chart_label_key || rrdset_contains_label_keylist(st1, chart_label_key)) &&
+                (!chart_labels_filter ||
+                 rrdset_matches_label_keys(st1, chart_labels_filter, words, hash_key_list, &word_count, MAX_CHART_LABELS_FILTER)))
+                    build_context_param_list(&context_param_list, st1);
         }
         rrdhost_unlock(host);
         if (likely(context_param_list && context_param_list->rd))  // Just set the first one
             st = context_param_list->rd->rrdset;
         else {
-            if (!chart_label_key)
+            if (!chart_label_key && !chart_labels_filter)
                 sql_build_context_param_list(&context_param_list, host, context, NULL);
         }
     }
@@ -563,7 +585,9 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
     long long before = (before_str && *before_str)?str2l(before_str):0;
     long long after  = (after_str  && *after_str) ?str2l(after_str):-600;
     int       points = (points_str && *points_str)?str2i(points_str):0;
+    int       timeout = (timeout_str && *timeout_str)?str2i(timeout_str): 0;
     long      group_time = (group_time_str && *group_time_str)?str2l(group_time_str):0;
+    int       max_anomaly_rates = (max_anomaly_rates_str && *max_anomaly_rates_str) ? str2i(max_anomaly_rates_str) : 0;
 
     debug(D_WEB_CLIENT, "%llu: API command 'data' for chart '%s', dimensions '%s', after '%lld', before '%lld', points '%d', group '%d', format '%u', options '0x%08x'"
           , w->id
@@ -606,8 +630,10 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
         buffer_strcat(w->response.data, "(");
     }
 
-    ret = rrdset2anything_api_v1(st, w->response.data, dimensions, format, points, after, before, group, group_time
-                                 , options, &last_timestamp_in_data, context_param_list, chart_label_key);
+    ret = rrdset2anything_api_v1(st, w->response.data, dimensions, format,
+                                 points, after, before, group, group_time,
+                                 options, &last_timestamp_in_data, context_param_list,
+                                 chart_label_key, max_anomaly_rates, timeout);
 
     free_context_param_list(&context_param_list);
 
@@ -879,10 +905,17 @@ static inline void web_client_api_request_v1_info_mirrored_hosts(BUFFER *wb) {
 
         rrdhost_aclk_state_lock(host);
         if (host->aclk_state.claimed_id)
-            buffer_sprintf(wb, "\"%s\" }", host->aclk_state.claimed_id);
+            buffer_sprintf(wb, "\"%s\", ", host->aclk_state.claimed_id);
         else
-            buffer_strcat(wb, "null }");
+            buffer_strcat(wb, "null, ");
         rrdhost_aclk_state_unlock(host);
+
+        if (host->node_id) {
+            char node_id_str[GUID_LEN + 1];
+            uuid_unparse_lower(*host->node_id, node_id_str);
+            buffer_sprintf(wb, "\"node_id\": \"%s\" }", node_id_str);
+        } else
+            buffer_strcat(wb, "\"node_id\": null }");
 
         count++;
     }
@@ -968,6 +1001,13 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     buffer_sprintf(wb, "\t\"container\": \"%s\",\n", (host->system_info->container) ? host->system_info->container : "");
     buffer_sprintf(wb, "\t\"container_detection\": \"%s\",\n", (host->system_info->container_detection) ? host->system_info->container_detection : "");
 
+    if (host->system_info->cloud_provider_type)
+        buffer_sprintf(wb, "\t\"cloud_provider_type\": \"%s\",\n", host->system_info->cloud_provider_type);
+    if (host->system_info->cloud_instance_type)
+        buffer_sprintf(wb, "\t\"cloud_instance_type\": \"%s\",\n", host->system_info->cloud_instance_type);
+    if (host->system_info->cloud_instance_region)
+        buffer_sprintf(wb, "\t\"cloud_instance_region\": \"%s\",\n", host->system_info->cloud_instance_region);
+
     buffer_strcat(wb, "\t\"host_labels\": {\n");
     host_labels2json(host, wb, 2);
     buffer_strcat(wb, "\t},\n");
@@ -1036,11 +1076,15 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     buffer_strcat(wb, ",\n");
 
 #ifdef  ENABLE_COMPRESSION
-    buffer_strcat(wb, "\t\"stream-compression\": ");
-    buffer_strcat(wb, (default_compression_enabled ? "\"enabled\"" : "\"disabled\""));
-    buffer_strcat(wb, ",\n");
+    if(host->sender){
+        buffer_strcat(wb, "\t\"stream-compression\": ");
+        buffer_strcat(wb, (host->sender->rrdpush_compression ? "true" : "false"));
+        buffer_strcat(wb, ",\n");
+    }else{
+        buffer_strcat(wb, "\t\"stream-compression\": null,\n");
+    }
 #else
-    buffer_strcat(wb, "\t\"stream-compression\": \"N/A\",\n");
+    buffer_strcat(wb, "\t\"stream-compression\": null,\n");
 #endif  //ENABLE_COMPRESSION   
 
     buffer_strcat(wb, "\t\"hosts-available\": ");

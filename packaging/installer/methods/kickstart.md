@@ -12,7 +12,7 @@ import { OneLineInstallWget, OneLineInstallCurl } from '../../../../../src/compo
 This page covers detailed instructions on using and configuring the automatic one-line installation script named
 `kickstart.sh`.
 
-The kickstart script works on all Linux distributions and macOS environments. By default, automatic nightly updates are enabled. If you are installing on macOS, make sure to check the [install documentation for macOS](packaging/installer/methods/macos.md) before continuing.
+The kickstart script works on all Linux distributions and macOS environments. By default, automatic nightly updates are enabled. If you are installing on macOS, make sure to check the [install documentation for macOS](macos.md) before continuing.
 
 > If you are unsure whether you want nightly or stable releases, read the [installation guide](/packaging/installer/README.md#nightly-vs-stable-releases). 
 > If you want to turn off [automatic updates](/packaging/installer/README.md#automatic-updates), use the `--no-updates` option. You can find more installation options below.
@@ -48,7 +48,8 @@ The `kickstart.sh` script accepts a number of optional parameters to control how
 - `--non-interactive`: Don’t prompt for anything and assume yes whenever possible, overriding any automatic detection of an interactive run.
 - `--interactive`: Act as if running interactively, even if automatic detection indicates a run is non-interactive.
 - `--dont-wait`: Synonym for `--non-interactive`
-- `--dont-start-it`: Don’t auto-start the daemon after installing. This parameter is not gauranteed to work.
+- `--dry-run`: Show what the installer would do, but don’t actually do any of it.
+- `--dont-start-it`: Don’t auto-start the daemon after installing. This parameter is not guaranteed to work.
 - `--nightly-channel`: Use a nightly build instead of a stable release (this is the default).
 - `--stable-channel`: Use a stable release instead of a nightly build.
 - `--auto-update`: Enable automatic updates (this is the default).
@@ -63,6 +64,9 @@ The `kickstart.sh` script accepts a number of optional parameters to control how
     use runtime configuration to disable cloud support.
 - `--require-cloud`: Only install if Netdata Cloud can be enabled. Overrides `--disable-cloud`.
 - `--install`: Specify an installation prefix for local builds (by default, we use a sane prefix based on the type of system).
+- `--old-install-prefix`: Specify the custom local build's installation prefix that should be removed.
+- `--uninstall`: Uninstall an existing installation of Netdata.
+- `--reinstall-clean`: Performs an uninstall of Netdata and clean installation.
 
 Additionally, the following environment variables may be used to further customize how the script runs (most users
 should not need to use special values for any of these):
@@ -73,15 +77,21 @@ should not need to use special values for any of these):
 - `ROOTCMD`: Used to specify a command to use to run another command with root privileges if needed. By default
   we try to use sudo, doas, or pkexec (in that order of preference), but if you need special options for one of
   those to work, or have a different tool to do the same thing on your system, you can specify it here.
-- `DO_NOT_TRACK`: If set to a value other than 0, behave as if `--disable-telemetry` was specified.
+- `DISABLE_TELEMETRY`: If set to a value other than 0, behave as if `--disable-telemetry` was specified.
 - `NETDATA_INSTALLER_OPTIONS`: Specifies extra options to pass to the static installer or local build script.
 
 ### Connect node to Netdata Cloud during installation
 
-The `kickstart.sh` script accepts additional parameters to automatically [connect](/claim/README.md) your node to Netdata
-Cloud immediately after installation. Find the `token` and `rooms` strings by [signing in to Netdata
-Cloud](https://app.netdata.cloud/sign-in?cloudRoute=/spaces), then clicking on **Connect Nodes** in the [Spaces management
-area](https://learn.netdata.cloud/docs/cloud/spaces#manage-spaces).
+The `kickstart.sh` script accepts additional parameters to automatically [connect](/claim/README.md) your node to Netdata Cloud immediately after installation. 
+
+> Note: You either need to run the command with root privileges or run it with the user that is running the agent.  More details: [Connect an agent without root privileges](/claim/README.md#connect-an-agent-without-root-privileges) section.
+
+To automatically claim nodes after installation: 
+
+1. Sign in to [Netdata Cloud](https://app.netdata.cloud/sign-in?cloudRoute=/spaces)
+2. Go to the [Spaces management area](https://learn.netdata.cloud/docs/cloud/spaces#manage-spaces)
+3. Click on **Connect Nodes**
+4. Find the `token` and `rooms` strings and specify your nodes:
 
 - `--claim-token`: Specify a unique claiming token associated with your Space in Netdata Cloud to be used to connect to the node
   after the install.
@@ -93,10 +103,8 @@ area](https://learn.netdata.cloud/docs/cloud/spaces#manage-spaces).
 For example:
 
 ```bash
-wget -O /tmp/netdata-kickstart.sh https://my-netdata.io/kickstart.sh && sh /tmp/netdata-kickstart.sh --claim-token=TOKEN --claim-rooms=ROOM1,ROOM2
+wget -O /tmp/netdata-kickstart.sh https://my-netdata.io/kickstart.sh && sh /tmp/netdata-kickstart.sh --claim-token TOKEN --claim-rooms ROOM1,ROOM2
 ```
-
-Please note that to run it you will either need to have root privileges or run it with the user that is running the agent, more details on the [Connect an agent without root privileges](/claim/README.md#connect-an-agent-without-root-privileges) section.
 
 ### Native packages
 
@@ -136,7 +144,7 @@ To use `md5sum` to verify the integrity of the `kickstart.sh` script you will do
 run the following:
 
 ```bash
-[ "2ea326514c5166eabf02622e75d10a53" = "$(curl -Ss https://my-netdata.io/kickstart.sh | md5sum | cut -d ' ' -f 1)" ] && echo "OK, VALID" || echo "FAILED, INVALID"
+[ "<checksum-will-be-added-in-documentation-processing>" = "$(curl -Ss https://my-netdata.io/kickstart.sh | md5sum | cut -d ' ' -f 1)" ] && echo "OK, VALID" || echo "FAILED, INVALID"
 ```
 
 If the script is valid, this command will return `OK, VALID`.
@@ -152,4 +160,4 @@ Read through Netdata's [documentation](https://learn.netdata.cloud/docs), which 
 solutions, to enable features like health monitoring, alarm notifications, long-term metrics storage, exporting to
 external databases, and more.
 
-[![analytics](https://www.google-analytics.com/collect?v=1&aip=1&t=pageview&_s=1&ds=github&dr=https%3A%2F%2Fgithub.com%2Fnetdata%2Fnetdata&dl=https%3A%2F%2Fmy-netdata.io%2Fgithub%2Fpackaging%2Finstaller%2Fmethods%2Fkickstart&_u=MAC~&cid=5792dfd7-8dc4-476b-af31-da2fdb9f93d2&tid=UA-64295674-3)](<>)
+

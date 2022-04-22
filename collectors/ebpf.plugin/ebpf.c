@@ -51,14 +51,15 @@ ebpf_module_t ebpf_modules[] = {
       .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &socket_config,
       .config_file = NETDATA_NETWORK_CONFIG_FILE,
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4,
-      .load = EBPF_LOAD_LEGACY, .targets = NULL},
+      .load = EBPF_LOAD_LEGACY, .targets = socket_targets},
     { .thread_name = "cachestat", .config_name = "cachestat", .enabled = 0, .start_routine = ebpf_cachestat_thread,
       .update_every = EBPF_DEFAULT_UPDATE_EVERY, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO,
       .cgroup_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY, .optional = 0,
       .apps_routine = ebpf_cachestat_create_apps_charts, .maps = NULL,
       .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &cachestat_config,
       .config_file = NETDATA_CACHESTAT_CONFIG_FILE,
-      .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4 | NETDATA_V5_15,
+      .kernels = NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18|
+                 NETDATA_V5_4 | NETDATA_V5_15 | NETDATA_V5_16,
       .load = EBPF_LOAD_LEGACY, .targets = NULL},
     { .thread_name = "sync", .config_name = "sync", .enabled = 0, .start_routine = ebpf_sync_thread,
       .update_every = EBPF_DEFAULT_UPDATE_EVERY, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO,
@@ -67,7 +68,7 @@ ebpf_module_t ebpf_modules[] = {
       .config_file = NETDATA_SYNC_CONFIG_FILE,
       // All syscalls have the same kernels
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4,
-      .load = EBPF_LOAD_LEGACY, .targets = NULL},
+      .load = EBPF_LOAD_LEGACY, .targets = sync_targets},
     { .thread_name = "dc", .config_name = "dc", .enabled = 0, .start_routine = ebpf_dcstat_thread,
       .update_every = EBPF_DEFAULT_UPDATE_EVERY, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO,
       .cgroup_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY, .optional = 0,
@@ -112,7 +113,7 @@ ebpf_module_t ebpf_modules[] = {
       .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &mount_config,
       .config_file = NETDATA_MOUNT_CONFIG_FILE,
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4,
-      .load = EBPF_LOAD_LEGACY, .targets = NULL},
+      .load = EBPF_LOAD_LEGACY, .targets = mount_targets},
     { .thread_name = "fd", .config_name = "fd", .enabled = 0, .start_routine = ebpf_fd_thread,
       .update_every = EBPF_DEFAULT_UPDATE_EVERY, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO,
       .cgroup_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY, .optional = 0,
@@ -150,7 +151,7 @@ ebpf_module_t ebpf_modules[] = {
       .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &shm_config,
       .config_file = NETDATA_DIRECTORY_SHM_CONFIG_FILE,
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4,
-      .load = EBPF_LOAD_LEGACY, .targets = NULL},
+      .load = EBPF_LOAD_LEGACY, .targets = shm_targets},
     { .thread_name = "mdflush", .config_name = "mdflush", .enabled = 0, .start_routine = ebpf_mdflush_thread,
       .update_every = EBPF_DEFAULT_UPDATE_EVERY, .global_charts = 1, .apps_charts = CONFIG_BOOLEAN_NO,
       .cgroup_charts = CONFIG_BOOLEAN_NO, .mode = MODE_ENTRY, .optional = 0, .apps_routine = NULL, .maps = NULL,
@@ -180,6 +181,11 @@ ebpf_network_viewer_options_t network_viewer_opt;
 ebpf_plugin_stats_t plugin_statistics = {.core = 0, .legacy = 0, .running = 0, .threads = 0, .tracepoints = 0,
                                          .probes = 0, .retprobes = 0, .trampolines = 0};
 
+#ifdef LIBBPF_MAJOR_VERSION
+struct btf *default_btf = NULL;
+#endif
+char *btf_path = NULL;
+
 /*****************************************************************
  *
  *  FUNCTIONS USED TO CLEAN MEMORY AND OPERATE SYSTEM FILES
@@ -206,6 +212,7 @@ void clean_loaded_events()
 static void ebpf_exit(int sig)
 {
     close_ebpf_plugin = 1;
+    static int remove_pid = 0;
 
     // When both threads were not finished case I try to go in front this address, the collector will crash
     if (!thread_finished) {
@@ -288,6 +295,21 @@ static void ebpf_exit(int sig)
         exit(0);
     }
      */
+
+#ifdef LIBBPF_MAJOR_VERSION
+    if (default_btf) {
+        btf__free(default_btf);
+        default_btf = NULL;
+    }
+#endif
+
+    if (!remove_pid) {
+        remove_pid = 1;
+        char filename[FILENAME_MAX + 1];
+        ebpf_pid_file(filename, FILENAME_MAX);
+        if (unlink(filename))
+            error("Cannot remove PID file %s", filename);
+    }
 
     exit(sig);
 }
@@ -957,6 +979,7 @@ static void read_local_ports(char *filename, uint8_t proto)
         return;
 
     size_t lines = procfile_lines(ff), l;
+    netdata_passive_connection_t values = {.counter = 0, .tgid = 0, .pid = 0};
     for(l = 0; l < lines ;l++) {
         size_t words = procfile_linewords(ff, l);
         // This is header or end of file
@@ -970,7 +993,7 @@ static void read_local_ports(char *filename, uint8_t proto)
 
         // Read local port
         uint16_t port = (uint16_t)strtol(procfile_lineword(ff, l, 2), NULL, 16);
-        update_listen_table(htons(port), proto);
+        update_listen_table(htons(port), proto, &values);
     }
 
     procfile_close(ff);
@@ -1115,6 +1138,56 @@ static void ebpf_update_table_size()
     }
 }
 
+/**
+ * Set Load mode
+ *
+ * @param load  default load mode.
+ */
+static inline void ebpf_set_load_mode(netdata_ebpf_load_mode_t load)
+{
+#ifdef LIBBPF_MAJOR_VERSION
+    if (load == EBPF_LOAD_CORE || load == EBPF_LOAD_PLAY_DICE) {
+        load = (!default_btf) ? EBPF_LOAD_LEGACY : EBPF_LOAD_CORE;
+    }
+#else
+    load = EBPF_LOAD_LEGACY;
+#endif
+
+    int i;
+    for (i = 0; ebpf_modules[i].thread_name; i++) {
+        // TO DO: Use `load` variable after we change all threads.
+        ebpf_modules[i].load = EBPF_LOAD_LEGACY; // load ;
+    }
+}
+
+/**
+ *  Update mode
+ *
+ *  @param str value read from configuration file.
+ */
+static inline void epbf_update_load_mode(char *str)
+{
+    netdata_ebpf_load_mode_t load = epbf_convert_string_to_load_mode(str);
+
+    ebpf_set_load_mode(load);
+}
+
+#ifdef LIBBPF_MAJOR_VERSION
+/**
+ * Set default btf file
+ *
+ * Load the default BTF file on environment.
+ */
+static void ebpf_set_default_btf_file()
+{
+    char path[PATH_MAX + 1];
+    snprintfz(path, PATH_MAX, "%s/vmlinux", btf_path);
+    default_btf = ebpf_parse_btf_file(path);
+    if (!default_btf)
+        info("Your environment does not have BTF file %s/vmlinux. The plugin will work with 'legacy' code.",
+             btf_path);
+}
+#endif
 
 /**
  * Read collector values
@@ -1135,6 +1208,17 @@ static void read_collector_values(int *disable_apps, int *disable_cgroups, int u
                               EBPF_CFG_LOAD_MODE_DEFAULT);
 
     how_to_load(value);
+
+    btf_path = appconfig_get(&collector_config, EBPF_GLOBAL_SECTION, EBPF_CFG_PROGRAM_PATH,
+                             EBPF_DEFAULT_BTF_FILE);
+
+#ifdef LIBBPF_MAJOR_VERSION
+    ebpf_set_default_btf_file();
+#endif
+
+    value = appconfig_get(&collector_config, EBPF_GLOBAL_SECTION, EBPF_CFG_TYPE_FORMAT, EBPF_CFG_DEFAULT_PROGRAM);
+
+    epbf_update_load_mode(value);
 
     ebpf_update_interval(update_every);
 
@@ -1368,19 +1452,6 @@ static inline void ebpf_load_thread_config()
     int i;
     for (i = 0; ebpf_modules[i].thread_name; i++) {
         ebpf_update_module(&ebpf_modules[i]);
-    }
-}
-
-/**
- * Set Load mode
- *
- * @param load  default load mode.
- */
-static inline void ebpf_set_load_mode(netdata_ebpf_load_mode_t load)
-{
-    int i;
-    for (i = 0; ebpf_modules[i].thread_name; i++) {
-        ebpf_modules[i].load = load;
     }
 }
 
@@ -1772,6 +1843,19 @@ static void ebpf_kill_previous_process(char *filename, pid_t pid)
 }
 
 /**
+ * PID file
+ *
+ * Write the filename for PID inside the given vector.
+ *
+ * @param filename  vector where we will store the name.
+ * @param length    number of bytes available in filename vector
+ */
+void ebpf_pid_file(char *filename, size_t length)
+{
+    snprintfz(filename, length, "%s%s/ebpf.d/ebpf.pid", netdata_configured_host_prefix, ebpf_plugin_dir);
+}
+
+/**
  * Manage PID
  *
  * This function kills another instance of eBPF whether it is necessary and update the file content.
@@ -1781,7 +1865,7 @@ static void ebpf_kill_previous_process(char *filename, pid_t pid)
 static void ebpf_manage_pid(pid_t pid)
 {
     char filename[FILENAME_MAX + 1];
-    snprintfz(filename, FILENAME_MAX, "%s%s/ebpf.d/ebpf.pid", netdata_configured_host_prefix, ebpf_plugin_dir);
+    ebpf_pid_file(filename, FILENAME_MAX);
 
     ebpf_kill_previous_process(filename, pid);
     ebpf_update_pid_file(filename, pid);
@@ -1840,6 +1924,10 @@ int main(int argc, char **argv)
     }
 
     ebpf_allocate_common_vectors();
+
+#ifdef LIBBPF_MAJOR_VERSION
+    libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
+#endif
 
     read_local_addresses();
     read_local_ports("/proc/net/tcp", IPPROTO_TCP);

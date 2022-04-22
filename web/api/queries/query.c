@@ -347,11 +347,11 @@ static void rrdr_disable_not_selected_dimensions(RRDR *r, RRDR_OPTIONS options, 
 // ----------------------------------------------------------------------------
 // helpers to find our way in RRDR
 
-static inline RRDR_VALUE_FLAGS *rrdr_line_options(RRDR *r, long rrdr_line) {
+static inline RRDR_VALUE_FLAGS *UNUSED_FUNCTION(rrdr_line_options)(RRDR *r, long rrdr_line) {
     return &r->o[ rrdr_line * r->d ];
 }
 
-static inline calculated_number *rrdr_line_values(RRDR *r, long rrdr_line) {
+static inline calculated_number *UNUSED_FUNCTION(rrdr_line_values)(RRDR *r, long rrdr_line) {
     return &r->v[ rrdr_line * r->d ];
 }
 
@@ -562,7 +562,7 @@ static inline void do_dimension_fixedstep(
     calculated_number min = r->min, max = r->max;
     size_t db_points_read = 0;
     time_t db_now = now;
-
+    time_t first_time_t = rrddim_first_entry_t(rd);
     for(rd->state->query_ops.init(rd, &handle, now, before_wanted) ; points_added < points_wanted ; now += dt) {
         // make sure we return data in the proper time range
         if(unlikely(now > before_wanted)) {
@@ -586,7 +586,11 @@ static inline void do_dimension_fixedstep(
         }
 #endif
         db_now = now; // this is needed to set db_now in case the next_metric implementation does not set it
-        storage_number n = rd->state->query_ops.next_metric(&handle, &db_now);
+        storage_number n;
+        if (rd->rrd_memory_mode != RRD_MEMORY_MODE_DBENGINE && now <= first_time_t)
+            n = SN_EMPTY_SLOT;
+        else
+            n = rd->state->query_ops.next_metric(&handle, &db_now);
         if(unlikely(db_now > before_wanted)) {
 #ifdef NETDATA_INTERNAL_CHECKS
             r->internal.log = "stopped, because attempted to access the db after 'wanted before'";
@@ -840,6 +844,7 @@ static RRDR *rrd2rrdr_fixedstep(
         , time_t last_entry_t
         , int absolute_period_requested
         , struct context_param *context_param_list
+        , int timeout
 ) {
     int aligned = !(options & RRDR_OPTION_NOT_ALIGNED);
 
@@ -1093,6 +1098,10 @@ static RRDR *rrd2rrdr_fixedstep(
 
     RRDDIM *rd;
     long c, dimensions_used = 0, dimensions_nonzero = 0;
+    struct timeval query_start_time;
+    struct timeval query_current_time;
+    if (timeout)
+        now_realtime_timeval(&query_start_time);
     for(rd = temp_rd?temp_rd:st->dimensions, c = 0 ; rd && c < dimensions_count ; rd = rd->next, c++) {
 
         // if we need a percentage, we need to calculate all dimensions
@@ -1114,6 +1123,8 @@ static RRDR *rrd2rrdr_fixedstep(
                 , before_wanted
                 , options
                 );
+        if (timeout)
+            now_realtime_timeval(&query_current_time);
 
         if(r->od[c] & RRDR_DIMENSION_NONZERO)
             dimensions_nonzero++;
@@ -1151,6 +1162,12 @@ static RRDR *rrd2rrdr_fixedstep(
         }
 
         dimensions_used++;
+        if (timeout && (dt_usec(&query_start_time, &query_current_time) / 1000.0) > timeout) {
+            log_access("QUERY CANCELED RUNTIME EXCEEDED %0.2f ms (LIMIT %d ms)",
+                       dt_usec(&query_start_time, &query_current_time) / 1000.0, timeout);
+            r->result_options |= RRDR_RESULT_OPTION_CANCEL;
+            break;
+        }
     }
 
     #ifdef NETDATA_INTERNAL_CHECKS
@@ -1184,7 +1201,7 @@ static RRDR *rrd2rrdr_fixedstep(
     r->internal.grouping_free(r);
 
     // when all the dimensions are zero, we should return all of them
-    if(unlikely(options & RRDR_OPTION_NONZERO && !dimensions_nonzero)) {
+    if(unlikely(options & RRDR_OPTION_NONZERO && !dimensions_nonzero && !(r->result_options & RRDR_RESULT_OPTION_CANCEL))) {
         // all the dimensions are zero
         // mark them as NONZERO to send them all
         for(rd = temp_rd?temp_rd:st->dimensions, c = 0 ; rd && c < dimensions_count ; rd = rd->next, c++) {
@@ -1213,6 +1230,7 @@ static RRDR *rrd2rrdr_variablestep(
         , int absolute_period_requested
         , struct rrdeng_region_info *region_info_array
         , struct context_param *context_param_list
+        , int timeout
 ) {
     int aligned = !(options & RRDR_OPTION_NOT_ALIGNED);
 
@@ -1470,6 +1488,10 @@ static RRDR *rrd2rrdr_variablestep(
 
     RRDDIM *rd;
     long c, dimensions_used = 0, dimensions_nonzero = 0;
+    struct timeval query_start_time;
+    struct timeval query_current_time;
+    if (timeout)
+        now_realtime_timeval(&query_start_time);
     for(rd = temp_rd?temp_rd:st->dimensions, c = 0 ; rd && c < dimensions_count ; rd = rd->next, c++) {
 
         // if we need a percentage, we need to calculate all dimensions
@@ -1491,6 +1513,8 @@ static RRDR *rrd2rrdr_variablestep(
                 , before_wanted
                 , options
         );
+        if (timeout)
+            now_realtime_timeval(&query_current_time);
 
         if(r->od[c] & RRDR_DIMENSION_NONZERO)
             dimensions_nonzero++;
@@ -1528,6 +1552,12 @@ static RRDR *rrd2rrdr_variablestep(
         }
 
         dimensions_used++;
+        if (timeout && (dt_usec(&query_start_time, &query_current_time) / 1000.0) > timeout) {
+            log_access("QUERY CANCELED RUNTIME EXCEEDED %0.2f ms (LIMIT %d ms)",
+                       dt_usec(&query_start_time, &query_current_time) / 1000.0, timeout);
+            r->result_options |= RRDR_RESULT_OPTION_CANCEL;
+            break;
+        }
     }
 
     #ifdef NETDATA_INTERNAL_CHECKS
@@ -1562,7 +1592,7 @@ static RRDR *rrd2rrdr_variablestep(
     r->internal.grouping_free(r);
 
     // when all the dimensions are zero, we should return all of them
-    if(unlikely(options & RRDR_OPTION_NONZERO && !dimensions_nonzero)) {
+    if(unlikely(options & RRDR_OPTION_NONZERO && !dimensions_nonzero && !(r->result_options & RRDR_RESULT_OPTION_CANCEL))) {
         // all the dimensions are zero
         // mark them as NONZERO to send them all
         for(rd = temp_rd?temp_rd:st->dimensions, c = 0 ; rd && c < dimensions_count ; rd = rd->next, c++) {
@@ -1587,6 +1617,7 @@ RRDR *rrd2rrdr(
         , RRDR_OPTIONS options
         , const char *dimensions
         , struct context_param *context_param_list
+        , int timeout
 )
 {
     int rrd_update_every;
@@ -1640,7 +1671,7 @@ RRDR *rrd2rrdr(
             }
             return rrd2rrdr_fixedstep(st, points_requested, after_requested, before_requested, group_method,
                                       resampling_time_requested, options, dimensions, rrd_update_every,
-                                      first_entry_t, last_entry_t, absolute_period_requested, context_param_list);
+                                      first_entry_t, last_entry_t, absolute_period_requested, context_param_list, timeout);
         } else {
             if (rrd_update_every != (uint16_t)max_interval) {
                 rrd_update_every = (uint16_t) max_interval;
@@ -1651,11 +1682,11 @@ RRDR *rrd2rrdr(
             }
             return rrd2rrdr_variablestep(st, points_requested, after_requested, before_requested, group_method,
                                          resampling_time_requested, options, dimensions, rrd_update_every,
-                                         first_entry_t, last_entry_t, absolute_period_requested, region_info_array, context_param_list);
+                                         first_entry_t, last_entry_t, absolute_period_requested, region_info_array, context_param_list, timeout);
         }
     }
 #endif
     return rrd2rrdr_fixedstep(st, points_requested, after_requested, before_requested, group_method,
                               resampling_time_requested, options, dimensions,
-                              rrd_update_every, first_entry_t, last_entry_t, absolute_period_requested, context_param_list);
+                              rrd_update_every, first_entry_t, last_entry_t, absolute_period_requested, context_param_list, timeout);
 }
