@@ -96,8 +96,8 @@ fi
 print_deferred_errors() {
   if [ -n "${SAVED_WARNINGS}" ]; then
     printf >&2 "\n"
-    printf >&2 "%s\n" "The following warnings and non-fatal errors were encountered during the installation process:"
-    printf >&2 "%s\n" "${SAVED_WARNINGS}"
+    printf >&2 "%b\n" "The following warnings and non-fatal errors were encountered during the installation process:"
+    printf >&2 "%b\n" "${SAVED_WARNINGS}"
     printf >&2 "\n"
   fi
 }
@@ -129,7 +129,7 @@ renice 19 $$ > /dev/null 2> /dev/null
 # you can set CFLAGS before running installer
 # shellcheck disable=SC2269
 LDFLAGS="${LDFLAGS}"
-CFLAGS="${CFLAGS--O2}"
+CFLAGS="${CFLAGS-"-O2 -pipe"}"
 [ "z${CFLAGS}" = "z-O3" ] && CFLAGS="-O2"
 # shellcheck disable=SC2269
 ACLK="${ACLK}"
@@ -160,6 +160,10 @@ banner_nonroot_install() {
   to install it in system paths.
 
   Please set an installation prefix, like this:
+
+      $PROGRAM ${@} --install-prefix /tmp
+
+  or
 
       $PROGRAM ${@} --install /tmp
 
@@ -199,7 +203,8 @@ usage() {
 USAGE: ${PROGRAM} [options]
        where options include:
 
-  --install <path>           Install netdata in <path>. Ex. --install /opt will put netdata in /opt/netdata.
+  --install <path>           Install netdata in <path>. Ex. --install /opt will put netdata in /opt/netdata, this option is deprecated and will be removed in a future version, please use --install-prefix instead.
+  --install-prefix <path>           Install netdata in <path>. Ex. --install-prefix /opt will put netdata in /opt/netdata.
   --dont-start-it            Do not (re)start netdata after installation.
   --dont-wait                Run installation in non-interactive mode.
   --stable-channel           Use packages from GitHub release pages instead of nightly updates.
@@ -367,6 +372,10 @@ while [ -n "${1}" ]; do
       NETDATA_BUILD_JUDY=1
       ;;
     "--install")
+      NETDATA_PREFIX="${2}/netdata"
+      shift 1
+      ;;
+    "--install-prefix")
       NETDATA_PREFIX="${2}/netdata"
       shift 1
       ;;
@@ -576,18 +585,16 @@ build_protobuf() {
   env_cmd=''
 
   if [ -z "${DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS}" ]; then
-    env_cmd="env CFLAGS=-fPIC CXXFLAGS= LDFLAGS="
+    env_cmd="env CFLAGS='-fPIC -pipe' CXXFLAGS='-fPIC -pipe' LDFLAGS="
   fi
 
   cd "${1}" > /dev/null || return 1
-  # shellcheck disable=SC2086
-  if ! run ${env_cmd} ./configure --disable-shared --without-zlib --disable-dependency-tracking --with-pic; then
+  if ! run eval "${env_cmd} ./configure --disable-shared --without-zlib --disable-dependency-tracking --with-pic"; then
     cd - > /dev/null || return 1
     return 1
   fi
 
-  # shellcheck disable=SC2086
-  if ! run ${env_cmd} $make ${MAKEOPTS}; then
+  if ! run eval "${env_cmd} ${make} ${MAKEOPTS}"; then
     cd - > /dev/null || return 1
     return 1
   fi
@@ -618,6 +625,13 @@ bundle_protobuf() {
 
   PROTOBUF_PACKAGE_VERSION="$(cat packaging/protobuf.version)"
 
+  if [ -f "${PWD}/externaldeps/protobuf/.version" ] && [ "${PROTOBUF_PACKAGE_VERSION}" = "$(cat "${PWD}/externaldeps/protobuf/.version")" ]
+  then
+    echo >&2 "Found compiled protobuf, same version, not compiling it again. Remove file '${PWD}/externaldeps/protobuf/.version' to recompile."
+    NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS} --with-bundled-protobuf"
+    return 0
+  fi
+
   tmp="$(mktemp -d -t netdata-protobuf-XXXXXX)"
   PROTOBUF_PACKAGE_BASENAME="protobuf-cpp-${PROTOBUF_PACKAGE_VERSION}.tar.gz"
 
@@ -629,6 +643,7 @@ bundle_protobuf() {
     if run tar --no-same-owner -xf "${tmp}/${PROTOBUF_PACKAGE_BASENAME}" -C "${tmp}" &&
       build_protobuf "${tmp}/protobuf-${PROTOBUF_PACKAGE_VERSION}" &&
       copy_protobuf "${tmp}/protobuf-${PROTOBUF_PACKAGE_VERSION}" &&
+      echo "${PROTOBUF_PACKAGE_VERSION}" >"${PWD}/externaldeps/protobuf/.version" &&
       rm -rf "${tmp}"; then
       run_ok "protobuf built and prepared."
       NETDATA_CONFIGURE_OPTIONS="${NETDATA_CONFIGURE_OPTIONS} --with-bundled-protobuf"
@@ -651,7 +666,7 @@ build_judy() {
   libtoolize="libtoolize"
 
   if [ -z "${DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS}" ]; then
-    env_cmd="env CFLAGS=-fPIC CXXFLAGS= LDFLAGS="
+    env_cmd="env CFLAGS='-fPIC -pipe' CXXFLAGS='-fPIC -pipe' LDFLAGS="
   fi
 
   if [ "$(uname)" = "Darwin" ]; then
@@ -659,15 +674,14 @@ build_judy() {
   fi
 
   cd "${1}" > /dev/null || return 1
-  # shellcheck disable=SC2086
-  if run ${env_cmd} ${libtoolize} --force --copy &&
-    run ${env_cmd} aclocal &&
-    run ${env_cmd} autoheader &&
-    run ${env_cmd} automake --add-missing --force --copy --include-deps &&
-    run ${env_cmd} autoconf &&
-    run ${env_cmd} ./configure --disable-dependency-tracking &&
-    run ${env_cmd} ${make} ${MAKEOPTS} -C src &&
-    run ${env_cmd} ar -r src/libJudy.a src/Judy*/*.o; then
+  if run eval "${env_cmd} ${libtoolize} --force --copy" &&
+    run eval "${env_cmd} aclocal" &&
+    run eval "${env_cmd} autoheader" &&
+    run eval "${env_cmd} automake --add-missing --force --copy --include-deps" &&
+    run eval "${env_cmd} autoconf" &&
+    run eval "${env_cmd} ./configure" &&
+    run eval "${env_cmd} ${make} ${MAKEOPTS} -C src" &&
+    run eval "${env_cmd} ar -r src/libJudy.a src/Judy*/*.o"; then
     cd - > /dev/null || return 1
   else
     cd - > /dev/null || return 1
@@ -742,14 +756,12 @@ build_jsonc() {
   env_cmd=''
 
   if [ -z "${DONT_SCRUB_CFLAGS_EVEN_THOUGH_IT_MAY_BREAK_THINGS}" ]; then
-    env_cmd="env CFLAGS=-fPIC CXXFLAGS= LDFLAGS="
+    env_cmd="env CFLAGS='-fPIC -pipe' CXXFLAGS='-fPIC -pipe' LDFLAGS="
   fi
 
-  cd "${1}" > /dev/null || return 1
-  # shellcheck disable=SC2086
-  run ${env_cmd} cmake -DBUILD_SHARED_LIBS=OFF .
-  # shellcheck disable=SC2086
-  run ${env_cmd} ${make} ${MAKEOPTS}
+  cd "${1}" > /dev/null || exit 1
+  run eval "${env_cmd} cmake -DBUILD_SHARED_LIBS=OFF ."
+  run eval "${env_cmd} ${make} ${MAKEOPTS}"
   cd - > /dev/null || return 1
 }
 
@@ -866,7 +878,7 @@ build_libbpf() {
   cd "${1}/src" > /dev/null || return 1
   mkdir root build
   # shellcheck disable=SC2086
-  run env CFLAGS=-fPIC CXXFLAGS= LDFLAGS= BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=.. ${make} ${MAKEOPTS} install
+  run env CFLAGS='-fPIC -pipe' CXXFLAGS='-fPIC -pipe' LDFLAGS= BUILD_STATIC_ONLY=y OBJDIR=build DESTDIR=.. ${make} ${MAKEOPTS} install
   cd - > /dev/null || return 1
 }
 
@@ -1062,32 +1074,6 @@ fi
 
 # -----------------------------------------------------------------------------
 [ -n "${GITHUB_ACTIONS}" ] && echo "::group::Installing Netdata."
-
-progress "Migrate configuration files for node.d.plugin and charts.d.plugin"
-
-# migrate existing configuration files
-# for node.d and charts.d
-if [ -d "${NETDATA_PREFIX}/etc/netdata" ]; then
-  # the configuration directory exists
-
-  if [ ! -d "${NETDATA_PREFIX}/etc/netdata/charts.d" ]; then
-    run mkdir "${NETDATA_PREFIX}/etc/netdata/charts.d"
-  fi
-
-  # move the charts.d config files
-  for x in apache ap cpu_apps cpufreq example exim hddtemp load_average mem_apps mysql nginx nut opensips phpfpm postfix sensors squid tomcat; do
-    for y in "" ".old" ".orig"; do
-      if [ -f "${NETDATA_PREFIX}/etc/netdata/${x}.conf${y}" ] && [ ! -f "${NETDATA_PREFIX}/etc/netdata/charts.d/${x}.conf${y}" ]; then
-        run mv -f "${NETDATA_PREFIX}/etc/netdata/${x}.conf${y}" "${NETDATA_PREFIX}/etc/netdata/charts.d/${x}.conf${y}"
-      fi
-    done
-  done
-
-  if [ ! -d "${NETDATA_PREFIX}/etc/netdata/node.d" ]; then
-    run mkdir "${NETDATA_PREFIX}/etc/netdata/node.d"
-  fi
-
-fi
 
 # -----------------------------------------------------------------------------
 

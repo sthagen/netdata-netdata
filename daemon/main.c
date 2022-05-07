@@ -554,6 +554,10 @@ static void get_netdata_configured_variables() {
 #endif
 
     // --------------------------------------------------------------------
+    // metric correlations
+    enable_metric_correlations = config_get_boolean(CONFIG_SECTION_GLOBAL, "enable metric correlations", enable_metric_correlations);
+
+    // --------------------------------------------------------------------
     // get various system parameters
 
     get_system_HZ();
@@ -1087,11 +1091,13 @@ int main(int argc, char **argv) {
         if(i > 0)
             mallopt(M_ARENA_MAX, 1);
 #endif
-        test_clock_boottime();
-        test_clock_monotonic_coarse();
+
+        // initialize the system clocks
+        clocks_init();
 
         // prepare configuration environment variables for the plugins
 
+        setenv("UV_THREADPOOL_SIZE", config_get(CONFIG_SECTION_GLOBAL, "libuv worker threads", "16"), 1);
         get_netdata_configured_variables();
         set_global_environment();
 

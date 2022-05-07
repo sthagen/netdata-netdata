@@ -233,12 +233,15 @@ extern __thread size_t log_thread_memory_allocations;
 #define mallocz(size) mallocz_int(__FILE__, __FUNCTION__, __LINE__, size)
 #define reallocz(ptr, size) reallocz_int(__FILE__, __FUNCTION__, __LINE__, ptr, size)
 #define freez(ptr) freez_int(__FILE__, __FUNCTION__, __LINE__, ptr)
+#define log_allocations() log_allocations_int(__FILE__, __FUNCTION__, __LINE__)
 
 extern char *strdupz_int(const char *file, const char *function, const unsigned long line, const char *s);
 extern void *callocz_int(const char *file, const char *function, const unsigned long line, size_t nmemb, size_t size);
 extern void *mallocz_int(const char *file, const char *function, const unsigned long line, size_t size);
 extern void *reallocz_int(const char *file, const char *function, const unsigned long line, void *ptr, size_t size);
 extern void freez_int(const char *file, const char *function, const unsigned long line, void *ptr);
+extern void log_allocations_int(const char *file, const char *function, const unsigned long line);
+
 #else // NETDATA_LOG_ALLOCATIONS
 extern char *strdupz(const char *s) MALLOCLIKE NEVERNULL;
 extern void *callocz(size_t nmemb, size_t size) MALLOCLIKE NEVERNULL;
@@ -342,6 +345,7 @@ extern char *netdata_configured_host_prefix;
 #include "json/json.h"
 #include "health/health.h"
 #include "string/utf8.h"
+#include "onewayalloc/onewayalloc.h"
 
 // BEWARE: Outside of the C code this also exists in alarm-notify.sh
 #define DEFAULT_CLOUD_BASE_URL "https://app.netdata.cloud"

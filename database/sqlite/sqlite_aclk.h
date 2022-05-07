@@ -16,7 +16,7 @@
 #endif
 #define ACLK_MAX_ALERT_UPDATES  (5)
 #define ACLK_DATABASE_CLEANUP_FIRST  (60)
-#define ACLK_DATABASE_ROTATION_DELAY  (60)
+#define ACLK_DATABASE_ROTATION_DELAY  (180)
 #define ACLK_DATABASE_CLEANUP_INTERVAL (3600)
 #define ACLK_DATABASE_ROTATION_INTERVAL (3600)
 #define ACLK_DELETE_ACK_INTERNAL (600)
@@ -103,9 +103,7 @@ static inline char *get_str_from_uuid(uuid_t *uuid)
 
 #define TABLE_ACLK_ALERT "CREATE TABLE IF NOT EXISTS aclk_alert_%s (sequence_id INTEGER PRIMARY KEY, " \
         "alert_unique_id, date_created, date_submitted, date_cloud_ack, " \
-        "unique(alert_unique_id)); " \
-        "insert into aclk_alert_%s (alert_unique_id, date_created) " \
-        "select unique_id alert_unique_id, strftime('%%s') date_created from health_log_%s where new_status <> 0 and new_status <> -2 order by unique_id asc on conflict (alert_unique_id) do nothing;"
+        "unique(alert_unique_id));"
 
 #define INDEX_ACLK_CHART "CREATE INDEX IF NOT EXISTS aclk_chart_index_%s ON aclk_chart_%s (unique_id);"
 

@@ -43,9 +43,10 @@ inline int rrddim_set_name(RRDSET *st, RRDDIM *rd, const char *name) {
 
     debug(D_RRD_CALLS, "rrddim_set_name() from %s.%s to %s.%s", st->name, rd->name, st->name, name);
 
-    char varname[CONFIG_MAX_NAME + 1];
-    snprintfz(varname, CONFIG_MAX_NAME, "dim %s name", rd->id);
-    rd->name = config_set_default(st->config_section, varname, name);
+    if (rd->name)
+        freez((void *) rd->name);
+
+    rd->name = strdupz(name);
     rd->hash_name = simple_hash(rd->name);
 
     if (!st->state->is_ar_chart)
@@ -99,6 +100,7 @@ inline int rrddim_set_divisor(RRDSET *st, RRDDIM *rd, collected_number divisor) 
 // RRDDIM legacy data collection functions
 
 static void rrddim_collect_init(RRDDIM *rd) {
+    rd->state->handle = callocz(1, sizeof(struct mem_collect_handle));
     rd->values[rd->rrdset->current_entry] = SN_EMPTY_SLOT;
 }
 static void rrddim_collect_store_metric(RRDDIM *rd, usec_t point_in_time, storage_number number) {
@@ -107,10 +109,10 @@ static void rrddim_collect_store_metric(RRDDIM *rd, usec_t point_in_time, storag
     rd->values[rd->rrdset->current_entry] = number;
 }
 static int rrddim_collect_finalize(RRDDIM *rd) {
-    (void)rd;
-
+    freez(rd->state->handle);
     return 0;
 }
+
 
 // ----------------------------------------------------------------------------
 // RRDDIM legacy database query functions
@@ -119,34 +121,37 @@ static void rrddim_query_init(RRDDIM *rd, struct rrddim_query_handle *handle, ti
     handle->rd = rd;
     handle->start_time = start_time;
     handle->end_time = end_time;
-    handle->slotted.slot = rrdset_time2slot(rd->rrdset, start_time);
-    handle->slotted.last_slot = rrdset_time2slot(rd->rrdset, end_time);
-    handle->slotted.finished = 0;
+    struct mem_query_handle* mem_handle = callocz(1, sizeof(struct mem_query_handle));
+    mem_handle->slot = rrdset_time2slot(rd->rrdset, start_time);
+    mem_handle->last_slot = rrdset_time2slot(rd->rrdset, end_time);
+    mem_handle->finished = 0;
+    handle->handle = (STORAGE_QUERY_HANDLE *)mem_handle;
 }
 
 static storage_number rrddim_query_next_metric(struct rrddim_query_handle *handle, time_t *current_time) {
     RRDDIM *rd = handle->rd;
+    struct mem_query_handle* mem_handle = (struct mem_query_handle*)handle->handle;
     long entries = rd->rrdset->entries;
-    long slot = handle->slotted.slot;
+    long slot = mem_handle->slot;
 
     (void)current_time;
-    if (unlikely(handle->slotted.slot == handle->slotted.last_slot))
-        handle->slotted.finished = 1;
+    if (unlikely(mem_handle->slot == mem_handle->last_slot))
+        mem_handle->finished = 1;
     storage_number n = rd->values[slot++];
 
     if(unlikely(slot >= entries)) slot = 0;
-    handle->slotted.slot = slot;
+    mem_handle->slot = slot;
 
     return n;
 }
 
 static int rrddim_query_is_finished(struct rrddim_query_handle *handle) {
-    return handle->slotted.finished;
+    struct mem_query_handle* mem_handle = (struct mem_query_handle*)handle->handle;
+    return mem_handle->finished;
 }
 
 static void rrddim_query_finalize(struct rrddim_query_handle *handle) {
-    (void)handle;
-
+    freez(handle->handle);
     return;
 }
 
@@ -174,7 +179,10 @@ void rrdcalc_link_to_rrddim(RRDDIM *rd, RRDSET *st, RRDHOST *host) {
                         continue;
                     }
 
+                    netdata_rwlock_wrlock(&host->health_log.alarm_log_rwlock);
                     RRDCALC *child = rrdcalc_create_from_rrdcalc(rrdc, host, name, rd->name);
+                    netdata_rwlock_unlock(&host->health_log.alarm_log_rwlock);
+
                     if (child) {
                         rrdcalc_add_to_host(host, child);
                         RRDCALC *rdcmp  = (RRDCALC *) avl_insert_lock(&(host)->alarms_idx_health_log,(avl_t *)child);
@@ -189,9 +197,6 @@ void rrdcalc_link_to_rrddim(RRDDIM *rd, RRDSET *st, RRDHOST *host) {
             }
         }
     }
-#ifdef ENABLE_ACLK
-    rrdset_flag_clear(st, RRDSET_FLAG_ACLK);
-#endif
 }
 
 RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collected_number multiplier,
@@ -436,9 +441,6 @@ RRDDIM *rrddim_add_custom(RRDSET *st, const char *id, const char *name, collecte
     ml_new_dimension(rd);
 
     rrdset_unlock(st);
-#ifdef ENABLE_ACLK
-    rrdset_flag_clear(st, RRDSET_FLAG_ACLK);
-#endif
     return(rd);
 }
 
@@ -482,10 +484,10 @@ void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
         error("RRDDIM: INTERNAL ERROR: attempt to remove from index dimension '%s' on chart '%s', removed a different dimension.", rd->id, st->id);
 
     // free(rd->annotations);
-#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
-    if (!netdata_exit)
-        aclk_send_dimension_update(rd);
-#endif
+//#if defined(ENABLE_ACLK) && defined(ENABLE_NEW_CLOUD_PROTOCOL)
+//    if (!netdata_exit)
+//        aclk_send_dimension_update(rd);
+//#endif
 
     RRD_MEMORY_MODE rrd_memory_mode = rd->rrd_memory_mode;
     switch(rrd_memory_mode) {
@@ -511,10 +513,6 @@ void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated)
             freez(rd);
             break;
     }
-#ifdef ENABLE_ACLK
-    if (db_rotated || RRD_MEMORY_MODE_DBENGINE != rrd_memory_mode)
-        rrdset_flag_clear(st, RRDSET_FLAG_ACLK);
-#endif
 }
 
 
@@ -534,9 +532,6 @@ int rrddim_hide(RRDSET *st, const char *id) {
     (void) sql_set_dimension_option(&rd->state->metric_uuid, "hidden");
 
     rrddim_flag_set(rd, RRDDIM_FLAG_HIDDEN);
-#ifdef ENABLE_ACLK
-    rrdset_flag_clear(st, RRDSET_FLAG_ACLK);
-#endif
     return 0;
 }
 
@@ -552,9 +547,6 @@ int rrddim_unhide(RRDSET *st, const char *id) {
     (void) sql_set_dimension_option(&rd->state->metric_uuid, NULL);
 
     rrddim_flag_clear(rd, RRDDIM_FLAG_HIDDEN);
-#ifdef ENABLE_ACLK
-    rrdset_flag_clear(st, RRDSET_FLAG_ACLK);
-#endif
     return 0;
 }
 
@@ -567,18 +559,12 @@ inline void rrddim_is_obsolete(RRDSET *st, RRDDIM *rd) {
     }
     rrddim_flag_set(rd, RRDDIM_FLAG_OBSOLETE);
     rrdset_flag_set(st, RRDSET_FLAG_OBSOLETE_DIMENSIONS);
-#ifdef ENABLE_ACLK
-    rrdset_flag_clear(st, RRDSET_FLAG_ACLK);
-#endif
 }
 
 inline void rrddim_isnot_obsolete(RRDSET *st __maybe_unused, RRDDIM *rd) {
     debug(D_RRD_CALLS, "rrddim_isnot_obsolete() for chart %s, dimension %s", st->name, rd->name);
 
     rrddim_flag_clear(rd, RRDDIM_FLAG_OBSOLETE);
-#ifdef ENABLE_ACLK
-    rrdset_flag_clear(st, RRDSET_FLAG_ACLK);
-#endif
 }
 
 // ----------------------------------------------------------------------------

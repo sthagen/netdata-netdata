@@ -383,6 +383,8 @@ set(LIBNETDATA_FILES
         libnetdata/log/log.h
         libnetdata/os.c
         libnetdata/os.h
+        libnetdata/onewayalloc/onewayalloc.c
+        libnetdata/onewayalloc/onewayalloc.h
         libnetdata/popen/popen.c
         libnetdata/popen/popen.h
         libnetdata/procfile/procfile.c
@@ -674,6 +676,10 @@ set(RRD_PLUGIN_FILES
         database/engine/metadata_log/metalogpluginsd.h
         database/engine/metadata_log/compaction.c
         database/engine/metadata_log/compaction.h
+        database/KolmogorovSmirnovDist.c
+        database/KolmogorovSmirnovDist.h
+        database/metric_correlations.c
+        database/metric_correlations.h
         )
 
 set(WEB_PLUGIN_FILES

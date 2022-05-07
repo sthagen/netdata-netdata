@@ -260,7 +260,6 @@ AC_TYPE_UINT64_T
 AC_C_INLINE
 AC_FUNC_STRERROR_R
 AC_C__GENERIC
-AC_C___ATOMIC
 # AC_C_STMT_EXPR
 AC_CANONICAL_HOST
 AC_HEADER_MAJOR
@@ -1546,14 +1545,6 @@ AC_MSG_RESULT([${enable_lto}])
 
 # -----------------------------------------------------------------------------
 
-if test "${enable_exporting_kinesis}" = "yes" -o \
-        "${enable_exporting_pubsub}" = "yes" -o \
-        "${enable_exporting_prometheus_remote_write}" = "yes" -o \
-        "${new_cloud_protocol}" = "yes" -o \
-        "${build_ml}" = "yes"; then
-    enable_cxx_linker="yes"
-fi
-
 # Try to unconditionally link with -latomic. If the compiler can satisfy
 # all the atomic ops with builtins then, the library will be left unused.
 # Otherwise, some ops will be covered by the compiler's intrinsics and some
@@ -1583,15 +1574,12 @@ AC_SUBST([OPTIONAL_ATOMIC_LIBS])
 
 AC_LANG_POP([C++])
 
-AM_CONDITIONAL([ENABLE_CXX_LINKER], [test "${enable_cxx_linker}" = "yes"])
-
 AC_DEFINE_UNQUOTED([NETDATA_USER], ["${with_user}"], [use this user to drop privileged])
 
 varlibdir="${localstatedir}/lib/netdata"
 registrydir="${localstatedir}/lib/netdata/registry"
 cachedir="${localstatedir}/cache/netdata"
 chartsdir="${libexecdir}/netdata/charts.d"
-nodedir="${libexecdir}/netdata/node.d"
 pythondir="${libexecdir}/netdata/python.d"
 configdir="${sysconfdir}/netdata"
 libconfigdir="${libdir}/netdata/conf.d"
@@ -1602,7 +1590,6 @@ AC_SUBST([varlibdir])
 AC_SUBST([registrydir])
 AC_SUBST([cachedir])
 AC_SUBST([chartsdir])
-AC_SUBST([nodedir])
 AC_SUBST([pythondir])
 AC_SUBST([configdir])
 AC_SUBST([libconfigdir])
@@ -1727,7 +1714,6 @@ AC_CONFIG_FILES([
     collectors/idlejitter.plugin/Makefile
     collectors/macos.plugin/Makefile
     collectors/nfacct.plugin/Makefile
-    collectors/node.d.plugin/Makefile
     collectors/plugins.d/Makefile
     collectors/proc.plugin/Makefile
     collectors/python.d.plugin/Makefile
@@ -1769,6 +1755,7 @@ AC_CONFIG_FILES([
     libnetdata/eval/Makefile
     libnetdata/locks/Makefile
     libnetdata/log/Makefile
+    libnetdata/onewayalloc/Makefile
     libnetdata/popen/Makefile
     libnetdata/procfile/Makefile
     libnetdata/simple_pattern/Makefile

@@ -7,6 +7,7 @@
 
 AGENT_BUG_REPORT_URL="https://github.com/netdata/netdata/issues/new/choose"
 CLOUD_BUG_REPORT_URL="https://github.com/netdata/netdata-cloud/issues/new/choose"
+DEFAULT_RELEASE_CHANNEL="nightly"
 DISCUSSIONS_URL="https://github.com/netdata/netdata/discussions"
 DISCORD_INVITE="https://discord.gg/5ygS846fR6"
 DOCS_URL="https://learn.netdata.cloud/docs/"
@@ -36,7 +37,7 @@ NETDATA_ONLY_NATIVE=0
 NETDATA_ONLY_STATIC=0
 NETDATA_REQUIRE_CLOUD=1
 NETDATA_WARNINGS=""
-RELEASE_CHANNEL="nightly"
+RELEASE_CHANNEL="default"
 
 if [ -n "$DISABLE_TELEMETRY" ]; then
   NETDATA_DISABLE_TELEMETRY="${DISABLE_TELEMETRY}"
@@ -122,12 +123,14 @@ USAGE: kickstart.sh [options]
   --interactive              Prompt for user input even if there is no controlling terminal.
   --dont-start-it            Do not start the agent by default (only for static installs or local builds)
   --dry-run                  Report what we would do with the given options on this system, but don’t actually do anything.
-  --stable-channel           Install a stable version instead of a nightly build (default: install a nightly build)
-  --nightly-channel          Install a nightly build instead of a stable version
+  --release-channel          Specify the release channel to use for the install (default: ${DEFAULT_RELEASE_CHANNEL})
+  --stable-channel           Equivalent to "--release-channel stable"
+  --nightly-channel          Equivalent to "--release-channel nightly"
   --no-updates               Do not enable automatic updates (default: enable automatic updates using the best supported scheduling method)
   --auto-update              Enable automatic updates.
   --auto-update-type         Specify a particular scheduling type for auto-updates (valid types: systemd, interval, crontab)
   --disable-telemetry        Opt-out of anonymous statistics.
+  --repositories-only        Only install appropriate repository configuration packages (only for native install).
   --native-only              Only install if native binary packages are available.
   --static-only              Only install if a static build is available.
   --build-only               Only install using a local build.
@@ -135,8 +138,10 @@ USAGE: kickstart.sh [options]
   --reinstall-even-if-unsafe Even try to reinstall if we don't think we can do so safely (implies --reinstall).
   --disable-cloud            Disable support for Netdata Cloud (default: detect)
   --require-cloud            Only install if Netdata Cloud can be enabled. Overrides --disable-cloud.
-  --install <path>           Specify an installation prefix for local builds (default: autodetect based on system type).
+  --install <path>           This option is deprecated and will be removed in a future version, use --install-prefix instead.
+  --install-prefix <path>           Specify an installation prefix for local builds (default: autodetect based on system type).
   --old-install-prefix <path>       Specify an old local builds installation prefix for uninstall/reinstall (if it's not default).
+  --install-version <version>       Specify the version of Netdata to install.
   --claim-token              Use a specified token for claiming to Netdata Cloud.
   --claim-rooms              When claiming, add the node to the specified rooms.
   --claim-only               If there is an existing install, only try to claim it, not update it.
@@ -920,11 +925,11 @@ EOF
 
 confirm_install_prefix() {
   if [ -n "${INSTALL_PREFIX}" ] && [ "${NETDATA_ONLY_BUILD}" -ne 1 ]; then
-    fatal "The \`--install\` option is only supported together with the \`--build-only\` option." F0204
+    fatal "The \`--install-prefix\` and \`--install\` options are only supported together with the \`--build-only\` option." F0204
   fi
 
   if [ -n "${INSTALL_PREFIX}" ]; then
-    NETDATA_INSTALLER_OPTIONS="${NETDATA_INSTALLER_OPTIONS} --install ${INSTALL_PREFIX}"
+    NETDATA_INSTALLER_OPTIONS="${NETDATA_INSTALLER_OPTIONS} --install-prefix ${INSTALL_PREFIX}"
   else
     case "${SYSTYPE}" in
       Darwin)
@@ -1111,6 +1116,7 @@ set_auto_updates() {
 pkg_installed() {
   case "${DISTRO_COMPAT_NAME}" in
     debian|ubuntu)
+      # shellcheck disable=SC2016
       dpkg-query --show --showformat '${Status}' "${1}" 2>&1 | cut -f 1 -d ' ' | grep -q '^install$'
       return $?
       ;;
@@ -1182,7 +1188,7 @@ try_package_install() {
     progress "Attempting to install using native packages..."
   fi
 
-  if [ "${RELEASE_CHANNEL}" = "nightly" ]; then
+  if [ "${SELECTED_RELEASE_CHANNEL}" = "nightly" ]; then
     release="-edge"
   else
     release=""
@@ -1209,6 +1215,7 @@ try_package_install() {
       repo_update_opts="${interactive_opts}"
       uninstall_subcmd="purge"
       INSTALL_TYPE="binpkg-deb"
+      NATIVE_VERSION="${INSTALL_VERSION:+"=${INSTALL_VERSION}"}"
       ;;
     ubuntu)
       needs_early_refresh=1
@@ -1222,6 +1229,7 @@ try_package_install() {
       repo_update_opts="${interactive_opts}"
       uninstall_subcmd="purge"
       INSTALL_TYPE="binpkg-deb"
+      NATIVE_VERSION="${INSTALL_VERSION:+"=${INSTALL_VERSION}"}"
       ;;
     centos)
       if command -v dnf > /dev/null; then
@@ -1238,6 +1246,7 @@ try_package_install() {
       repo_update_opts="${interactive_opts}"
       uninstall_subcmd="remove"
       INSTALL_TYPE="binpkg-rpm"
+      NATIVE_VERSION="${INSTALL_VERSION:+"-${INSTALL_VERSION}.${SYSARCH}"}"
       ;;
     fedora)
       if command -v dnf > /dev/null; then
@@ -1254,6 +1263,7 @@ try_package_install() {
       repo_update_opts="${interactive_opts}"
       uninstall_subcmd="remove"
       INSTALL_TYPE="binpkg-rpm"
+      NATIVE_VERSION="${INSTALL_VERSION:+"-${INSTALL_VERSION}.${SYSARCH}"}"
       ;;
     opensuse)
       pm_cmd="zypper"
@@ -1266,6 +1276,7 @@ try_package_install() {
       repo_update_opts=""
       uninstall_subcmd="remove"
       INSTALL_TYPE="binpkg-rpm"
+      NATIVE_VERSION="${INSTALL_VERSION:+"-${INSTALL_VERSION}.${SYSARCH}"}"
       ;;
     ol)
       if command -v dnf > /dev/null; then
@@ -1282,6 +1293,7 @@ try_package_install() {
       repo_update_opts="${interactive_opts}"
       uninstall_subcmd="remove"
       INSTALL_TYPE="binpkg-rpm"
+      NATIVE_VERSION="${INSTALL_VERSION:+"-${INSTALL_VERSION}.${SYSARCH}"}"
       ;;
     *)
       warning "We do not provide native packages for ${DISTRO}."
@@ -1328,6 +1340,14 @@ try_package_install() {
     progress "Repository configuration is already present, attempting to install netdata."
   fi
 
+  if [ "${REPO_ACTION}" = "repositories-only" ]; then
+    progress "Successfully installed repository configuraion package."
+    deferred_warnings
+    cleanup
+    trap - EXIT
+    exit 1
+  fi
+
   if ! check_special_native_deps; then
     warning "Could not find secondary dependencies for ${DISTRO} on ${SYSARCH}."
     if [ -z "${NO_CLEANUP}" ]; then
@@ -1354,7 +1374,7 @@ try_package_install() {
   fi
 
   # shellcheck disable=SC2086
-  if ! run ${ROOTCMD} env ${env} ${pm_cmd} install ${pkg_install_opts} netdata; then
+  if ! run ${ROOTCMD} env ${env} ${pm_cmd} install ${pkg_install_opts} "netdata${NATIVE_VERSION}"; then
     warning "Failed to install Netdata package."
     if [ -z "${NO_CLEANUP}" ]; then
       progress "Attempting to uninstall repository configuration package."
@@ -1367,20 +1387,32 @@ try_package_install() {
 
 # ======================================================================
 # Static build install code
-
+# shellcheck disable=SC2034,SC2086,SC2126
 set_static_archive_urls() {
-  if [ "${RELEASE_CHANNEL}" = "stable" ]; then
-    latest="$(get_redirect "https://github.com/netdata/netdata/releases/latest")"
-    export NETDATA_STATIC_ARCHIVE_URL="https://github.com/netdata/netdata/releases/download/${latest}/netdata-${SYSARCH}-latest.gz.run"
-    export NETDATA_STATIC_ARCHIVE_CHECKSUM_URL="https://github.com/netdata/netdata/releases/download/${latest}/sha256sums.txt"
+  if [ "$1" = "stable" ]; then
+    if [ -n "${INSTALL_VERSION}" ]; then
+      export NETDATA_STATIC_ARCHIVE_OLD_URL="https://github.com/netdata/netdata/releases/download/v${INSTALL_VERSION}/netdata-v${INSTALL_VERSION}.gz.run"
+      export NETDATA_STATIC_ARCHIVE_URL="https://github.com/netdata/netdata/releases/download/v${INSTALL_VERSION}/netdata-${SYSARCH}-v${INSTALL_VERSION}.gz.run"
+      export NETDATA_STATIC_ARCHIVE_CHECKSUM_URL="https://github.com/netdata/netdata/releases/download/v${INSTALL_VERSION}/sha256sums.txt"
+    else
+      latest="$(get_redirect "https://github.com/netdata/netdata/releases/latest")"
+      export NETDATA_STATIC_ARCHIVE_URL="https://github.com/netdata/netdata/releases/download/${latest}/netdata-${SYSARCH}-latest.gz.run"
+      export NETDATA_STATIC_ARCHIVE_CHECKSUM_URL="https://github.com/netdata/netdata/releases/download/${latest}/sha256sums.txt"
+    fi
   else
-    export NETDATA_STATIC_ARCHIVE_URL="${NETDATA_TARBALL_BASEURL}/netdata-${SYSARCH}-latest.gz.run"
-    export NETDATA_STATIC_ARCHIVE_CHECKSUM_URL="${NETDATA_TARBALL_BASEURL}/sha256sums.txt"
+    if [ -n "${INSTALL_VERSION}" ]; then
+      export NETDATA_STATIC_ARCHIVE_URL="${NETDATA_TARBALL_BASEURL}/netdata-${SYSARCH}-v${INSTALL_VERSION}.gz.run"
+      export NETDATA_STATIC_ARCHIVE_OLD_URL="${NETDATA_TARBALL_BASEURL}/netdata-v${INSTALL_VERSION}.gz.run"
+      export NETDATA_STATIC_ARCHIVE_CHECKSUM_URL="${NETDATA_TARBALL_BASEURL}/sha256sums.txt"
+    else
+      export NETDATA_STATIC_ARCHIVE_URL="${NETDATA_TARBALL_BASEURL}/netdata-${SYSARCH}-latest.gz.run"
+      export NETDATA_STATIC_ARCHIVE_CHECKSUM_URL="${NETDATA_TARBALL_BASEURL}/sha256sums.txt"
+    fi
   fi
 }
 
 try_static_install() {
-  set_static_archive_urls "${RELEASE_CHANNEL}"
+  set_static_archive_urls "${SELECTED_RELEASE_CHANNEL}"
   if [ "${DRY_RUN}" -eq 1 ]; then
     progress "Would attempt to install using static build..."
   else
@@ -1388,12 +1420,29 @@ try_static_install() {
   fi
 
   # Check status code first, so that we can provide nicer fallback for dry runs.
-  if ! check_for_remote_file "${NETDATA_STATIC_ARCHIVE_URL}"; then
+  if check_for_remote_file "${NETDATA_STATIC_ARCHIVE_URL}"; then
+    if [ -n "${INSTALL_VERSION}" ]; then
+      if [ "${SELECTED_RELEASE_CHANNEL}" = "stable" ]; then
+        netdata_agent="${NETDATA_STATIC_ARCHIVE_URL#"https://github.com/netdata/netdata/releases/download/v${INSTALL_VERSION}/"}"
+      else
+        netdata_agent="${NETDATA_STATIC_ARCHIVE_URL#"${NETDATA_TARBALL_BASEURL}/"}"
+      fi
+    else
+      if [ "${SELECTED_RELEASE_CHANNEL}" = "stable" ]; then
+        netdata_agent="${NETDATA_STATIC_ARCHIVE_URL#"https://github.com/netdata/netdata/releases/download/${latest}/"}"
+      else
+        netdata_agent="${NETDATA_STATIC_ARCHIVE_URL#"${NETDATA_TARBALL_BASEURL}/"}"
+      fi
+    fi
+  elif [ "${SYSARCH}" = "x86_64" ] && check_for_remote_file "${NETDATA_STATIC_ARCHIVE_OLD_URL}"; then
+    netdata_agent="${NETDATA_STATIC_ARCHIVE_OLD_URL#"https://github.com/netdata/netdata/releases/download/v${INSTALL_VERSION}/"}"
+    export NETDATA_STATIC_ARCHIVE_URL="${NETDATA_STATIC_ARCHIVE_OLD_URL}"
+  else
     warning "No static build available for ${SYSARCH} CPUs."
     return 2
   fi
 
-  if ! download "${NETDATA_STATIC_ARCHIVE_URL}" "${tmpdir}/netdata-${SYSARCH}-latest.gz.run"; then
+  if ! download "${NETDATA_STATIC_ARCHIVE_URL}" "${tmpdir}/${netdata_agent}"; then
     fatal "Unable to download static build archive for ${SYSARCH}." F0208
   fi
 
@@ -1404,8 +1453,10 @@ try_static_install() {
   if [ "${DRY_RUN}" -eq 1 ]; then
     progress "Would validate SHA256 checksum of downloaded static build archive."
   else
-    if ! grep "netdata-${SYSARCH}-latest.gz.run" "${tmpdir}/sha256sum.txt" | safe_sha256sum -c - > /dev/null 2>&1; then
-      fatal "Static binary checksum validation failed. Usually this is a result of an older copy of the file being cached somewhere upstream and can be resolved by retrying in an hour." F0207
+    if [ -z "${INSTALL_VERSION}" ]; then
+      if ! grep "${netdata_agent}" "${tmpdir}/sha256sum.txt" | safe_sha256sum -c - > /dev/null 2>&1; then
+        fatal "Static binary checksum validation failed. Usually this is a result of an older copy of the file being cached somewhere upstream and can be resolved by retrying in an hour." F0207
+      fi
     fi
   fi
 
@@ -1415,7 +1466,7 @@ try_static_install() {
 
   progress "Installing netdata"
   # shellcheck disable=SC2086
-  if ! run ${ROOTCMD} sh "${tmpdir}/netdata-${SYSARCH}-latest.gz.run" ${opts} -- ${NETDATA_INSTALLER_OPTIONS}; then
+  if ! run ${ROOTCMD} sh "${tmpdir}/${netdata_agent}" ${opts} -- ${NETDATA_INSTALLER_OPTIONS}; then
     warning "Failed to install static build of Netdata on ${SYSARCH}."
     run rm -rf /opt/netdata
     return 2
@@ -1443,12 +1494,22 @@ try_static_install() {
 
 set_source_archive_urls() {
   if [ "$1" = "stable" ]; then
-    latest="$(get_redirect "https://github.com/netdata/netdata/releases/latest")"
-    export NETDATA_SOURCE_ARCHIVE_URL="https://github.com/netdata/netdata/releases/download/${latest}/netdata-${latest}.tar.gz"
-    export NETDATA_SOURCE_ARCHIVE_CHECKSUM_URL="https://github.com/netdata/netdata/releases/download/${latest}/sha256sums.txt"
+    if [ -n "${INSTALL_VERSION}" ]; then
+      export NETDATA_SOURCE_ARCHIVE_URL="https://github.com/netdata/netdata/releases/download/v${INSTALL_VERSION}/netdata-v${INSTALL_VERSION}.tar.gz"
+      export NETDATA_SOURCE_ARCHIVE_CHECKSUM_URL="https://github.com/netdata/netdata/releases/download/v${INSTALL_VERSION}/sha256sums.txt"
+    else
+      latest="$(get_redirect "https://github.com/netdata/netdata/releases/latest")"
+      export NETDATA_SOURCE_ARCHIVE_URL="https://github.com/netdata/netdata/releases/download/${latest}/netdata-${latest}.tar.gz"
+      export NETDATA_SOURCE_ARCHIVE_CHECKSUM_URL="https://github.com/netdata/netdata/releases/download/${latest}/sha256sums.txt"
+    fi
   else
-    export NETDATA_SOURCE_ARCHIVE_URL="${NETDATA_TARBALL_BASEURL}/netdata-latest.tar.gz"
-    export NETDATA_SOURCE_ARCHIVE_CHECKSUM_URL="${NETDATA_TARBALL_BASEURL}/sha256sums.txt"
+    if [ -n "${INSTALL_VERSION}" ]; then
+      export NETDATA_SOURCE_ARCHIVE_URL="${NETDATA_TARBALL_BASEURL}/netdata-v${INSTALL_VERSION}.tar.gz"
+      export NETDATA_SOURCE_ARCHIVE_CHECKSUM_URL="${NETDATA_TARBALL_BASEURL}/sha256sums.txt"
+    else
+      export NETDATA_SOURCE_ARCHIVE_URL="${NETDATA_TARBALL_BASEURL}/netdata-latest.tar.gz"
+      export NETDATA_SOURCE_ARCHIVE_CHECKSUM_URL="${NETDATA_TARBALL_BASEURL}/sha256sums.txt"
+    fi
   fi
 }
 
@@ -1501,7 +1562,7 @@ build_and_install() {
     opts="${opts} --dont-wait"
   fi
 
-  if [ "${RELEASE_CHANNEL}" = "stable" ]; then
+  if [ "${SELECTED_RELEASE_CHANNEL}" = "stable" ]; then
     opts="${opts} --stable-channel"
   fi
 
@@ -1543,9 +1604,13 @@ try_build_install() {
     return 1
   fi
 
-  set_source_archive_urls "${RELEASE_CHANNEL}"
+  set_source_archive_urls "${SELECTED_RELEASE_CHANNEL}"
 
-  if !  download "${NETDATA_SOURCE_ARCHIVE_URL}" "${tmpdir}/netdata-latest.tar.gz"; then
+  if [ -n "${INSTALL_VERSION}" ]; then
+    if ! download "${NETDATA_SOURCE_ARCHIVE_URL}" "${tmpdir}/netdata-v${INSTALL_VERSION}.tar.gz"; then
+      fatal "Failed to download source tarball for local build." F000B
+    fi
+  elif ! download "${NETDATA_SOURCE_ARCHIVE_URL}" "${tmpdir}/netdata-latest.tar.gz"; then
     fatal "Failed to download source tarball for local build." F000B
   fi
 
@@ -1556,13 +1621,22 @@ try_build_install() {
   if [ "${DRY_RUN}" -eq 1 ]; then
     progress "Would validate SHA256 checksum of downloaded source archive."
   else
-    if ! grep netdata-latest.tar.gz "${tmpdir}/sha256sum.txt" | safe_sha256sum -c - > /dev/null 2>&1; then
-      fatal "Tarball checksum validation failed. Usually this is a result of an older copy of the file being cached somewhere upstream and can be resolved by retrying in an hour." F0005
+    if [ -z "${INSTALL_VERSION}" ]; then
+      # shellcheck disable=SC2086
+      if ! grep netdata-latest.tar.gz "${tmpdir}/sha256sum.txt" | safe_sha256sum -c - > /dev/null 2>&1; then
+        fatal "Tarball checksum validation failed. Usually this is a result of an older copy of the file being cached somewhere upstream and can be resolved by retrying in an hour." F0005
+      fi
     fi
   fi
 
-  run tar -xf "${tmpdir}/netdata-latest.tar.gz" -C "${tmpdir}"
-  rm -rf "${tmpdir}/netdata-latest.tar.gz" > /dev/null 2>&1
+  if [ -n "${INSTALL_VERSION}" ]; then
+    run tar -xf "${tmpdir}/netdata-v${INSTALL_VERSION}.tar.gz" -C "${tmpdir}"
+    rm -rf "${tmpdir}/netdata-v${INSTALL_VERSION}.tar.gz" > /dev/null 2>&1
+  else
+    run tar -xf "${tmpdir}/netdata-latest.tar.gz" -C "${tmpdir}"
+    rm -rf "${tmpdir}/netdata-latest.tar.gz" > /dev/null 2>&1
+  fi
+
   if [ "${DRY_RUN}" -ne 1 ]; then
     cd "$(find "${tmpdir}" -mindepth 1 -maxdepth 1 -type d -name netdata-)" || fatal "Cannot change directory to netdata source tree" F0006
   fi
@@ -1707,7 +1781,20 @@ while [ -n "${1}" ]; do
     "--dont-wait"|"--non-interactive") INTERACTIVE=0 ;;
     "--interactive") INTERACTIVE=1 ;;
     "--dry-run") DRY_RUN=1 ;;
+    "--release-channel")
+      RELEASE_CHANNEL="$(echo "${2}" | tr '[:upper:]' '[:lower:]')"
+      case "${RELEASE_CHANNEL}" in
+        nightly|stable|default)
+          shift 1
+          ;;
+        *)
+          echo "Unrecognized value for --release-channel. Valid release channels are: stable, nightly, default"
+          exit 1
+          ;;
+      esac
+      ;;
     "--stable-channel") RELEASE_CHANNEL="stable" ;;
+    "--nightly-channel") RELEASE_CHANNEL="nightly" ;;
     "--no-updates") NETDATA_AUTO_UPDATES=0 ;;
     "--auto-update") NETDATA_AUTO_UPDATES="1" ;;
     "--auto-update-method")
@@ -1742,7 +1829,18 @@ while [ -n "${1}" ]; do
       NETDATA_INSTALLER_OPTIONS="${NETDATA_INSTALLER_OPTIONS} --disable-telemetry"
       ;;
     "--install")
+      warning "--install flag is deprecated and will be removed in a future version. Please use --install-prefix instead."
       INSTALL_PREFIX="${2}"
+      shift 1
+      ;;
+    "--install-prefix")
+      INSTALL_PREFIX="${2}"
+      shift 1
+      ;;
+    "--install-version")
+      INSTALL_VERSION="${2}"
+      # shellcheck disable=SC2034
+      AUTO_UPDATES=0
       shift 1
       ;;
     "--old-install-prefix")
@@ -1754,6 +1852,9 @@ while [ -n "${1}" ]; do
       ;;
     "--reinstall-clean")
       ACTION="reinstall-clean"
+      ;;
+    "--repositories-only")
+      REPO_ACTION="repositories-only"
       ;;
     "--native-only")
       NETDATA_ONLY_NATIVE=1
@@ -1836,6 +1937,12 @@ if [ "${NETDATA_AUTO_UPDATES}" = "default" ] || [ "${NETDATA_AUTO_UPDATES}" = "1
   AUTO_UPDATE=1
 else
   AUTO_UPDATE=0
+fi
+
+if [ "${RELEASE_CHANNEL}" = "default" ]; then
+  SELECTED_RELEASE_CHANNEL="${DEFAULT_RELEASE_CHANNEL}"
+else
+  SELECTED_RELEASE_CHANNEL="${RELEASE_CHANNEL}"
 fi
 
 check_claim_opts

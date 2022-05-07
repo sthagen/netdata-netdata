@@ -172,15 +172,9 @@ typedef enum rrddim_flags {
     RRDDIM_FLAG_PENDING_FOREACH_ALARM           = (1 << 5), // set when foreach alarm has not been initialized yet
 } RRDDIM_FLAGS;
 
-#ifdef HAVE_C___ATOMIC
 #define rrddim_flag_check(rd, flag) (__atomic_load_n(&((rd)->flags), __ATOMIC_SEQ_CST) & (flag))
 #define rrddim_flag_set(rd, flag)   __atomic_or_fetch(&((rd)->flags), (flag), __ATOMIC_SEQ_CST)
 #define rrddim_flag_clear(rd, flag) __atomic_and_fetch(&((rd)->flags), ~(flag), __ATOMIC_SEQ_CST)
-#else
-#define rrddim_flag_check(rd, flag) ((rd)->flags & (flag))
-#define rrddim_flag_set(rd, flag)   (rd)->flags |= (flag)
-#define rrddim_flag_clear(rd, flag) (rd)->flags &= ~(flag)
-#endif
 
 typedef enum label_source {
     LABEL_SOURCE_AUTO             = 0,
@@ -332,53 +326,56 @@ struct rrddim {
 };
 
 // ----------------------------------------------------------------------------
-// iterator state for RRD dimension data collection
-union rrddim_collect_handle {
-    struct {
-        long slot;
-        long entries;
-    } slotted;                           // state the legacy code uses
-#ifdef ENABLE_DBENGINE
-    struct rrdeng_collect_handle {
-        struct rrdeng_page_descr *descr, *prev_descr;
-        unsigned long page_correlation_id;
-        struct rrdengine_instance *ctx;
-        // set to 1 when this dimension is not page aligned with the other dimensions in the chart
-        uint8_t unaligned_page;
-    } rrdeng; // state the database engine uses
-#endif
-};
+// engine-specific iterator state for dimension data collection
+typedef struct storage_collect_handle STORAGE_COLLECT_HANDLE;
+
+// ----------------------------------------------------------------------------
+// engine-specific iterator state for dimension data queries
+typedef struct storage_query_handle STORAGE_QUERY_HANDLE;
 
 // ----------------------------------------------------------------------------
 // iterator state for RRD dimension data queries
-
-#ifdef ENABLE_DBENGINE
-struct rrdeng_query_handle {
-    struct rrdeng_page_descr *descr;
-    struct rrdengine_instance *ctx;
-    struct pg_cache_page_index *page_index;
-    time_t next_page_time;
-    time_t now;
-    unsigned position;
-};
-#endif
-
 struct rrddim_query_handle {
     RRDDIM *rd;
     time_t start_time;
     time_t end_time;
-    union {
-        struct {
-            long slot;
-            long last_slot;
-            uint8_t finished;
-        } slotted;                         // state the legacy code uses
-#ifdef ENABLE_DBENGINE
-        struct rrdeng_query_handle rrdeng; // state the database engine uses
-#endif
-    };
+    STORAGE_QUERY_HANDLE* handle;
 };
 
+// ------------------------------------------------------------------------
+// function pointers that handle data collection
+struct rrddim_collect_ops {
+    // an initialization function to run before starting collection
+    void (*init)(RRDDIM *rd);
+
+    // run this to store each metric into the database
+    void (*store_metric)(RRDDIM *rd, usec_t point_in_time, storage_number number);
+
+    // an finalization function to run after collection is over
+    // returns 1 if it's safe to delete the dimension
+    int (*finalize)(RRDDIM *rd);
+};
+
+// function pointers that handle database queries
+struct rrddim_query_ops {
+    // run this before starting a series of next_metric() database queries
+    void (*init)(RRDDIM *rd, struct rrddim_query_handle *handle, time_t start_time, time_t end_time);
+
+    // run this to load each metric number from the database
+    storage_number (*next_metric)(struct rrddim_query_handle *handle, time_t *current_time);
+
+    // run this to test if the series of next_metric() database queries is finished
+    int (*is_finished)(struct rrddim_query_handle *handle);
+
+    // run this after finishing a series of load_metric() database queries
+    void (*finalize)(struct rrddim_query_handle *handle);
+
+    // get the timestamp of the last entry of this metric
+    time_t (*latest_time)(RRDDIM *rd);
+
+    // get the timestamp of the first entry of this metric
+    time_t (*oldest_time)(RRDDIM *rd);
+};
 
 // ----------------------------------------------------------------------------
 // volatile state per RRD dimension
@@ -391,42 +388,9 @@ struct rrddim_volatile {
     int aclk_live_status;
 #endif
     uuid_t metric_uuid;                 // global UUID for this metric (unique_across hosts)
-    union rrddim_collect_handle handle;
-    // ------------------------------------------------------------------------
-    // function pointers that handle data collection
-    struct rrddim_collect_ops {
-        // an initialization function to run before starting collection
-        void (*init)(RRDDIM *rd);
-
-        // run this to store each metric into the database
-        void (*store_metric)(RRDDIM *rd, usec_t point_in_time, storage_number number);
-
-        // an finalization function to run after collection is over
-        // returns 1 if it's safe to delete the dimension
-        int (*finalize)(RRDDIM *rd);
-    } collect_ops;
-
-    // function pointers that handle database queries
-    struct rrddim_query_ops {
-        // run this before starting a series of next_metric() database queries
-        void (*init)(RRDDIM *rd, struct rrddim_query_handle *handle, time_t start_time, time_t end_time);
-
-        // run this to load each metric number from the database
-        storage_number (*next_metric)(struct rrddim_query_handle *handle, time_t *current_time);
-
-        // run this to test if the series of next_metric() database queries is finished
-        int (*is_finished)(struct rrddim_query_handle *handle);
-
-        // run this after finishing a series of load_metric() database queries
-        void (*finalize)(struct rrddim_query_handle *handle);
-
-        // get the timestamp of the last entry of this metric
-        time_t (*latest_time)(RRDDIM *rd);
-
-        // get the timestamp of the first entry of this metric
-        time_t (*oldest_time)(RRDDIM *rd);
-    } query_ops;
-
+    STORAGE_COLLECT_HANDLE* handle;
+    struct rrddim_collect_ops collect_ops;
+    struct rrddim_query_ops query_ops;
     ml_dimension_t ml_dimension;
 };
 
@@ -439,6 +403,19 @@ struct rrdset_volatile {
     struct label *new_labels;
     struct label_index labels;
     bool is_ar_chart;
+};
+
+// RRDDIM legacy data collection structures
+
+struct mem_collect_handle {
+    long slot;
+    long entries;
+};
+
+struct mem_query_handle {
+    long slot;
+    long last_slot;
+    uint8_t finished;
 };
 
 // ----------------------------------------------------------------------------
@@ -459,7 +436,6 @@ struct rrdset_volatile {
 // and may lead to missing information.
 
 typedef enum rrdset_flags {
-    RRDSET_FLAG_ENABLED             = 1 << 0, // enables or disables a chart
     RRDSET_FLAG_DETAIL              = 1 << 1, // if set, the data set should be considered as a detail of another
                                               // (the master data set should be the one that has the same family and is not detail)
     RRDSET_FLAG_DEBUG               = 1 << 2, // enables or disables debugging for a chart
@@ -483,16 +459,9 @@ typedef enum rrdset_flags {
     RRDSET_FLAG_ANOMALY_DETECTION   = 1 << 18 // flag to identify anomaly detection charts.
 } RRDSET_FLAGS;
 
-#ifdef HAVE_C___ATOMIC
 #define rrdset_flag_check(st, flag) (__atomic_load_n(&((st)->flags), __ATOMIC_SEQ_CST) & (flag))
 #define rrdset_flag_set(st, flag)   __atomic_or_fetch(&((st)->flags), flag, __ATOMIC_SEQ_CST)
 #define rrdset_flag_clear(st, flag) __atomic_and_fetch(&((st)->flags), ~flag, __ATOMIC_SEQ_CST)
-#else
-#define rrdset_flag_check(st, flag) ((st)->flags & (flag))
-#define rrdset_flag_set(st, flag)   (st)->flags |= (flag)
-#define rrdset_flag_clear(st, flag) (st)->flags &= ~(flag)
-#endif
-#define rrdset_flag_check_noatomic(st, flag) ((st)->flags & (flag))
 
 struct rrdset {
     // ------------------------------------------------------------------------
@@ -511,7 +480,7 @@ struct rrdset {
                                                     // since the config always has a higher priority
                                                     // (the user overwrites the name of the charts)
 
-    char *config_section;                           // the config section for the chart
+    void *unused_ptr;                               // Unused field (previously it held the config section of the chart)
 
     char *type;                                     // the type of graph RRD_TYPE_* (a category, for determining graphing options)
     char *family;                                   // grouping sets under the same family
@@ -642,15 +611,9 @@ typedef enum rrdhost_flags {
     RRDHOST_FLAG_PENDING_FOREACH_ALARMS  = 1 << 7, // contains dims with uninitialized foreach alarms
 } RRDHOST_FLAGS;
 
-#ifdef HAVE_C___ATOMIC
 #define rrdhost_flag_check(host, flag) (__atomic_load_n(&((host)->flags), __ATOMIC_SEQ_CST) & (flag))
 #define rrdhost_flag_set(host, flag)   __atomic_or_fetch(&((host)->flags), flag, __ATOMIC_SEQ_CST)
 #define rrdhost_flag_clear(host, flag) __atomic_and_fetch(&((host)->flags), ~flag, __ATOMIC_SEQ_CST)
-#else
-#define rrdhost_flag_check(host, flag) ((host)->flags & (flag))
-#define rrdhost_flag_set(host, flag)   (host)->flags |= (flag)
-#define rrdhost_flag_clear(host, flag) (host)->flags &= ~(flag)
-#endif
 
 #ifdef NETDATA_INTERNAL_CHECKS
 #define rrdset_debug(st, fmt, args...) do { if(unlikely(debug_flags & D_RRD_STATS && rrdset_flag_check(st, RRDSET_FLAG_DEBUG))) \
@@ -846,6 +809,8 @@ struct rrdhost {
 
     struct receiver_state *receiver;
     netdata_mutex_t receiver_lock;
+    time_t trigger_chart_obsoletion_check;          // set when child connects, will instruct parent to
+                                                    // trigger a check for obsoleted charts since previous connect
 
     // ------------------------------------------------------------------------
     // health monitoring options
@@ -1120,8 +1085,8 @@ extern void rrdset_is_obsolete(RRDSET *st);
 extern void rrdset_isnot_obsolete(RRDSET *st);
 
 // checks if the RRDSET should be offered to viewers
-#define rrdset_is_available_for_viewers(st) (rrdset_flag_check(st, RRDSET_FLAG_ENABLED) && !rrdset_flag_check(st, RRDSET_FLAG_HIDDEN) && !rrdset_flag_check(st, RRDSET_FLAG_OBSOLETE) && !rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions && (st)->rrd_memory_mode != RRD_MEMORY_MODE_NONE)
-#define rrdset_is_available_for_exporting_and_alarms(st) (rrdset_flag_check(st, RRDSET_FLAG_ENABLED) && !rrdset_flag_check(st, RRDSET_FLAG_OBSOLETE) && !rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions)
+#define rrdset_is_available_for_viewers(st) (!rrdset_flag_check(st, RRDSET_FLAG_HIDDEN) && !rrdset_flag_check(st, RRDSET_FLAG_OBSOLETE) && !rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions && (st)->rrd_memory_mode != RRD_MEMORY_MODE_NONE)
+#define rrdset_is_available_for_exporting_and_alarms(st) (!rrdset_flag_check(st, RRDSET_FLAG_OBSOLETE) && !rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions)
 #define rrdset_is_archived(st) (rrdset_flag_check(st, RRDSET_FLAG_ARCHIVED) && (st)->dimensions)
 
 // get the total duration in seconds of the round robin database
@@ -1339,7 +1304,7 @@ extern int alarm_compare_name(void *a, void *b);
 extern avl_tree_lock rrdhost_root_index;
 
 extern char *rrdset_strncpyz_name(char *to, const char *from, size_t length);
-extern char *rrdset_cache_dir(RRDHOST *host, const char *id, const char *config_section);
+extern char *rrdset_cache_dir(RRDHOST *host, const char *id);
 
 #define rrddim_free(st, rd) rrddim_free_custom(st, rd, 0)
 extern void rrddim_free_custom(RRDSET *st, RRDDIM *rd, int db_rotated);
