@@ -6,6 +6,28 @@
 #define PLUGIN_CGROUPS_MODULE_SYSTEMD_NAME "systemd"
 #define PLUGIN_CGROUPS_MODULE_CGROUPS_NAME "/sys/fs/cgroup"
 
+// main cgroups thread worker jobs
+#define WORKER_CGROUPS_LOCK 0
+#define WORKER_CGROUPS_READ 1
+#define WORKER_CGROUPS_CHART 2
+
+// discovery cgroup thread worker jobs
+#define WORKER_DISCOVERY_INIT               0
+#define WORKER_DISCOVERY_FIND               1
+#define WORKER_DISCOVERY_PROCESS            2
+#define WORKER_DISCOVERY_PROCESS_RENAME     3
+#define WORKER_DISCOVERY_PROCESS_NETWORK    4
+#define WORKER_DISCOVERY_PROCESS_FIRST_TIME 5
+#define WORKER_DISCOVERY_UPDATE             6
+#define WORKER_DISCOVERY_CLEANUP            7
+#define WORKER_DISCOVERY_COPY               8
+#define WORKER_DISCOVERY_SHARE              9
+#define WORKER_DISCOVERY_LOCK              10
+
+#if WORKER_UTILIZATION_MAX_JOB_TYPES < 11
+#error WORKER_UTILIZATION_MAX_JOB_TYPES has to be at least 11
+#endif
+
 // ----------------------------------------------------------------------------
 // cgroup globals
 
@@ -42,8 +64,6 @@ static int cgroup_unified_exist = CONFIG_BOOLEAN_AUTO;
 
 static int cgroup_search_in_devices = 1;
 
-static int cgroup_enable_new_cgroups_detected_at_runtime = 1;
-
 static int cgroup_check_for_new_every = 10;
 static int cgroup_update_every = 1;
 static int cgroup_containers_chart_priority = NETDATA_CHART_PRIO_CGROUPS_CONTAINERS;
@@ -68,6 +88,8 @@ static SIMPLE_PATTERN *enabled_cgroup_names = NULL;
 static SIMPLE_PATTERN *search_cgroup_paths = NULL;
 static SIMPLE_PATTERN *enabled_cgroup_renames = NULL;
 static SIMPLE_PATTERN *systemd_services_cgroups = NULL;
+
+static SIMPLE_PATTERN *entrypoint_parent_process_comm = NULL;
 
 static char *cgroups_rename_script = NULL;
 static char *cgroups_network_interface_script = NULL;
@@ -412,8 +434,6 @@ void read_cgroup_plugin_configuration() {
 
     cgroup_root_max = (int)config_get_number("plugin:cgroups", "max cgroups to allow", cgroup_root_max);
     cgroup_max_depth = (int)config_get_number("plugin:cgroups", "max cgroups depth to monitor", cgroup_max_depth);
-
-    cgroup_enable_new_cgroups_detected_at_runtime = config_get_boolean("plugin:cgroups", "enable new cgroups detected at run time", cgroup_enable_new_cgroups_detected_at_runtime);
 
     enabled_cgroup_paths = simple_pattern_create(
             config_get("plugin:cgroups", "enable by default cgroups matching",
@@ -874,9 +894,6 @@ struct discovery_thread {
 // ---------------------------------------------------------------------------------------------
 
 static inline int matches_enabled_cgroup_paths(char *id) {
-    if (!cgroup_enable_new_cgroups_detected_at_runtime) {
-        return 0;
-    }
     return simple_pattern_matches(enabled_cgroup_paths, id);
 }
 
@@ -894,6 +911,10 @@ static inline int matches_systemd_services_cgroups(char *id) {
 
 static inline int matches_search_cgroup_paths(const char *dir) {
     return simple_pattern_matches(search_cgroup_paths, dir);
+}
+
+static inline int matches_entrypoint_parent_process_comm(const char *comm) {
+    return simple_pattern_matches(entrypoint_parent_process_comm, comm);
 }
 
 static inline int is_cgroup_systemd_service(struct cgroup *cg) {
@@ -2545,6 +2566,16 @@ static inline void discovery_find_all_cgroups_v2() {
     }
 }
 
+static int is_digits_only(const char *s) {
+  do {
+    if (!isdigit(*s++)) {
+      return 0;
+    }
+  } while (*s);
+
+  return 1;
+}
+
 static inline void discovery_process_first_time_seen_cgroup(struct cgroup *cg) {
     if (!cg->first_time_seen) {
         return;
@@ -2555,8 +2586,8 @@ static inline void discovery_process_first_time_seen_cgroup(struct cgroup *cg) {
 
     if (is_inside_k8s && !k8s_get_container_first_proc_comm(cg->id, comm)) {
         // container initialization may take some time when CPU % is high
-        // TODO: not sure run-level 2 is enough (just came across this problem on an AWS K8s cluster)
-        if (!strcmp(comm, "runc:[2:INIT]")) {
+        // seen on GKE: comm is '6' before 'runc:[2:INIT]' (dunno if it could be another number)
+        if (is_digits_only(comm) || matches_entrypoint_parent_process_comm(comm)) {
             cg->first_time_seen = 1;
             return;
         }
@@ -2608,6 +2639,7 @@ static inline void discovery_process_cgroup(struct cgroup *cg) {
     }
 
     if (cg->first_time_seen) {
+        worker_is_busy(WORKER_DISCOVERY_PROCESS_FIRST_TIME);
         discovery_process_first_time_seen_cgroup(cg);
         if (unlikely(cg->first_time_seen || cg->processed)) {
             return;
@@ -2615,6 +2647,7 @@ static inline void discovery_process_cgroup(struct cgroup *cg) {
     }
 
     if (cg->pending_renames) {
+        worker_is_busy(WORKER_DISCOVERY_PROCESS_RENAME);
         discovery_rename_cgroup(cg);
         if (unlikely(cg->pending_renames || cg->processed)) {
             return;
@@ -2644,21 +2677,9 @@ static inline void discovery_process_cgroup(struct cgroup *cg) {
         return;
     }
 
+    worker_is_busy(WORKER_DISCOVERY_PROCESS_NETWORK);
     read_cgroup_network_interfaces(cg);
 }
-
-#define WORKER_DISCOVERY_INIT 0
-#define WORKER_DISCOVERY_FIND 1
-#define WORKER_DISCOVERY_PROCESS 2
-#define WORKER_DISCOVERY_UPDATE 3
-#define WORKER_DISCOVERY_CLEANUP 4
-#define WORKER_DISCOVERY_COPY 5
-#define WORKER_DISCOVERY_SHARE 6
-#define WORKER_DISCOVERY_LOCK 7
-
-#if WORKER_UTILIZATION_MAX_JOB_TYPES < 8
-#error WORKER_UTILIZATION_MAX_JOB_TYPES has to be at least 8
-#endif
 
 static inline void discovery_find_all_cgroups() {
     debug(D_CGROUP, "searching for cgroups");
@@ -2704,14 +2725,23 @@ void cgroup_discovery_worker(void *ptr)
     UNUSED(ptr);
 
     worker_register("CGROUPSDISC");
-    worker_register_job_name(WORKER_DISCOVERY_INIT, "init");
-    worker_register_job_name(WORKER_DISCOVERY_FIND, "find");
-    worker_register_job_name(WORKER_DISCOVERY_PROCESS, "process");
-    worker_register_job_name(WORKER_DISCOVERY_UPDATE, "update");
-    worker_register_job_name(WORKER_DISCOVERY_CLEANUP, "cleanup");
-    worker_register_job_name(WORKER_DISCOVERY_COPY, "copy");
-    worker_register_job_name(WORKER_DISCOVERY_SHARE, "share");
-    worker_register_job_name(WORKER_DISCOVERY_LOCK, "lock");
+    worker_register_job_name(WORKER_DISCOVERY_INIT,               "init");
+    worker_register_job_name(WORKER_DISCOVERY_FIND,               "find");
+    worker_register_job_name(WORKER_DISCOVERY_PROCESS,            "process");
+    worker_register_job_name(WORKER_DISCOVERY_PROCESS_RENAME,     "rename");
+    worker_register_job_name(WORKER_DISCOVERY_PROCESS_NETWORK,    "network");
+    worker_register_job_name(WORKER_DISCOVERY_PROCESS_FIRST_TIME, "new");
+    worker_register_job_name(WORKER_DISCOVERY_UPDATE,             "update");
+    worker_register_job_name(WORKER_DISCOVERY_CLEANUP,            "cleanup");
+    worker_register_job_name(WORKER_DISCOVERY_COPY,               "copy");
+    worker_register_job_name(WORKER_DISCOVERY_SHARE,              "share");
+    worker_register_job_name(WORKER_DISCOVERY_LOCK,               "lock");
+
+    entrypoint_parent_process_comm = simple_pattern_create(
+        " runc:[* " // http://terenceli.github.io/%E6%8A%80%E6%9C%AF/2021/12/28/runc-internals-3)
+        " exe ", // https://github.com/falcosecurity/falco/blob/9d41b0a151b83693929d3a9c84f7c5c85d070d3a/rules/falco_rules.yaml#L1961
+        NULL,
+        SIMPLE_PATTERN_EXACT);
 
     while (!netdata_exit) {
         worker_is_idle();
@@ -4888,14 +4918,6 @@ static void cgroup_main_cleanup(void *ptr) {
 
     static_thread->enabled = NETDATA_MAIN_THREAD_EXITED;
 }
-
-#define WORKER_CGROUPS_LOCK 0
-#define WORKER_CGROUPS_READ 1
-#define WORKER_CGROUPS_CHART 2
-
-#if WORKER_UTILIZATION_MAX_JOB_TYPES < 3
-#error WORKER_UTILIZATION_MAX_JOB_TYPES has to be at least 3
-#endif
 
 void *cgroups_main(void *ptr) {
     worker_register("CGROUPS");
