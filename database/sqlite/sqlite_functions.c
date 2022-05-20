@@ -60,6 +60,8 @@ const char *database_cleanup[] = {
     "delete from chart where chart_id not in (select chart_id from dimension);",
     "delete from host where host_id not in (select host_id from chart);",
     "delete from chart_label where chart_id not in (select chart_id from chart);",
+    "DELETE FROM chart_hash_map WHERE chart_id NOT IN (SELECT chart_id FROM chart);",
+    "DELETE FROM chart_hash WHERE hash_id NOT IN (SELECT hash_id FROM chart_hash_map);",
     "DELETE FROM node_instance WHERE host_id NOT IN (SELECT host_id FROM host);",
     NULL
 };
@@ -396,26 +398,32 @@ int sql_init_database(db_check_action_type_t rebuild, int memory)
     char buf[1024 + 1] = "";
     const char *list[2] = { buf, NULL };
 
+    // https://www.sqlite.org/pragma.html#pragma_auto_vacuum
     // PRAGMA schema.auto_vacuum = 0 | NONE | 1 | FULL | 2 | INCREMENTAL;
     snprintfz(buf, 1024, "PRAGMA auto_vacuum=%s;", config_get(CONFIG_SECTION_SQLITE, "auto vacuum", "INCREMENTAL"));
     if(init_database_batch(rebuild, 0, list)) return 1;
 
+    // https://www.sqlite.org/pragma.html#pragma_synchronous
     // PRAGMA schema.synchronous = 0 | OFF | 1 | NORMAL | 2 | FULL | 3 | EXTRA;
     snprintfz(buf, 1024, "PRAGMA synchronous=%s;", config_get(CONFIG_SECTION_SQLITE, "synchronous", "NORMAL"));
     if(init_database_batch(rebuild, 0, list)) return 1;
 
+    // https://www.sqlite.org/pragma.html#pragma_journal_mode
     // PRAGMA schema.journal_mode = DELETE | TRUNCATE | PERSIST | MEMORY | WAL | OFF
     snprintfz(buf, 1024, "PRAGMA journal_mode=%s;", config_get(CONFIG_SECTION_SQLITE, "journal mode", "WAL"));
     if(init_database_batch(rebuild, 0, list)) return 1;
 
+    // https://www.sqlite.org/pragma.html#pragma_temp_store
     // PRAGMA temp_store = 0 | DEFAULT | 1 | FILE | 2 | MEMORY;
     snprintfz(buf, 1024, "PRAGMA temp_store=%s;", config_get(CONFIG_SECTION_SQLITE, "temp store", "MEMORY"));
     if(init_database_batch(rebuild, 0, list)) return 1;
-
+    
+    // https://www.sqlite.org/pragma.html#pragma_journal_size_limit
     // PRAGMA schema.journal_size_limit = N ;
     snprintfz(buf, 1024, "PRAGMA journal_size_limit=%lld;", config_get_number(CONFIG_SECTION_SQLITE, "journal size limit", 16777216));
     if(init_database_batch(rebuild, 0, list)) return 1;
 
+    // https://www.sqlite.org/pragma.html#pragma_cache_size
     // PRAGMA schema.cache_size = pages;
     // PRAGMA schema.cache_size = -kibibytes;
     snprintfz(buf, 1024, "PRAGMA cache_size=%lld;", config_get_number(CONFIG_SECTION_SQLITE, "cache size", -2000));
