@@ -339,7 +339,7 @@ setup_terminal() {
   test -t 2 || return 1
 
   if command -v tput > /dev/null 2>&1; then
-    if [ $(($(tput colors 2> /dev/null))) -ge 8 ]; then
+    if num_colors=$(tput colors 2> /dev/null) && [ "${num_colors:-0}" -ge 8 ]; then
       # Enable colors
       TPUT_RESET="$(tput sgr 0)"
       TPUT_WHITE="$(tput setaf 7)"
@@ -381,8 +381,9 @@ cleanup() {
 deferred_warnings() {
   if [ -n "${NETDATA_WARNINGS}" ]; then
     printf >&2 "%s\n" "The following non-fatal warnings or errors were encountered:"
-    echo >&2 "${NETDATA_WARNINGS}"
-    printf >&2 "\n"
+    # shellcheck disable=SC2059
+    printf >&2 "${NETDATA_WARNINGS}"
+    printf >&2 "\n\n"
   fi
 }
 
