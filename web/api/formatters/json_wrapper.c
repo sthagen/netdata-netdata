@@ -19,8 +19,23 @@ static int value_list_output(const char *name, void *entry, void *data) {
     return 0;
 }
 
+static int fill_formatted_callback(const char *name, const char *value, RRDLABEL_SRC ls, void *data) {
+    (void)ls;
+    DICTIONARY *dict = (DICTIONARY *)data;
+    char n[RRD_ID_LENGTH_MAX * 2 + 2];
+    char output[RRD_ID_LENGTH_MAX * 2 + 8];
+    char v[RRD_ID_LENGTH_MAX * 2 + 1];
+
+    sanitize_json_string(v, (char *)value, RRD_ID_LENGTH_MAX * 2);
+    int len = snprintfz(output, RRD_ID_LENGTH_MAX * 2 + 7, "[\"%s\", \"%s\"]", name, v);
+    snprintfz(n, RRD_ID_LENGTH_MAX * 2, "%s:%s", name, v);
+    dictionary_set(dict, n, output, len + 1);
+
+    return 1;
+}
+
 void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS options, int string_value,
-    QUERY_PARAMS *rrdset_query_data)
+    RRDR_GROUPING group_method, QUERY_PARAMS *rrdset_query_data)
 {
     struct context_param *context_param_list = rrdset_query_data->context_param_list;
     char *chart_label_key = rrdset_query_data->chart_label_key;
@@ -61,7 +76,8 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
                        "   %slast_entry%s: %u,\n"
                        "   %sbefore%s: %u,\n"
                        "   %safter%s: %u,\n"
-                       "   %sdimension_names%s: ["
+                       "   %sgroup%s: %s%s%s,\n"
+                       "   %soptions%s: %s"
                    , kq, kq
                    , kq, kq, sq, context_mode && temp_rd?r->st->context:r->st->id, sq
                    , kq, kq, sq, context_mode && temp_rd?r->st->context:r->st->name, sq
@@ -71,7 +87,13 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
                    , kq, kq, (uint32_t) (context_param_list ? context_param_list->last_entry_t : rrdset_last_entry_t_nolock(r->st))
                    , kq, kq, (uint32_t)r->before
                    , kq, kq, (uint32_t)r->after
-                   , kq, kq);
+                   , kq, kq, sq, web_client_api_request_v1_data_group_to_string(group_method), sq
+                   , kq, kq, sq);
+
+    web_client_api_request_v1_data_options_to_string(wb, options);
+
+    buffer_sprintf(wb, "%s,\n   %sdimension_names%s: [", sq, kq, kq);
+
     if (should_lock)
         rrdset_unlock(r->st);
 
@@ -122,7 +144,6 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
 
         char name[RRD_ID_LENGTH_MAX * 2 + 2];
         char output[RRD_ID_LENGTH_MAX * 2 + 8];
-        char value[RRD_ID_LENGTH_MAX * 2 + 1];
 
         struct value_output co = {.c = 0, .wb = wb};
 
@@ -153,19 +174,8 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
         dict = dictionary_create(DICTIONARY_FLAG_SINGLE_THREADED);
         for (i = 0, rd = temp_rd ? temp_rd : r->st->dimensions; rd; rd = rd->next) {
             st = rd->rrdset;
-            if (likely(st->state)) {
-                struct label_index *labels = &st->state->labels;
-                if (labels->head) {
-                    netdata_rwlock_rdlock(&labels->labels_rwlock);
-                    for (struct label *label = labels->head; label; label = label->next) {
-                        sanitize_json_string(value, label->value, RRD_ID_LENGTH_MAX * 2);
-                        int len = snprintfz(output, RRD_ID_LENGTH_MAX * 2 + 7, "[\"%s\", \"%s\"]", label->key, value);
-                        snprintfz(name, RRD_ID_LENGTH_MAX * 2, "%s:%s", label->key, value);
-                        dictionary_set(dict, name, output, len + 1);
-                    }
-                    netdata_rwlock_unlock(&labels->labels_rwlock);
-                }
-            }
+            if (st->state && st->state->chart_labels)
+                rrdlabels_walkthrough_read(st->state->chart_labels, fill_formatted_callback, dict);
         }
         dictionary_walkthrough_read(dict, value_list_output, &co);
         dictionary_destroy(dict);
@@ -207,8 +217,6 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
             char *label_key = NULL;
             int keys = 0;
             while (pattern && (label_key = simple_pattern_iterate(&pattern))) {
-                uint32_t key_hash = simple_hash(label_key);
-                struct label *current_label;
 
                 if (keys)
                     buffer_strcat(wb, ", ");
@@ -223,13 +231,7 @@ void rrdr_json_wrapper_begin(RRDR *r, BUFFER *wb, uint32_t format, RRDR_OPTIONS 
                     if (i)
                         buffer_strcat(wb, ", ");
 
-                    current_label = rrdset_lookup_label_key(rd->rrdset, label_key, key_hash);
-                    if (current_label) {
-                        buffer_strcat(wb, sq);
-                        buffer_strcat(wb, current_label->value);
-                        buffer_strcat(wb, sq);
-                    } else
-                        buffer_strcat(wb, "null");
+                    rrdlabels_get_value_to_buffer_or_null(rd->rrdset->state->chart_labels, wb, label_key, sq, "null");
                     i++;
                 }
                 if (!i) {

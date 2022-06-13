@@ -625,6 +625,7 @@ static void get_netdata_configured_variables() {
     // --------------------------------------------------------------------
     // metric correlations
     enable_metric_correlations = config_get_boolean(CONFIG_SECTION_GLOBAL, "enable metric correlations", enable_metric_correlations);
+    default_metric_correlations_method = mc_string_to_method(config_get(CONFIG_SECTION_GLOBAL, "metric correlations method", mc_method_to_string(default_metric_correlations_method)));
 
     // --------------------------------------------------------------------
     // get various system parameters
@@ -895,8 +896,14 @@ int main(int argc, char **argv) {
                         }
 #endif
 #ifdef ENABLE_DBENGINE
+                        else if(strcmp(optarg, "mctest") == 0) {
+                            return mc_unittest();
+                        }
                         else if(strcmp(optarg, "dicttest") == 0) {
                             return dictionary_unittest(10000);
+                        }
+                        else if(strcmp(optarg, "rrdlabelstest") == 0) {
+                            return rrdlabels_unittest();
                         }
                         else if(strncmp(optarg, createdataset_string, strlen(createdataset_string)) == 0) {
                             optarg += strlen(createdataset_string);
