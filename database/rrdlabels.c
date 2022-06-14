@@ -22,12 +22,12 @@
  * Equal               =                    -> :       -> _
  * Period              .                    yes        yes
  * Comma               ,                    -> .       -> .
- * Slash               /                    yes        -> _
- * Backslash           \                    -> /       -> _
+ * Slash               /                    yes        yes
+ * Backslash           \                    -> /       -> /
  * At                  @                    yes        -> _
- * Space                                    -> _       yes
- * Opening parenthesis (                    -> _       yes
- * Closing parenthesis )                    -> _       yes
+ * Space                                    yes        -> _
+ * Opening parenthesis (                    yes        -> _
+ * Closing parenthesis )                    yes        -> _
  * anything else                            -> _       -> _
 *
  * The above rules should allow users to set in tags (indicative):
@@ -358,11 +358,10 @@ __attribute__((constructor)) void initialize_labels_keys_char_map(void) {
     label_names_char_map['+'] = '_';
     label_names_char_map[';'] = '_';
     label_names_char_map['@'] = '_';
-    label_names_char_map['/'] = '_';
     label_names_char_map['('] = '_';
     label_names_char_map[')'] = '_';
     label_names_char_map[' '] = '_';
-    label_names_char_map['\\'] = '_';
+    label_names_char_map['\\'] = '/';
 
     // create the spaces map
     for(i = 0; i < 256 ;i++)
@@ -831,8 +830,10 @@ static int rrdlabels_log_label_to_buffer_callback(const char *name, void *value,
     buffer_sprintf(wb, "Label: %s: \"%s\" (", name, lb->value);
 
     size_t sources = 0;
-    if(lb->label_source & RRDLABEL_SRC_AUTO)
-        buffer_sprintf(wb, "%sauto", sources++?",":"");
+    if(lb->label_source & RRDLABEL_SRC_AUTO) {
+        buffer_sprintf(wb, "auto");
+        sources++;
+    }
 
     if(lb->label_source & RRDLABEL_SRC_CONFIG)
         buffer_sprintf(wb, "%snetdata.conf", sources++?",":"");
@@ -968,7 +969,7 @@ int rrdlabels_unittest_add_a_pair_callback(const char *name, const char *value, 
         t->errors++;
     }
     else if(strcmp(value, t->expected_value) != 0) {
-        fprintf(stderr, "values don't match, found \"%s\", expected \"%s\"", value?value:"(null)", t->expected_value?t->expected_value:"(null)");
+        fprintf(stderr, "values don't match, found \"%s\", expected \"%s\"", value, t->expected_value);
         t->errors++;
     }
 
