@@ -3,6 +3,10 @@
 #include "common.h"
 #include "buildinfo.h"
 #include "static_threads.h"
+#include "database/storage_engine.h"
+#ifdef ENABLE_DBENGINE
+#include "database/engine/rrdengineapi.h"
+#endif
 
 int netdata_zero_metrics_enabled;
 int netdata_anonymous_statistics_enabled;
@@ -54,13 +58,18 @@ void netdata_cleanup_and_exit(int ret) {
 
         // free the database
         info("EXIT: freeing database memory...");
-#ifdef ENABLE_DBENGINE
-        rrdeng_prepare_exit(&multidb_ctx);
-#endif
+        for (STORAGE_ENGINE* eng = storage_engine_foreach_init(); eng; eng = storage_engine_foreach_next(eng)) {
+            if (eng->context)
+                eng->api.engine_ops.exit(eng->context);
+        }
+
         rrdhost_free_all();
-#ifdef ENABLE_DBENGINE
-        rrdeng_exit(&multidb_ctx);
-#endif
+        for (STORAGE_ENGINE* eng = storage_engine_foreach_init(); eng; eng = storage_engine_foreach_next(eng)) {
+            if (eng->context) {
+                eng->api.engine_ops.destroy(eng->context);
+                eng->context = NULL;
+            }
+        }
     }
     sql_close_database();
 
@@ -584,6 +593,7 @@ static void get_netdata_configured_variables() {
     // ------------------------------------------------------------------------
     // get default Database Engine page cache size in MiB
 
+    db_engine_use_malloc = config_get_boolean(CONFIG_SECTION_GLOBAL, "page cache uses malloc", CONFIG_BOOLEAN_NO);
     default_rrdeng_page_cache_mb = (int) config_get_number(CONFIG_SECTION_GLOBAL, "page cache size", default_rrdeng_page_cache_mb);
     if(default_rrdeng_page_cache_mb < RRDENG_MIN_PAGE_CACHE_SIZE_MB) {
         error("Invalid page cache size %d given. Defaulting to %d.", default_rrdeng_page_cache_mb, RRDENG_MIN_PAGE_CACHE_SIZE_MB);
@@ -887,6 +897,10 @@ int main(int argc, char **argv) {
                             if(test_dbengine()) return 1;
 #endif
                             if(test_sqlite()) return 1;
+                            if (dictionary_unittest(10000))
+                                return 1;
+                            if (rrdlabels_unittest())
+                                return 1;
                             fprintf(stderr, "\n\nALL TESTS PASSED\n\n");
                             return 0;
                         }

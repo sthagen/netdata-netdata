@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "rrdengine.h"
+#include "../storage_engine.h"
 
-/* Default global database instance */
-struct rrdengine_instance multidb_ctx;
-
+int db_engine_use_malloc = 0;
 int default_rrdeng_page_cache_mb = 32;
 int default_rrdeng_disk_quota_mb = 256;
 int default_multidb_disk_quota_mb = 256;
 /* Default behaviour is to unblock data collection if the page cache is full of dirty pages by dropping metrics */
 uint8_t rrdeng_drop_metrics_under_page_cache_pressure = 1;
 
+void *rrdeng_create_page(struct rrdengine_instance *ctx, uuid_t *id, struct rrdeng_page_descr **ret_descr);
+void rrdeng_commit_page(struct rrdengine_instance *ctx, struct rrdeng_page_descr *descr,
+                               Word_t page_correlation_id);
+void *rrdeng_get_latest_page(struct rrdengine_instance *ctx, uuid_t *id, void **handle);
+void *rrdeng_get_page(struct rrdengine_instance *ctx, uuid_t *id, usec_t point_in_time, void **handle);
+void rrdeng_put_page(struct rrdengine_instance *ctx, void *handle);
+
 static inline struct rrdengine_instance *get_rrdeng_ctx_from_host(RRDHOST *host)
 {
-    return host->rrdeng_ctx;
+    return (struct rrdengine_instance*) host->rrdeng_ctx;
 }
 
 /* This UUID is not unique across hosts */
@@ -68,7 +74,7 @@ void rrdeng_metric_init(RRDDIM *rd)
     pg_cache = &ctx->pg_cache;
 
     rrdeng_generate_legacy_uuid(rd->id, rd->rrdset->id, &legacy_uuid);
-    if (host != localhost && host->rrdeng_ctx == &multidb_ctx)
+    if (host != localhost && host->rrdeng_ctx->engine && host->rrdeng_ctx == host->rrdeng_ctx->engine->context)
         is_multihost_child = 1;
 
     uv_rwlock_rdlock(&pg_cache->metrics_index.lock);
@@ -130,7 +136,6 @@ void rrdeng_store_metric_init(RRDDIM *rd)
     handle = callocz(1, sizeof(struct rrdeng_collect_handle));
     handle->ctx = ctx;
     handle->descr = NULL;
-    handle->prev_descr = NULL;
     handle->unaligned_page = 0;
     rd->state->handle = (STORAGE_COLLECT_HANDLE *)handle;
 
@@ -176,10 +181,6 @@ void rrdeng_store_metric_flush_current_page(RRDDIM *rd)
 
         rrd_stat_atomic_add(&ctx->stats.metric_API_producers, -1);
 
-        if (handle->prev_descr) {
-            /* unpin old second page */
-            pg_cache_put(ctx, handle->prev_descr);
-        }
         page_is_empty = page_has_only_empty_metrics(descr);
         if (page_is_empty) {
             debug(D_RRDENGINE, "Page has empty metrics only, deleting:");
@@ -187,21 +188,8 @@ void rrdeng_store_metric_flush_current_page(RRDDIM *rd)
                 print_page_cache_descr(descr);
             pg_cache_put(ctx, descr);
             pg_cache_punch_hole(ctx, descr, 1, 0, NULL);
-            handle->prev_descr = NULL;
-        } else {
-            /*
-             * Disable pinning for now as it leads to deadlocks. When a collector stops collecting the extra pinned page
-             * eventually gets rotated but it cannot be destroyed due to the extra reference.
-             */
-            /* added 1 extra reference to keep 2 dirty pages pinned per metric, expected refcnt = 2 */
-/*          rrdeng_page_descr_mutex_lock(ctx, descr);
-            ret = pg_cache_try_get_unsafe(descr, 0);
-            rrdeng_page_descr_mutex_unlock(ctx, descr);
-            fatal_assert(1 == ret);*/
-
+        } else
             rrdeng_commit_page(ctx, descr, handle->page_correlation_id);
-            /* handle->prev_descr = descr;*/
-        }
     } else {
         dbengine_page_free(descr->pg_cache_descr->page);
         rrdeng_destroy_pg_cache_descr(ctx, descr->pg_cache_descr);
@@ -213,15 +201,11 @@ void rrdeng_store_metric_flush_current_page(RRDDIM *rd)
 void rrdeng_store_metric_next(RRDDIM *rd, usec_t point_in_time, storage_number number)
 {
     struct rrdeng_collect_handle *handle = (struct rrdeng_collect_handle *)rd->state->handle;
-    struct rrdengine_instance *ctx;
-    struct page_cache *pg_cache;
-    struct rrdeng_page_descr *descr;
+    struct rrdengine_instance *ctx = handle->ctx;
+    struct page_cache *pg_cache = &ctx->pg_cache;
+    struct rrdeng_page_descr *descr = handle->descr;
     storage_number *page;
     uint8_t must_flush_unaligned_page = 0, perfect_page_alignment = 0;
-
-    ctx = handle->ctx;
-    pg_cache = &ctx->pg_cache;
-    descr = handle->descr;
 
     if (descr) {
         /* Make alignment decisions */
@@ -297,18 +281,12 @@ void rrdeng_store_metric_next(RRDDIM *rd, usec_t point_in_time, storage_number n
 int rrdeng_store_metric_finalize(RRDDIM *rd)
 {
     struct rrdeng_collect_handle *handle;
-    struct rrdengine_instance *ctx;
     struct pg_cache_page_index *page_index;
     uint8_t can_delete_metric = 0;
 
     handle = (struct rrdeng_collect_handle *)rd->state->handle;
-    ctx = handle->ctx;
     page_index = rd->state->page_index;
     rrdeng_store_metric_flush_current_page(rd);
-    if (handle->prev_descr) {
-        /* unpin old second page */
-        pg_cache_put(ctx, handle->prev_descr);
-    }
     uv_rwlock_wrlock(&page_index->lock);
     if (!--page_index->writers && !page_index->page_count) {
         can_delete_metric = 1;
@@ -843,10 +821,11 @@ void *rrdeng_get_page(struct rrdengine_instance *ctx, uuid_t *id, usec_t point_i
  * You must not change the indices of the statistics or user code will break.
  * You must not exceed RRDENG_NR_STATS or it will crash.
  */
-void rrdeng_get_37_statistics(struct rrdengine_instance *ctx, unsigned long long *array)
+void rrdeng_get_37_statistics(STORAGE_ENGINE_INSTANCE* context, unsigned long long *array)
 {
-    if (ctx == NULL)
+    if (context == NULL)
         return;
+    struct rrdengine_instance* ctx = (struct rrdengine_instance*) context;
 
     struct page_cache *pg_cache = &ctx->pg_cache;
 
@@ -897,19 +876,23 @@ void rrdeng_put_page(struct rrdengine_instance *ctx, void *handle)
     pg_cache_put(ctx, (struct rrdeng_page_descr *)handle);
 }
 
-/*
- * Returns 0 on success, negative on error
- */
-int rrdeng_init(RRDHOST *host, struct rrdengine_instance **ctxp, char *dbfiles_path, unsigned page_cache_mb,
-                unsigned disk_space_mb)
+
+STORAGE_ENGINE_INSTANCE*
+rrdeng_init(STORAGE_ENGINE* eng, RRDHOST *host)
 {
     struct rrdengine_instance *ctx;
     int error;
-    uint32_t max_open_files;
 
-    max_open_files = rlimit_nofile.rlim_cur / 4;
+    bool is_legacy = is_legacy_child(host->machine_guid);
+    if (!is_legacy && eng->context) {
+        if (host->rrd_memory_mode == eng->id && host->rrdeng_ctx == NULL) {
+            host->rrdeng_ctx = eng->context;
+        }
+        return eng->context;
+    }
 
     /* reserve RRDENG_FD_BUDGET_PER_INSTANCE file descriptors for this instance */
+    uint32_t max_open_files = rlimit_nofile.rlim_cur / 4;
     rrd_stat_atomic_add(&rrdeng_reserved_file_descriptors, RRDENG_FD_BUDGET_PER_INSTANCE);
     if (rrdeng_reserved_file_descriptors > max_open_files) {
         error(
@@ -918,15 +901,18 @@ int rrdeng_init(RRDHOST *host, struct rrdengine_instance **ctxp, char *dbfiles_p
 
         rrd_stat_atomic_add(&global_fs_errors, 1);
         rrd_stat_atomic_add(&rrdeng_reserved_file_descriptors, -RRDENG_FD_BUDGET_PER_INSTANCE);
-        return UV_EMFILE;
+        return NULL;//UV_EMFILE;
     }
+    char dbfiles_path[FILENAME_MAX + 1];
 
-    if (NULL == ctxp) {
-        ctx = &multidb_ctx;
-        memset(ctx, 0, sizeof(*ctx));
-    } else {
-        *ctxp = ctx = callocz(1, sizeof(*ctx));
-    }
+    snprintfz(dbfiles_path, FILENAME_MAX, "%s/dbengine", host->cache_dir);
+    mkdir(dbfiles_path, 0775);
+
+    int page_cache_mb = default_rrdeng_page_cache_mb;
+    int disk_space_mb = default_rrdeng_disk_quota_mb;
+
+    ctx = callocz(1, sizeof(*ctx));
+    ctx->parent.engine = eng;
     ctx->global_compress_alg = RRD_LZ4;
     if (page_cache_mb < RRDENG_MIN_PAGE_CACHE_SIZE_MB)
         page_cache_mb = RRDENG_MIN_PAGE_CACHE_SIZE_MB;
@@ -948,6 +934,15 @@ int rrdeng_init(RRDHOST *host, struct rrdengine_instance **ctxp, char *dbfiles_p
     ctx->quiesce = NO_QUIESCE;
     ctx->metalog_ctx = NULL; /* only set this after the metadata log has finished initializing */
     ctx->host = host;
+
+    // Attach context as the global context
+    if (!is_legacy && !eng->context) {
+        eng->context = (STORAGE_ENGINE_INSTANCE *)ctx;
+    }
+    // Attach context as the host context
+    if (host->rrd_memory_mode == eng->id && host->rrdeng_ctx == NULL) {
+        host->rrdeng_ctx = eng->context;
+    }
 
     memset(&ctx->worker_config, 0, sizeof(ctx->worker_config));
     ctx->worker_config.ctx = ctx;
@@ -973,30 +968,30 @@ int rrdeng_init(RRDHOST *host, struct rrdengine_instance **ctxp, char *dbfiles_p
         goto error_after_rrdeng_worker;
     }
 
-    return 0;
+    return (STORAGE_ENGINE_INSTANCE *)ctx;
 
 error_after_rrdeng_worker:
     finalize_rrd_files(ctx);
 error_after_init_rrd_files:
     free_page_cache(ctx);
-    if (ctx != &multidb_ctx) {
+    if ((STORAGE_ENGINE_INSTANCE *)ctx != eng->context) {
         freez(ctx);
-        *ctxp = NULL;
     }
     rrd_stat_atomic_add(&rrdeng_reserved_file_descriptors, -RRDENG_FD_BUDGET_PER_INSTANCE);
-    return UV_EIO;
+    return NULL;//UV_EIO;
 }
 
 /*
  * Returns 0 on success, 1 on error
  */
-int rrdeng_exit(struct rrdengine_instance *ctx)
+void rrdeng_exit(STORAGE_ENGINE_INSTANCE* context)
 {
     struct rrdeng_cmd cmd;
 
-    if (NULL == ctx) {
-        return 1;
+    if (NULL == context) {
+        return;
     }
+    struct rrdengine_instance* ctx = (struct rrdengine_instance*)context;
 
     /* TODO: add page to page cache */
     cmd.opcode = RRDENG_SHUTDOWN;
@@ -1007,21 +1002,18 @@ int rrdeng_exit(struct rrdengine_instance *ctx)
     finalize_rrd_files(ctx);
     //metalog_exit(ctx->metalog_ctx);
     free_page_cache(ctx);
-
-    if (ctx != &multidb_ctx) {
-        freez(ctx);
-    }
+    freez(ctx);
     rrd_stat_atomic_add(&rrdeng_reserved_file_descriptors, -RRDENG_FD_BUDGET_PER_INSTANCE);
-    return 0;
 }
 
-void rrdeng_prepare_exit(struct rrdengine_instance *ctx)
+void rrdeng_prepare_exit(STORAGE_ENGINE_INSTANCE* context)
 {
     struct rrdeng_cmd cmd;
 
-    if (NULL == ctx) {
+    if (NULL == context) {
         return;
     }
+    struct rrdengine_instance* ctx = (struct rrdengine_instance*)context;
 
     completion_init(&ctx->rrdengine_completion);
     cmd.opcode = RRDENG_QUIESCE;

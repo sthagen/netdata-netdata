@@ -16,13 +16,21 @@ static unsigned pages_per_extent = MAX_PAGES_PER_EXTENT;
 #endif
 
 void *dbengine_page_alloc() {
-    void *page = netdata_mmap(NULL, RRDENG_BLOCK_SIZE, MAP_PRIVATE, enable_ksm);
-    if(!page) fatal("Cannot allocate dbengine page cache page, with mmap()");
+    void *page = NULL;
+    if (unlikely(db_engine_use_malloc))
+        page = mallocz(RRDENG_BLOCK_SIZE);
+    else {
+        page = netdata_mmap(NULL, RRDENG_BLOCK_SIZE, MAP_PRIVATE, enable_ksm);
+        if(!page) fatal("Cannot allocate dbengine page cache page, with mmap()");
+    }
     return page;
 }
 
 void dbengine_page_free(void *page) {
-    munmap(page, RRDENG_BLOCK_SIZE);
+    if (unlikely(db_engine_use_malloc))
+        freez(page);
+    else
+        munmap(page, RRDENG_BLOCK_SIZE);
 }
 
 static void sanity_check(void)
@@ -1331,13 +1339,12 @@ error_after_loop_init:
  */
 void rrdengine_main(void)
 {
-    int ret;
-    struct rrdengine_instance *ctx;
+    STORAGE_ENGINE_INSTANCE* ctx;
 
     sanity_check();
-    ret = rrdeng_init(NULL, &ctx, "/tmp", RRDENG_MIN_PAGE_CACHE_SIZE_MB, RRDENG_MIN_DISK_SPACE_MB);
-    if (ret) {
-        exit(ret);
+    ctx = rrdeng_init(storage_engine_get(RRD_MEMORY_MODE_DBENGINE), NULL);
+    if (!ctx) {
+        exit(1);
     }
     rrdeng_exit(ctx);
     fprintf(stderr, "Hello world!");
