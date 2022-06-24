@@ -487,7 +487,7 @@ static inline void netdev_rename_cgroup(struct netdev *d, struct netdev_rename *
     snprintfz(buffer, RRD_ID_LENGTH_MAX, "net %s", r->container_device);
     d->chart_family = strdupz(buffer);
 
-    rrdlabels_migrate_to_these(d->chart_labels, r->chart_labels);
+    rrdlabels_copy(d->chart_labels, r->chart_labels);
 
     d->priority = NETDATA_CHART_PRIO_CGROUP_NET_IFACE;
     d->flipped = 1;
@@ -741,11 +741,13 @@ int do_proc_net_dev(int update_every, usec_t dt) {
             char buffer[FILENAME_MAX + 1];
 
             snprintfz(buffer, FILENAME_MAX, path_to_sys_devices_virtual_net, d->name);
-            if(likely(access(buffer, R_OK) == 0)) {
+            if (likely(access(buffer, R_OK) == 0)) {
                 d->virtual = 1;
-            }
-            else
+                rrdlabels_add(d->chart_labels, "type", "virtual", RRDLABEL_SRC_AUTO);
+            } else {
                 d->virtual = 0;
+                rrdlabels_add(d->chart_labels, "type", "real", RRDLABEL_SRC_AUTO);
+            }
 
             if(likely(!d->virtual)) {
                 // set the filename to get the interface speed
