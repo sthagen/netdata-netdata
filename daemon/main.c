@@ -401,6 +401,14 @@ static void log_init(void) {
     snprintfz(filename, FILENAME_MAX, "%s/access.log", netdata_configured_log_dir);
     stdaccess_filename = config_get(CONFIG_SECTION_LOGS, "access", filename);
 
+#ifdef ENABLE_ACLK
+    aclklog_enabled = config_get_boolean(CONFIG_SECTION_CLOUD, "conversation log", CONFIG_BOOLEAN_NO);
+    if (aclklog_enabled) {
+        snprintfz(filename, FILENAME_MAX, "%s/aclk.log", netdata_configured_log_dir);
+        aclklog_filename = config_get(CONFIG_SECTION_CLOUD, "conversation log file", filename);
+    }
+#endif
+
     char deffacility[8];
     snprintfz(deffacility,7,"%s","daemon");
     facility_log = config_get(CONFIG_SECTION_LOGS, "facility",  deffacility);
@@ -705,6 +713,24 @@ static void get_netdata_configured_variables() {
 
     enable_metric_correlations = config_get_boolean(CONFIG_SECTION_GLOBAL, "enable metric correlations", enable_metric_correlations);
     default_metric_correlations_method = mc_string_to_method(config_get(CONFIG_SECTION_GLOBAL, "metric correlations method", mc_method_to_string(default_metric_correlations_method)));
+
+    // --------------------------------------------------------------------
+
+    rrdset_free_obsolete_time = config_get_number(CONFIG_SECTION_DB, "cleanup obsolete charts after secs", rrdset_free_obsolete_time);
+    // Current chart locking and invalidation scheme doesn't prevent Netdata from segmentation faults if a short
+    // cleanup delay is set. Extensive stress tests showed that 10 seconds is quite a safe delay. Look at
+    // https://github.com/netdata/netdata/pull/11222#issuecomment-868367920 for more information.
+    if (rrdset_free_obsolete_time < 10) {
+        rrdset_free_obsolete_time = 10;
+        info("The \"cleanup obsolete charts after seconds\" option was set to 10 seconds.");
+        config_set_number(CONFIG_SECTION_DB, "cleanup obsolete charts after secs", rrdset_free_obsolete_time);
+    }
+
+    gap_when_lost_iterations_above = (int)config_get_number(CONFIG_SECTION_DB, "gap when lost iterations above", gap_when_lost_iterations_above);
+    if (gap_when_lost_iterations_above < 1) {
+        gap_when_lost_iterations_above = 1;
+        config_set_number(CONFIG_SECTION_DB, "gap when lost iterations above", gap_when_lost_iterations_above);
+    }
 
     // --------------------------------------------------------------------
     // get various system parameters

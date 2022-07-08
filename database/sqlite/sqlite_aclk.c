@@ -423,6 +423,7 @@ void aclk_database_worker(void *arg)
     worker_register_job_name(ACLK_DATABASE_CLEANUP,              "cleanup");
     worker_register_job_name(ACLK_DATABASE_DELETE_HOST,          "node delete");
     worker_register_job_name(ACLK_DATABASE_NODE_INFO,            "node info");
+    worker_register_job_name(ACLK_DATABASE_NODE_COLLECTORS,      "node collectors");
     worker_register_job_name(ACLK_DATABASE_PUSH_ALERT,           "alert push");
     worker_register_job_name(ACLK_DATABASE_PUSH_ALERT_CONFIG,    "alert conf push");
     worker_register_job_name(ACLK_DATABASE_PUSH_ALERT_SNAPSHOT,  "alert snapshot");
@@ -583,6 +584,10 @@ void aclk_database_worker(void *arg)
                     debug(D_ACLK_SYNC,"Sending node info for %s", wc->uuid_str);
                     sql_build_node_info(wc, cmd);
                     break;
+                case ACLK_DATABASE_NODE_COLLECTORS:
+                    debug(D_ACLK_SYNC,"Sending node collectors info for %s", wc->uuid_str);
+                    sql_build_node_collectors(wc);
+                    break;
 #ifdef ENABLE_ACLK
                 case ACLK_DATABASE_DIM_DELETION:
                     debug(D_ACLK_SYNC,"Sending dimension deletion information %s", wc->uuid_str);
@@ -622,6 +627,8 @@ void aclk_database_worker(void *arg)
                                 snprintfz(threadname, NETDATA_THREAD_NAME_MAX, "AS_%s", wc->host->hostname);
                                 uv_thread_set_name_np(wc->thread, threadname);
                                 wc->host->dbsync_worker = wc;
+                                if (unlikely(!wc->hostname))
+                                    wc->hostname = strdupz(wc->host->hostname);
                                 aclk_del_worker_thread(wc);
                                 wc->node_info_send = 1;
                             }
@@ -631,6 +638,11 @@ void aclk_database_worker(void *arg)
                         cmd.opcode = ACLK_DATABASE_NODE_INFO;
                         cmd.completion = NULL;
                         wc->node_info_send = aclk_database_enq_cmd_noblock(wc, &cmd);
+                    }
+                    if (wc->node_collectors_send && wc->node_collectors_send + 30 < now_realtime_sec()) {
+                        cmd.opcode = ACLK_DATABASE_NODE_COLLECTORS;
+                        cmd.completion = NULL;
+                        wc->node_collectors_send = aclk_database_enq_cmd_noblock(wc, &cmd);
                     }
                     if (localhost == wc->host)
                         (void) sqlite3_wal_checkpoint(db_meta, NULL);
@@ -674,6 +686,7 @@ void aclk_database_worker(void *arg)
     rrd_rdlock();
     if (likely(wc->host))
         wc->host->dbsync_worker = NULL;
+    freez(wc->hostname);
     freez(wc);
     rrd_unlock();
 
@@ -743,13 +756,17 @@ void sql_create_aclk_table(RRDHOST *host, uuid_t *host_uuid, uuid_t *node_id)
         return;
 
     struct aclk_database_worker_config *wc = callocz(1, sizeof(struct aclk_database_worker_config));
-    if (likely(host))
-        host->dbsync_worker = (void *) wc;
+    if (node_id && !uuid_is_null(*node_id))
+        uuid_unparse_lower(*node_id, wc->node_id);
+    if (likely(host)) {
+        host->dbsync_worker = (void *)wc;
+        wc->hostname = strdupz(host->hostname);
+    }
+    else
+        wc->hostname = get_hostname_by_node_id(wc->node_id);
     wc->host = host;
     strcpy(wc->uuid_str, uuid_str);
     strcpy(wc->host_guid, host_guid);
-    if (node_id && !uuid_is_null(*node_id))
-        uuid_unparse_lower(*node_id, wc->node_id);
     wc->chart_updates = 0;
     wc->alert_updates = 0;
     wc->retry_count = 0;
