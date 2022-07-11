@@ -38,6 +38,7 @@ int init_opentsdb_telnet_instance(struct instance *instance)
         instance->metric_formatting = format_dimension_stored_opentsdb_telnet;
 
     instance->end_chart_formatting = NULL;
+    instance->variables_formatting = NULL;
     instance->end_host_formatting = flush_host_labels;
     instance->end_batch_formatting = simple_connector_end_batch;
 
@@ -94,6 +95,7 @@ int init_opentsdb_http_instance(struct instance *instance)
         instance->metric_formatting = format_dimension_stored_opentsdb_http;
 
     instance->end_chart_formatting = NULL;
+    instance->variables_formatting = NULL;
     instance->end_host_formatting = flush_host_labels;
     instance->end_batch_formatting = close_batch_json_http;
 
@@ -286,8 +288,7 @@ int format_host_labels_opentsdb_http(struct instance *instance, RRDHOST *host) {
     if (unlikely(!sending_labels_configured(instance)))
         return 0;
 
-    buffer_strcat(instance->labels_buffer, ",");
-    rrdlabels_to_buffer(host->host_labels, instance->labels_buffer, "", ":", "\"", ",",
+    rrdlabels_to_buffer(host->host_labels, instance->labels_buffer, ",", ":", "\"", "",
                         exporting_labels_filter_callback, instance,
                         NULL, sanitize_opentsdb_label_value);
     return 0;
