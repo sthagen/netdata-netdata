@@ -712,13 +712,6 @@ declare -A pkg_bridge_utils=(
   ['default']="bridge-utils"
 )
 
-declare -A pkg_chrony=(
-  ['gentoo']="net-misc/chrony"
-  ['clearlinux']="time-server-basic"
-  ['macos']="WARNING|"
-  ['default']="chrony"
-)
-
 declare -A pkg_curl=(
   ['gentoo']="net-misc/curl"
   ['sabayon']="net-misc/curl"
@@ -1533,6 +1526,13 @@ validate_tree_ol() {
 	gpgcheck=1
 	enabled=1
 	EOF
+      fi
+    fi
+  elif [[ "${version}" =~ ^9(\..*)?$ ]]; then
+    echo " > Checking for CodeReady Builder ..."
+    if ! run ${sudo} dnf repolist enabled | grep -q codeready; then
+      if prompt "CodeReady Builder not enabled, shall I enable it?"; then
+        run ${sudo} dnf config-manager --set-enabled ol9_codeready_builder
       fi
     fi
   fi
