@@ -72,6 +72,7 @@ Here's what you can expect from Netdata:
     synchronize charts as you pan through time, zoom in on anomalies, and more.
 -   **Visual anomaly detection**: Our UI/UX emphasizes the relationships between charts to help you detect the root
     cause of anomalies.
+-   **Machine learning (ML) features out of the box**: Unsupervised ML-based [anomaly detection](https://learn.netdata.cloud/docs/cloud/insights/anomaly-advisor), every second, every metric, zero-config! [Metric correlations](https://learn.netdata.cloud/docs/cloud/insights/metric-correlations) to help with short-term change detection. And other [additional](https://learn.netdata.cloud/guides/monitor/anomaly-detection) ML-based features to help make your life easier.
 -   **Scales to infinity**: You can install it on all your servers, containers, VMs, and IoT devices. Metrics are not
     centralized by default, so there is no limit.
 -   **Several operating modes**: Autonomous host monitoring (the default), headless data collector, forwarding proxy,
@@ -202,16 +203,18 @@ to collect metrics, troubleshoot via charts, export to external databases, and m
 Netdata is an inclusive open-source project and community. Please read our [Code of Conduct](https://learn.netdata.cloud/contribute/code-of-conduct).
 
 Find most of the Netdata team in our [community forums](https://community.netdata.cloud). It's the best place to
-ask questions, find resources, and engage with passionate professionals.
+ask questions, find resources, and engage with passionate professionals. The team is also available and active in our [Discord](https://discord.com/invite/mPZ6WZKKG2) too.
 
 You can also find Netdata on:
 
--   [Reddit](https://www.reddit.com/r/netdata/)
--   [Facebook](https://www.facebook.com/linuxnetdata/)
 -   [Twitter](https://twitter.com/linuxnetdata)
+-   [YouTube](https://www.youtube.com/c/Netdata)
+-   [Reddit](https://www.reddit.com/r/netdata/)
+-   [LinkedIn](https://www.linkedin.com/company/netdata-cloud/)
 -   [StackShare](https://stackshare.io/netdata)
 -   [Product Hunt](https://www.producthunt.com/posts/netdata-monitoring-agent/)
 -   [Repology](https://repology.org/metapackage/netdata/versions)
+-   [Facebook](https://www.facebook.com/linuxnetdata/)
 
 ## Contribute
 
