@@ -9,7 +9,7 @@ rrdeng_stats_t rrdeng_reserved_file_descriptors = 0;
 rrdeng_stats_t global_pg_cache_over_half_dirty_events = 0;
 rrdeng_stats_t global_flushing_pressure_page_deletions = 0;
 
-static unsigned pages_per_extent = MAX_PAGES_PER_EXTENT;
+unsigned rrdeng_pages_per_extent = MAX_PAGES_PER_EXTENT;
 
 #if WORKER_UTILIZATION_MAX_JOB_TYPES < (RRDENG_MAX_OPCODE + 2)
 #error Please increase WORKER_UTILIZATION_MAX_JOB_TYPES to at least (RRDENG_MAX_OPCODE + 2)
@@ -235,6 +235,43 @@ void read_cached_extent_cb(struct rrdengine_worker_config* wc, unsigned idx, str
     freez(xt_io_descr);
 }
 
+static void fill_page_with_nulls(void *page, uint32_t page_length, uint8_t type) {
+    switch(type) {
+        case PAGE_METRICS: {
+            storage_number n = pack_storage_number(NAN, SN_FLAG_NONE);
+            storage_number *array = (storage_number *)page;
+            size_t slots = page_length / sizeof(n);
+            for(size_t i = 0; i < slots ; i++)
+                array[i] = n;
+        }
+        break;
+
+        case PAGE_TIER: {
+            storage_number_tier1_t n = {
+                .min_value = NAN,
+                .max_value = NAN,
+                .sum_value = NAN,
+                .count = 1,
+                .anomaly_count = 0,
+            };
+            storage_number_tier1_t *array = (storage_number_tier1_t *)page;
+            size_t slots = page_length / sizeof(n);
+            for(size_t i = 0; i < slots ; i++)
+                array[i] = n;
+        }
+        break;
+
+        default: {
+            static bool logged = false;
+            if(!logged) {
+                error("DBENGINE: cannot fill page with nulls on unknown page type id %d", type);
+                logged = true;
+            }
+            memset(page, 0, page_length);
+        }
+    }
+}
+
 void read_extent_cb(uv_fs_t* req)
 {
     struct rrdengine_worker_config* wc = req->loop->data;
@@ -359,8 +396,7 @@ after_crc_check:
 
         /* care, we don't hold the descriptor mutex */
         if (have_read_error) {
-            /* Applications should make sure NULL values match 0 as does SN_EMPTY_SLOT */
-            memset(page, SN_EMPTY_SLOT, descr->page_length);
+            fill_page_with_nulls(page, descr->page_length, descr->type);
         } else if (RRD_NO_COMPRESSION == header->compression_algorithm) {
             (void) memcpy(page, xt_io_descr->buf + payload_offset + page_offset, descr->page_length);
         } else {
@@ -705,7 +741,7 @@ static int do_flush_pages(struct rrdengine_worker_config* wc, int force, struct 
          PValue = JudyLFirst(pg_cache->committed_page_index.JudyL_array, &Index, PJE0),
          descr = unlikely(NULL == PValue) ? NULL : *PValue ;
 
-         descr != NULL && count != pages_per_extent ;
+         descr != NULL && count != rrdeng_pages_per_extent;
 
          PValue = JudyLNext(pg_cache->committed_page_index.JudyL_array, &Index, PJE0),
          descr = unlikely(NULL == PValue) ? NULL : *PValue) {
@@ -1077,10 +1113,10 @@ static void load_configuration_dynamic(void)
 {
     unsigned read_num = (unsigned)config_get_number(CONFIG_SECTION_DB, "dbengine pages per extent", MAX_PAGES_PER_EXTENT);
     if (read_num > 0 && read_num <= MAX_PAGES_PER_EXTENT)
-        pages_per_extent = read_num;
+        rrdeng_pages_per_extent = read_num;
     else {
-        error("Invalid dbengine pages per extent %u given. Using %u.", read_num, pages_per_extent);
-        config_set_number(CONFIG_SECTION_DB, "dbengine pages per extent", pages_per_extent);
+        error("Invalid dbengine pages per extent %u given. Using %u.", read_num, rrdeng_pages_per_extent);
+        config_set_number(CONFIG_SECTION_DB, "dbengine pages per extent", rrdeng_pages_per_extent);
     }
 }
 
