@@ -313,6 +313,9 @@ static int create_host_callback(void *data, int argc, char **argv, char **column
         , system_info
         , 1
     );
+    if (likely(host))
+        host->host_labels = sql_load_host_labels((uuid_t *)argv[IDX_HOST_ID]);
+
 #ifdef NETDATA_INTERNAL_CHECKS
     char node_str[UUID_STR_LEN] = "<none>";
     if (likely(host->node_id))
@@ -871,7 +874,7 @@ void sql_maint_aclk_sync_database(struct aclk_database_worker_config *wc, struct
     BUFFER *sql = buffer_create(ACLK_SYNC_QUERY_SIZE);
 
     buffer_sprintf(sql,"DELETE FROM aclk_chart_%s WHERE date_submitted IS NOT NULL AND "
-        "date_updated < unixepoch()-%d;", wc->uuid_str, ACLK_DELETE_ACK_INTERNAL);
+        "CAST(date_updated AS INT) < unixepoch()-%d;", wc->uuid_str, ACLK_DELETE_ACK_INTERNAL);
     db_execute(buffer_tostring(sql));
     buffer_flush(sql);
 
@@ -882,17 +885,17 @@ void sql_maint_aclk_sync_database(struct aclk_database_worker_config *wc, struct
     buffer_flush(sql);
 
     buffer_sprintf(sql,"DELETE FROM aclk_alert_%s WHERE date_submitted IS NOT NULL AND "
-        "date_cloud_ack < unixepoch()-%d;", wc->uuid_str, ACLK_DELETE_ACK_ALERTS_INTERNAL);
+        "CAST(date_cloud_ack AS INT) < unixepoch()-%d;", wc->uuid_str, ACLK_DELETE_ACK_ALERTS_INTERNAL);
     db_execute(buffer_tostring(sql));
     buffer_flush(sql);
 
     buffer_sprintf(sql,"UPDATE aclk_chart_%s SET status = NULL, date_submitted=unixepoch() WHERE "
-            "date_submitted IS NULL AND date_created < unixepoch()-%d;", wc->uuid_str, ACLK_AUTO_MARK_SUBMIT_INTERVAL);
+            "date_submitted IS NULL AND CAST(date_created AS INT) < unixepoch()-%d;", wc->uuid_str, ACLK_AUTO_MARK_SUBMIT_INTERVAL);
     db_execute(buffer_tostring(sql));
     buffer_flush(sql);
 
     buffer_sprintf(sql,"UPDATE aclk_chart_%s SET date_updated = unixepoch() WHERE date_updated IS NULL"
-                " AND date_submitted IS NOT NULL AND date_submitted < unixepoch()-%d;",
+                " AND date_submitted IS NOT NULL AND CAST(date_submitted AS INT) < unixepoch()-%d;",
                 wc->uuid_str, ACLK_AUTO_MARK_UPDATED_INTERVAL);
     db_execute(buffer_tostring(sql));
 
