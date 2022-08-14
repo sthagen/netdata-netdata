@@ -79,7 +79,7 @@ _cannot_use_tmpdir() {
 if [ -z "${TMPDIR}" ] || _cannot_use_tmpdir "${TMPDIR}"; then
   if _cannot_use_tmpdir /tmp; then
     if _cannot_use_tmpdir "${PWD}"; then
-      fatal "UUnable to find a usable temporary directory. Please set \$TMPDIR to a path that is both writable and allows execution of files and try again." I0000
+      fatal "Unable to find a usable temporary directory. Please set \$TMPDIR to a path that is both writable and allows execution of files and try again." I0000
     else
       TMPDIR="${PWD}"
     fi
@@ -1443,6 +1443,9 @@ install_go() {
     run chown "root:${NETDATA_GROUP}" "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/go.d.plugin"
   fi
   run chmod 0750 "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/go.d.plugin"
+  if command -v setcap 1>/dev/null 2>&1; then
+    run setcap cap_net_admin+epi "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/go.d.plugin"
+  fi
   rm -rf "${tmp}"
 
   [ -n "${GITHUB_ACTIONS}" ] && echo "::endgroup::"
