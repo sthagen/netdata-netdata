@@ -2,18 +2,38 @@
 
 ## [**Next release**](https://github.com/netdata/netdata/tree/HEAD)
 
-[Full Changelog](https://github.com/netdata/netdata/compare/v1.36.0...HEAD)
+[Full Changelog](https://github.com/netdata/netdata/compare/v1.36.1...HEAD)
 
 **Merged pull requests:**
 
+- Cleanup of APIs [\#13539](https://github.com/netdata/netdata/pull/13539) ([underhood](https://github.com/underhood))
+- bump go.d version to v0.36.0 [\#13538](https://github.com/netdata/netdata/pull/13538) ([ilyam8](https://github.com/ilyam8))
+- chore\(python.d\): rename dockerd job on lock registration [\#13537](https://github.com/netdata/netdata/pull/13537) ([ilyam8](https://github.com/ilyam8))
+- Update MacOS community support details [\#13536](https://github.com/netdata/netdata/pull/13536) ([DShreve2](https://github.com/DShreve2))
+- Add summary dashboard for PostgreSQL [\#13534](https://github.com/netdata/netdata/pull/13534) ([shyamvalsan](https://github.com/shyamvalsan))
+- add `jupyter` to `apps_groups.conf` [\#13533](https://github.com/netdata/netdata/pull/13533) ([andrewm4894](https://github.com/andrewm4894))
+- Schedule next rotation based on absolute time [\#13531](https://github.com/netdata/netdata/pull/13531) ([MrZammler](https://github.com/MrZammler))
+- fix\(health\): set default curl connection timeout if not set [\#13529](https://github.com/netdata/netdata/pull/13529) ([ilyam8](https://github.com/ilyam8))
+- Update FreeIPMI and CUPS plugin documentation. [\#13526](https://github.com/netdata/netdata/pull/13526) ([Ferroin](https://github.com/Ferroin))
+- Use LVM UUIDs in chart ids for logical volumes [\#13525](https://github.com/netdata/netdata/pull/13525) ([vlvkobal](https://github.com/vlvkobal))
+- fix\(cgroups.plugin\): use Docker API for name resolution when Docker is a snap package [\#13523](https://github.com/netdata/netdata/pull/13523) ([ilyam8](https://github.com/ilyam8))
+- remove reference to charts now in netdata monitoring [\#13521](https://github.com/netdata/netdata/pull/13521) ([andrewm4894](https://github.com/andrewm4894))
 - fix\(ci\): fix fetching tags in Build workflow [\#13517](https://github.com/netdata/netdata/pull/13517) ([ilyam8](https://github.com/ilyam8))
 - docs\(postfix\): add a note about `authorized_mailq_users` [\#13515](https://github.com/netdata/netdata/pull/13515) ([ilyam8](https://github.com/ilyam8))
 - Remove extra U from log message [\#13514](https://github.com/netdata/netdata/pull/13514) ([uplime](https://github.com/uplime))
 - Print rrdcontexts versions with PRIu64 [\#13511](https://github.com/netdata/netdata/pull/13511) ([MrZammler](https://github.com/MrZammler))
 - Calculate name hash after rrdvar\_fix\_name [\#13509](https://github.com/netdata/netdata/pull/13509) ([MrZammler](https://github.com/MrZammler))
 - fix\(packaging\): add CAP\_NET\_ADMIN for go.d.plugin [\#13507](https://github.com/netdata/netdata/pull/13507) ([ilyam8](https://github.com/ilyam8))
+- netdata.service: Update PIDFile to avoid systemd legacy path warning [\#13504](https://github.com/netdata/netdata/pull/13504) ([candrews](https://github.com/candrews))
 - chore\(python.d\): remove python.d/\* announced in v1.36.0 deprecation notice [\#13503](https://github.com/netdata/netdata/pull/13503) ([ilyam8](https://github.com/ilyam8))
+- reduce memcpy and memory usage on mqtt5 [\#13450](https://github.com/netdata/netdata/pull/13450) ([underhood](https://github.com/underhood))
 - Modify PID monitoring \(ebpf.plugin\) [\#13397](https://github.com/netdata/netdata/pull/13397) ([thiagoftsm](https://github.com/thiagoftsm))
+- Support chart labels in alerts [\#13290](https://github.com/netdata/netdata/pull/13290) ([MrZammler](https://github.com/MrZammler))
+- Fix telegram-bot rate limit [\#13119](https://github.com/netdata/netdata/pull/13119) ([MAH69IK](https://github.com/MAH69IK))
+
+## [v1.36.1](https://github.com/netdata/netdata/tree/v1.36.1) (2022-08-15)
+
+[Full Changelog](https://github.com/netdata/netdata/compare/v1.36.0...v1.36.1)
 
 ## [v1.36.0](https://github.com/netdata/netdata/tree/v1.36.0) (2022-08-10)
 
@@ -223,7 +243,6 @@
 - Remove official support for Debian 9. [\#13065](https://github.com/netdata/netdata/pull/13065) ([Ferroin](https://github.com/Ferroin))
 - Fix coverity 378587 [\#13024](https://github.com/netdata/netdata/pull/13024) ([MrZammler](https://github.com/MrZammler))
 - Remove Ubuntu 21.10 from CI and package builds. [\#12918](https://github.com/netdata/netdata/pull/12918) ([Ferroin](https://github.com/Ferroin))
-- Configurable storage engine for Netdata agents: step 3 [\#12892](https://github.com/netdata/netdata/pull/12892) ([aberaud](https://github.com/aberaud))
 
 ## [v1.35.1](https://github.com/netdata/netdata/tree/v1.35.1) (2022-06-10)
 
@@ -329,22 +348,6 @@
 - fix\(cgroups.plugin\): use correct identifier when registering the main thread "chart" worker job [\#12902](https://github.com/netdata/netdata/pull/12902) ([ilyam8](https://github.com/ilyam8))
 - Remove CPU-specific info from cpuidle dimensions [\#12898](https://github.com/netdata/netdata/pull/12898) ([vlvkobal](https://github.com/vlvkobal))
 - Adjust alarms count [\#12896](https://github.com/netdata/netdata/pull/12896) ([MrZammler](https://github.com/MrZammler))
-- Return stable or nightly based on version if the file check fails [\#12894](https://github.com/netdata/netdata/pull/12894) ([stelfrag](https://github.com/stelfrag))
-- Update reconnect node with kickstart info [\#12891](https://github.com/netdata/netdata/pull/12891) ([cakrit](https://github.com/cakrit))
-- Fix compilation warnings in FreeBSD [\#12887](https://github.com/netdata/netdata/pull/12887) ([vlvkobal](https://github.com/vlvkobal))
-- Fix compilation warnings [\#12886](https://github.com/netdata/netdata/pull/12886) ([vlvkobal](https://github.com/vlvkobal))
-- Take into account the in queue wait time when executing a data query [\#12885](https://github.com/netdata/netdata/pull/12885) ([stelfrag](https://github.com/stelfrag))
-- Update dashboard to version v2.25.2. [\#12884](https://github.com/netdata/netdata/pull/12884) ([netdatabot](https://github.com/netdatabot))
-- Consider ZFS ARC shrinkable as cache on FreeBSD [\#12879](https://github.com/netdata/netdata/pull/12879) ([vlvkobal](https://github.com/vlvkobal))
-- Remove Fedora 34 from CI and package builds. [\#12875](https://github.com/netdata/netdata/pull/12875) ([Ferroin](https://github.com/Ferroin))
-- fix\(health\): change duplicate health template message logging level to 'info' [\#12873](https://github.com/netdata/netdata/pull/12873) ([ilyam8](https://github.com/ilyam8))
-- docs: fix unresolved file references [\#12872](https://github.com/netdata/netdata/pull/12872) ([ilyam8](https://github.com/ilyam8))
-- Set trust durations to have data from children properly aligned [\#12870](https://github.com/netdata/netdata/pull/12870) ([stelfrag](https://github.com/stelfrag))
-- feat\(proc/cgroups.plugin\): add PSI stall time charts [\#12869](https://github.com/netdata/netdata/pull/12869) ([ilyam8](https://github.com/ilyam8))
-- Update README.md [\#12868](https://github.com/netdata/netdata/pull/12868) ([tkatsoulas](https://github.com/tkatsoulas))
-- fix for negative per job busy time [\#12867](https://github.com/netdata/netdata/pull/12867) ([ktsaou](https://github.com/ktsaou))
-- Apply some logic to possible streaming destinations [\#12866](https://github.com/netdata/netdata/pull/12866) ([MrZammler](https://github.com/MrZammler))
-- fix\(cgroups.plugin\): do not disable K8s pod/container cgroups if can't rename them [\#12865](https://github.com/netdata/netdata/pull/12865) ([ilyam8](https://github.com/ilyam8))
 
 ## [v1.34.1](https://github.com/netdata/netdata/tree/v1.34.1) (2022-04-15)
 
