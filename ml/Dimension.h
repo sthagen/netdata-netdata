@@ -26,7 +26,7 @@ public:
         RRDSET *RS = RD->rrdset;
 
         std::stringstream SS;
-        SS << RS->context << "|" << RS->id << "|" << RD->name;
+        SS << rrdset_context(RS) << "|" << rrdset_id(RS) << "|" << rrddim_name(RD);
         return SS.str();
     }
 
@@ -47,9 +47,7 @@ public:
         rrddim_set_name(AnomalyRateRD->rrdset, AnomalyRateRD, Name);
     }
 
-    virtual ~RrdDimension() {
-        rrddim_free(AnomalyRateRD->rrdset, AnomalyRateRD);
-    }
+    virtual ~RrdDimension() {}
 
 private:
     RRDDIM *RD;

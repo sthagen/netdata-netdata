@@ -8,13 +8,15 @@ static inline void free_single_rrdrim(ONEWAYALLOC *owa, RRDDIM *temp_rd, int arc
     if (unlikely(!temp_rd))
         return;
 
-    onewayalloc_freez(owa, (char *)temp_rd->id);
+    string_freez(temp_rd->id);
+    string_freez(temp_rd->name);
 
     if (unlikely(archive_mode)) {
         temp_rd->rrdset->counter--;
         if (!temp_rd->rrdset->counter) {
-            onewayalloc_freez(owa, (char *)temp_rd->rrdset->name);
-            onewayalloc_freez(owa, temp_rd->rrdset->context);
+            string_freez(temp_rd->rrdset->id);
+            string_freez(temp_rd->rrdset->name);
+            string_freez(temp_rd->rrdset->context);
             onewayalloc_freez(owa, temp_rd->rrdset);
         }
     }
@@ -111,8 +113,8 @@ void build_context_param_list(ONEWAYALLOC *owa, struct context_param **param_lis
 
     rrddim_foreach_read(rd1, st) {
         RRDDIM *rd = onewayalloc_memdupz(owa, rd1, sizeof(RRDDIM));
-        rd->id = onewayalloc_strdupz(owa, rd1->id);
-        rd->name = onewayalloc_strdupz(owa, rd1->name);
+        rd->id = string_dup(rd1->id);
+        rd->name = string_dup(rd1->name);
         for(int tier = 0; tier < storage_tiers ;tier++) {
             if(rd1->tiers[tier])
                 rd->tiers[tier] = onewayalloc_memdupz(owa, rd1->tiers[tier], sizeof(*rd->tiers[tier]));
@@ -298,7 +300,7 @@ int rrdset2anything_api_v1(
         return HTTP_RESP_BACKEND_FETCH_FAILED;
     }
 
-    if (st->state && st->state->is_ar_chart)
+    if (rrdset_is_ar_chart(st))
         ml_process_rrdr(r, query_params->max_anomaly_rates);
 
     RRDDIM *temp_rd = query_params->context_param_list ? query_params->context_param_list->rd : NULL;

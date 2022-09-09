@@ -21,7 +21,6 @@ const char *database_context_cleanup[] = {
 };
 
 sqlite3 *db_context_meta = NULL;
-
 /*
  * Initialize the SQLite database
  * Return 0 on success
@@ -125,22 +124,24 @@ void sql_close_context_database(void)
 // Fetching data
 //
 #define CTX_GET_CHART_LIST  "SELECT c.chart_id, c.type||'.'||c.id, c.name, c.context, c.title, c.unit, c.priority, " \
-        "c.update_every, c.chart_type, c.family FROM meta.chart c WHERE c.host_id = @host_id; "
+        "c.update_every, c.chart_type, c.family FROM meta.chart c WHERE c.host_id = @host_id and c.chart_id is not null; "
 
 void ctx_get_chart_list(uuid_t *host_uuid, void (*dict_cb)(SQL_CHART_DATA *, void *), void *data)
 {
     int rc;
-    sqlite3_stmt *res = NULL;
+    static __thread sqlite3_stmt *res = NULL;
 
     if (unlikely(!host_uuid)) {
        internal_error(true, "Requesting context chart list without host_id");
        return;
     }
 
-    rc = sqlite3_prepare_v2(db_context_meta, CTX_GET_CHART_LIST, -1, &res, 0);
-    if (unlikely(rc != SQLITE_OK)) {
-        error_report("Failed to prepare statement to fetch chart list");
-        return;
+    if (unlikely(!res)) {
+        rc = prepare_statement(db_context_meta, CTX_GET_CHART_LIST, &res);
+        if (rc != SQLITE_OK) {
+            error_report("Failed to prepare statement to fetch chart list");
+            return;
+        }
     }
 
     rc = sqlite3_bind_blob(res, 1, host_uuid, sizeof(*host_uuid), SQLITE_STATIC);
@@ -150,7 +151,7 @@ void ctx_get_chart_list(uuid_t *host_uuid, void (*dict_cb)(SQL_CHART_DATA *, voi
     }
 
     SQL_CHART_DATA chart_data = { 0 };
-    while (sqlite3_step(res) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
         uuid_copy(chart_data.chart_id, *((uuid_t *)sqlite3_column_blob(res, 0)));
         chart_data.id = (char *) sqlite3_column_text(res, 1);
         chart_data.name = (char *) sqlite3_column_text(res, 2);
@@ -165,22 +166,24 @@ void ctx_get_chart_list(uuid_t *host_uuid, void (*dict_cb)(SQL_CHART_DATA *, voi
     }
 
 skip_load:
-    rc = sqlite3_finalize(res);
+    rc = sqlite3_reset(res);
     if (rc != SQLITE_OK)
-        error_report("Failed to finalize statement that fetches chart label data, rc = %d", rc);
+        error_report("Failed to reset statement that fetches chart label data, rc = %d", rc);
 }
 
 // Dimension list
-#define CTX_GET_DIMENSION_LIST  "SELECT d.dim_id, d.id, d.name FROM meta.dimension d WHERE d.chart_id = @id;"
+#define CTX_GET_DIMENSION_LIST  "SELECT d.dim_id, d.id, d.name FROM meta.dimension d WHERE d.chart_id = @id and d.dim_id is not null;"
 void ctx_get_dimension_list(uuid_t *chart_uuid, void (*dict_cb)(SQL_DIMENSION_DATA *, void *), void *data)
 {
     int rc;
-    sqlite3_stmt *res = NULL;
+    static __thread sqlite3_stmt *res = NULL;
 
-    rc = sqlite3_prepare_v2(db_context_meta, CTX_GET_DIMENSION_LIST, -1, &res, 0);
-    if (unlikely(rc != SQLITE_OK)) {
-        error_report("Failed to prepare statement to fetch chart dimension data");
-        return;
+    if (unlikely(!res)) {
+        rc = prepare_statement(db_context_meta, CTX_GET_DIMENSION_LIST, &res);
+        if (rc != SQLITE_OK) {
+            error_report("Failed to prepare statement to fetch chart dimension data");
+            return;
+        }
     }
 
     rc = sqlite3_bind_blob(res, 1, chart_uuid, sizeof(*chart_uuid), SQLITE_STATIC);
@@ -191,7 +194,7 @@ void ctx_get_dimension_list(uuid_t *chart_uuid, void (*dict_cb)(SQL_DIMENSION_DA
 
     SQL_DIMENSION_DATA dimension_data;
 
-    while (sqlite3_step(res) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
         uuid_copy(dimension_data.dim_id, *((uuid_t *)sqlite3_column_blob(res, 0)));
         dimension_data.id = (char *) sqlite3_column_text(res, 1);
         dimension_data.name = (char *) sqlite3_column_text(res, 2);
@@ -199,9 +202,9 @@ void ctx_get_dimension_list(uuid_t *chart_uuid, void (*dict_cb)(SQL_DIMENSION_DA
     }
 
 failed:
-    rc = sqlite3_finalize(res);
+    rc = sqlite3_reset(res);
     if (rc != SQLITE_OK)
-        error_report("Failed to finalize statement that fetches the chart dimension list, rc = %d", rc);
+        error_report("Failed to reset statement that fetches the chart dimension list, rc = %d", rc);
 }
 
 // LABEL LIST
@@ -209,12 +212,14 @@ failed:
 void ctx_get_label_list(uuid_t *chart_uuid, void (*dict_cb)(SQL_CLABEL_DATA *, void *), void *data)
 {
     int rc;
-    sqlite3_stmt *res = NULL;
+    static __thread sqlite3_stmt *res = NULL;
 
-    rc = sqlite3_prepare_v2(db_context_meta, CTX_GET_LABEL_LIST, -1, &res, 0);
-    if (unlikely(rc != SQLITE_OK)) {
-        error_report("Failed to prepare statement to fetch chart lanbels");
-        return;
+    if (unlikely(!res)) {
+        rc = prepare_statement(db_context_meta, CTX_GET_LABEL_LIST, &res);
+        if (rc != SQLITE_OK) {
+            error_report("Failed to prepare statement to fetch chart labels");
+            return;
+        }
     }
 
     rc = sqlite3_bind_blob(res, 1, chart_uuid, sizeof(*chart_uuid), SQLITE_STATIC);
@@ -225,7 +230,7 @@ void ctx_get_label_list(uuid_t *chart_uuid, void (*dict_cb)(SQL_CLABEL_DATA *, v
 
     SQL_CLABEL_DATA label_data;
 
-    while (sqlite3_step(res) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
         label_data.label_key = (char *) sqlite3_column_text(res, 0);
         label_data.label_value = (char *) sqlite3_column_text(res, 1);
         label_data.label_source = sqlite3_column_int(res, 2);
@@ -233,9 +238,9 @@ void ctx_get_label_list(uuid_t *chart_uuid, void (*dict_cb)(SQL_CLABEL_DATA *, v
     }
 
 failed:
-    rc = sqlite3_finalize(res);
+    rc = sqlite3_reset(res);
     if (rc != SQLITE_OK)
-        error_report("Failed to finalize statement that fetches chart label data, rc = %d", rc);
+        error_report("Failed to reset statement that fetches chart label data, rc = %d", rc);
 
     return;
 }
@@ -250,12 +255,14 @@ void ctx_get_context_list(uuid_t *host_uuid, void (*dict_cb)(VERSIONED_CONTEXT_D
         return;
 
     int rc;
-    sqlite3_stmt *res = NULL;
+    static __thread sqlite3_stmt *res = NULL;
 
-    rc = sqlite3_prepare_v2(db_context_meta, CTX_GET_CONTEXT_LIST, -1, &res, 0);
-    if (unlikely(rc != SQLITE_OK)) {
-        error_report("Failed to prepare statement to fetch stored context list");
-        return;
+    if (unlikely(!res)) {
+        rc = prepare_statement(db_context_meta, CTX_GET_CONTEXT_LIST, &res);
+        if (rc != SQLITE_OK) {
+            error_report("Failed to prepare statement to fetch stored context list");
+            return;
+        }
     }
 
     VERSIONED_CONTEXT_DATA context_data = {0};
@@ -267,7 +274,7 @@ void ctx_get_context_list(uuid_t *host_uuid, void (*dict_cb)(VERSIONED_CONTEXT_D
         goto failed;
     }
 
-    while (sqlite3_step(res) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
         context_data.id = (char *) sqlite3_column_text(res, 0);
         context_data.version = sqlite3_column_int64(res, 1);
         context_data.title = (char *) sqlite3_column_text(res, 2);
@@ -282,9 +289,9 @@ void ctx_get_context_list(uuid_t *host_uuid, void (*dict_cb)(VERSIONED_CONTEXT_D
     }
 
 failed:
-    rc = sqlite3_finalize(res);
+    rc = sqlite3_reset(res);
     if (rc != SQLITE_OK)
-        error_report("Failed to finalize statement that fetches stored context versioned data, rc = %d", rc);
+        error_report("Failed to reset statement that fetches stored context versioned data, rc = %d", rc);
 }
 
 

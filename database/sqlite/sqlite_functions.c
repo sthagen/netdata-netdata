@@ -29,6 +29,7 @@ const char *database_config[] = {
     "CREATE TABLE IF NOT EXISTS metadata_migration(filename text, file_size, date_created int);",
     "CREATE INDEX IF NOT EXISTS ind_d1 on dimension (chart_id, id, name);",
     "CREATE INDEX IF NOT EXISTS ind_c1 on chart (host_id, id, type, name);",
+    "CREATE INDEX IF NOT EXISTS ind_c2 on chart (host_id, context);",
     "CREATE TABLE IF NOT EXISTS chart_label(chart_id blob, source_type int, label_key text, "
     "label_value text, date_created int, PRIMARY KEY (chart_id, label_key));",
     "CREATE TABLE IF NOT EXISTS node_instance (host_id blob PRIMARY KEY, claim_id, node_id, date_created);",
@@ -88,11 +89,35 @@ pthread_key_t key_pool[MAX_PREPARED_STATEMENTS];
 
 static uv_mutex_t sqlite_transaction_lock;
 
+
+SQLITE_API int sqlite3_exec_monitored(
+    sqlite3 *db,                               /* An open database */
+    const char *sql,                           /* SQL to be evaluated */
+    int (*callback)(void*,int,char**,char**),  /* Callback function */
+    void *data,                                /* 1st argument to callback */
+    char **errmsg                              /* Error msg written here */
+) {
+    int rc = sqlite3_exec(db, sql, callback, data, errmsg);
+    sqlite3_query_completed(rc == SQLITE_OK, rc == SQLITE_BUSY, rc == SQLITE_LOCKED);
+    return rc;
+}
+
+SQLITE_API int sqlite3_step_monitored(sqlite3_stmt *stmt) {
+    int rc = sqlite3_step(stmt);
+
+    if(likely(rc == SQLITE_ROW))
+        sqlite3_row_completed();
+    else
+        sqlite3_query_completed(rc == SQLITE_DONE, rc == SQLITE_BUSY, rc == SQLITE_LOCKED);
+
+    return rc;
+}
+
 int execute_insert(sqlite3_stmt *res)
 {
     int rc;
     int cnt = 0;
-    while ((rc = sqlite3_step(res)) != SQLITE_DONE && ++cnt < SQL_MAX_RETRY && likely(!netdata_exit)) {
+    while ((rc = sqlite3_step_monitored(res)) != SQLITE_DONE && ++cnt < SQL_MAX_RETRY && likely(!netdata_exit)) {
         if (likely(rc == SQLITE_BUSY || rc == SQLITE_LOCKED)) {
             usleep(SQLITE_INSERT_DELAY * USEC_PER_MS);
             error_report("Failed to insert/update, rc = %d -- attempt %d", rc, cnt);
@@ -273,7 +298,7 @@ static int check_table_integrity(char *table)
         strcpy(wstr,"PRAGMA integrity_check;");
     }
 
-    int rc = sqlite3_exec(db_meta, wstr, check_table_integrity_cb, (void *) &status, &err_msg);
+    int rc = sqlite3_exec_monitored(db_meta, wstr, check_table_integrity_cb, (void *) &status, &err_msg);
     if (rc != SQLITE_OK) {
         error_report("SQLite error during database integrity check for %s, rc = %d (%s)",
                      table ? table : "the entire database", rc, err_msg);
@@ -306,7 +331,7 @@ static void rebuild_chart()
     info("Rebuilding chart table");
     for (int i = 0; rebuild_chart_commands[i]; i++) {
         info("Executing %s", rebuild_chart_commands[i]);
-        rc = sqlite3_exec(db_meta, rebuild_chart_commands[i], 0, 0, &err_msg);
+        rc = sqlite3_exec_monitored(db_meta, rebuild_chart_commands[i], 0, 0, &err_msg);
         if (rc != SQLITE_OK) {
             error_report("SQLite error during database setup, rc = %d (%s)", rc, err_msg);
             error_report("SQLite failed statement %s", rebuild_chart_commands[i]);
@@ -339,7 +364,7 @@ void rebuild_dimension()
     info("Rebuilding dimension table");
     for (int i = 0; rebuild_dimension_commands[i]; i++) {
         info("Executing %s", rebuild_dimension_commands[i]);
-        rc = sqlite3_exec(db_meta, rebuild_dimension_commands[i], 0, 0, &err_msg);
+        rc = sqlite3_exec_monitored(db_meta, rebuild_dimension_commands[i], 0, 0, &err_msg);
         if (rc != SQLITE_OK) {
             error_report("SQLite error during database setup, rc = %d (%s)", rc, err_msg);
             error_report("SQLite failed statement %s", rebuild_dimension_commands[i]);
@@ -366,7 +391,7 @@ int init_database_batch(sqlite3 *database, int rebuild, int init_type, const cha
     char *err_msg = NULL;
     for (int i = 0; batch[i]; i++) {
         debug(D_METADATALOG, "Executing %s", batch[i]);
-        rc = sqlite3_exec(database, batch[i], 0, 0, &err_msg);
+        rc = sqlite3_exec_monitored(database, batch[i], 0, 0, &err_msg);
         if (rc != SQLITE_OK) {
             error_report("SQLite error during database %s, rc = %d (%s)", init_type ? "cleanup" : "setup", rc, err_msg);
             error_report("SQLite failed statement %s", batch[i]);
@@ -383,6 +408,24 @@ int init_database_batch(sqlite3 *database, int rebuild, int init_type, const cha
     }
     return 0;
 }
+
+static void _uuid_parse(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+    uuid_t  uuid;
+
+    if ( argc != 1 ){
+        sqlite3_result_null(context);
+        return ;
+    }
+    int rc = uuid_parse((const char *) sqlite3_value_text(argv[0]), uuid);
+    if (rc == -1)  {
+        sqlite3_result_null(context);
+        return ;
+    }
+
+    sqlite3_result_blob(context, &uuid, sizeof(uuid_t), SQLITE_TRANSIENT);
+}
+
 
 /*
  * Initialize the SQLite database
@@ -437,7 +480,7 @@ int sql_init_database(db_check_action_type_t rebuild, int memory)
     if (rebuild & DB_CHECK_RECLAIM_SPACE) {
         if (!(rebuild & DB_CHECK_CONT))
             info("Reclaiming space of %s", sqlite_database);
-        rc = sqlite3_exec(db_meta, "VACUUM;", 0, 0, &err_msg);
+        rc = sqlite3_exec_monitored(db_meta, "VACUUM;", 0, 0, &err_msg);
         if (rc != SQLITE_OK) {
             error_report("Failed to execute VACUUM rc = %d (%s)", rc, err_msg);
             sqlite3_free(err_msg);
@@ -503,6 +546,9 @@ int sql_init_database(db_check_action_type_t rebuild, int memory)
     for (int i = 0; i < MAX_PREPARED_STATEMENTS; i++)
         (void)pthread_key_create(&key_pool[i], release_statement);
 
+    rc = sqlite3_create_function(db_meta, "u2h", 1, SQLITE_ANY | SQLITE_DETERMINISTIC, 0, _uuid_parse, 0, 0);
+    if (unlikely(rc != SQLITE_OK))
+        error_report("Failed to register internal u2h function");
     return 0;
 }
 
@@ -546,7 +592,7 @@ int find_uuid_type(uuid_t *uuid)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (likely(rc == SQLITE_ROW))
         uuid_type = sqlite3_column_int(res, 0);
 
@@ -581,22 +627,22 @@ int find_dimension_uuid(RRDSET *st, RRDDIM *rd, uuid_t *store_uuid)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = sqlite3_bind_text(res, 2, rd->id, -1, SQLITE_STATIC);
+    rc = sqlite3_bind_text(res, 2, rrddim_id(rd), -1, SQLITE_STATIC);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = sqlite3_bind_text(res, 3, rd->name, -1, SQLITE_STATIC);
+    rc = sqlite3_bind_text(res, 3, rrddim_name(rd), -1, SQLITE_STATIC);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (likely(rc == SQLITE_ROW)) {
         uuid_copy(*store_uuid, *((uuid_t *) sqlite3_column_blob(res, 0)));
         status = 0;
     }
     else {
         uuid_generate(*store_uuid);
-        status = sql_store_dimension(store_uuid, st->chart_uuid, rd->id, rd->name, rd->multiplier, rd->divisor, rd->algorithm);
+        status = sql_store_dimension(store_uuid, st->chart_uuid, rrddim_id(rd), rrddim_name(rd), rd->multiplier, rd->divisor, rd->algorithm);
         if (unlikely(status))
             error_report("Failed to store dimension metadata in the database");
     }
@@ -636,7 +682,7 @@ void delete_dimension_uuid(uuid_t *dimension_uuid)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (unlikely(rc != SQLITE_DONE))
         error_report("Failed to delete dimension uuid, rc = %d", rc);
 
@@ -684,7 +730,7 @@ uuid_t *find_chart_uuid(RRDHOST *host, const char *type, const char *id, const c
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (likely(rc == SQLITE_ROW)) {
         uuid = mallocz(sizeof(uuid_t));
         uuid_copy(*uuid, sqlite3_column_blob(res, 0));
@@ -721,8 +767,11 @@ int update_chart_metadata(uuid_t *chart_uuid, RRDSET *st, const char *id, const 
         return 0;
 
     rc = sql_store_chart(
-        chart_uuid, &st->rrdhost->host_uuid, st->type, id, name, st->family, st->context, st->title, st->units, st->plugin_name,
-        st->module_name, st->priority, st->update_every, st->chart_type, st->rrd_memory_mode, st->entries);
+        chart_uuid, &st->rrdhost->host_uuid, rrdset_type(st), id, name,
+        rrdset_family(st), rrdset_context(st), rrdset_title(st), rrdset_units(st),
+        rrdset_plugin_name(st), rrdset_module_name(st),
+        st->priority, st->update_every, st->chart_type,
+        st->rrd_memory_mode, st->entries);
 
     return rc;
 }
@@ -738,7 +787,7 @@ uuid_t *create_chart_uuid(RRDSET *st, const char *id, const char *name)
 #ifdef NETDATA_INTERNAL_CHECKS
     char uuid_str[GUID_LEN + 1];
     uuid_unparse_lower(*uuid, uuid_str);
-    debug(D_METADATALOG,"Generating uuid [%s] for chart %s under host %s", uuid_str, st->id, st->rrdhost->hostname);
+    debug(D_METADATALOG,"Generating uuid [%s] for chart %s under host %s", uuid_str, rrdset_id(st), rrdhost_hostname(st->rrdhost));
 #endif
 
     rc = update_chart_metadata(uuid, st, id, name);
@@ -847,7 +896,7 @@ int sql_store_host(
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    int store_rc = sqlite3_step(res);
+    int store_rc = sqlite3_step_monitored(res);
     if (unlikely(store_rc != SQLITE_DONE))
         error_report("Failed to store host %s, rc = %d", hostname, rc);
 
@@ -898,11 +947,11 @@ int sql_store_host_info(RRDHOST *host)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = bind_text_null(res, 2, host->hostname, 0);
+    rc = bind_text_null(res, 2, rrdhost_hostname(host), 0);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = bind_text_null(res, 3, host->registry_hostname, 1);
+    rc = bind_text_null(res, 3, rrdhost_registry_hostname(host), 1);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
@@ -910,15 +959,15 @@ int sql_store_host_info(RRDHOST *host)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = bind_text_null(res, 5, host->os, 1);
+    rc = bind_text_null(res, 5, rrdhost_os(host), 1);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = bind_text_null(res, 6, host->timezone, 1);
+    rc = bind_text_null(res, 6, rrdhost_timezone(host), 1);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = bind_text_null(res, 7, host->tags, 1);
+    rc = bind_text_null(res, 7, rrdhost_tags(host), 1);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
@@ -930,7 +979,7 @@ int sql_store_host_info(RRDHOST *host)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = bind_text_null(res, 10, host->abbrev_timezone, 1);
+    rc = bind_text_null(res, 10, rrdhost_abbrev_timezone(host), 1);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
@@ -938,11 +987,11 @@ int sql_store_host_info(RRDHOST *host)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = bind_text_null(res, 12, host->program_name, 1);
+    rc = bind_text_null(res, 12, rrdhost_program_name(host), 1);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = bind_text_null(res, 13, host->program_version, 1);
+    rc = bind_text_null(res, 13, rrdhost_program_version(host), 1);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
@@ -954,20 +1003,20 @@ int sql_store_host_info(RRDHOST *host)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    int store_rc = sqlite3_step(res);
+    int store_rc = sqlite3_step_monitored(res);
     if (unlikely(store_rc != SQLITE_DONE))
-        error_report("Failed to store host %s, rc = %d", host->hostname, rc);
+        error_report("Failed to store host %s, rc = %d", rrdhost_hostname(host), rc);
 
     rc = sqlite3_reset(res);
     if (unlikely(rc != SQLITE_OK))
-        error_report("Failed to reset statement to store host %s, rc = %d", host->hostname, rc);
+        error_report("Failed to reset statement to store host %s, rc = %d", rrdhost_hostname(host), rc);
 
     return !(store_rc == SQLITE_DONE);
 bind_fail:
-    error_report("Failed to bind parameter to store host %s, rc = %d", host->hostname, rc);
+    error_report("Failed to bind parameter to store host %s, rc = %d", rrdhost_hostname(host), rc);
     rc = sqlite3_reset(res);
     if (unlikely(rc != SQLITE_OK))
-        error_report("Failed to reset statement to store host %s, rc = %d", host->hostname, rc);
+        error_report("Failed to reset statement to store host %s, rc = %d", rrdhost_hostname(host), rc);
     return 1;
 }
 
@@ -1229,7 +1278,7 @@ void sql_rrdim2json(sqlite3_stmt *res_dim, uuid_t *chart_uuid, BUFFER *wb, size_
     int dimensions = 0;
     buffer_sprintf(wb, "\t\t\t\"dimensions\": {\n");
 
-    while (sqlite3_step(res_dim) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res_dim) == SQLITE_ROW) {
         if (dimensions)
             buffer_strcat(wb, ",\n\t\t\t\t\"");
         else
@@ -1291,11 +1340,11 @@ void sql_rrdset2json(RRDHOST *host, BUFFER *wb)
                        ",\n\t\"memory_mode\": \"%s\""
                        ",\n\t\"custom_info\": \"%s\""
                        ",\n\t\"charts\": {"
-        , host->hostname
-        , host->program_version
+        , rrdhost_hostname(host)
+        , rrdhost_program_version(host)
         , get_release_channel()
-        , host->os
-        , host->timezone
+        , rrdhost_os(host)
+        , rrdhost_timezone(host)
         , host->rrd_update_every
         , host->rrd_history_entries
         , rrd_memory_mode_name(host->rrd_memory_mode)
@@ -1305,7 +1354,7 @@ void sql_rrdset2json(RRDHOST *host, BUFFER *wb)
     size_t c = 0;
     size_t dimensions = 0;
 
-    while (sqlite3_step(res_chart) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res_chart) == SQLITE_ROW) {
         char id[512];
         sprintf(id, "%s.%s", sqlite3_column_text(res_chart, 3), sqlite3_column_text(res_chart, 1));
         RRDSET *st = rrdset_find(host, id);
@@ -1386,7 +1435,7 @@ void sql_rrdset2json(RRDHOST *host, BUFFER *wb)
                       "\n\t\t\t\"hostname\": \"%s\""
                       "\n\t\t}"
                     , (found > 0) ? "," : ""
-                    , h->hostname
+                    , rrdhost_hostname(h)
                 );
 
                 found++;
@@ -1400,7 +1449,7 @@ void sql_rrdset2json(RRDHOST *host, BUFFER *wb)
             , "\n\t\t{"
               "\n\t\t\t\"hostname\": \"%s\""
               "\n\t\t}"
-            , host->hostname
+            , rrdhost_hostname(host)
         );
     }
 
@@ -1421,13 +1470,13 @@ failed:
 void free_temporary_host(RRDHOST *host)
 {
     if (host) {
-        freez(host->hostname);
-        freez((char *)host->os);
-        freez((char *)host->tags);
-        freez((char *)host->timezone);
-        freez(host->program_name);
-        freez(host->program_version);
-        freez(host->registry_hostname);
+        string_freez(host->hostname);
+        string_freez(host->os);
+        string_freez(host->tags);
+        string_freez(host->timezone);
+        string_freez(host->program_name);
+        string_freez(host->program_version);
+        string_freez(host->registry_hostname);
         freez(host->system_info);
         freez(host);
     }
@@ -1471,7 +1520,7 @@ RRDHOST *sql_create_host_by_uuid(char *hostname)
         }
     }
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (unlikely(rc != SQLITE_ROW)) {
         error_report("Failed to find hostname %s", hostname);
         goto failed;
@@ -1482,10 +1531,13 @@ RRDHOST *sql_create_host_by_uuid(char *hostname)
 
     host = callocz(1, sizeof(RRDHOST));
 
-    set_host_properties(host, sqlite3_column_int(res, 2), RRD_MEMORY_MODE_DBENGINE, hostname,
-                        (char *) sqlite3_column_text(res, 1), (const char *) uuid_str,
-                        (char *) sqlite3_column_text(res, 3), (char *) sqlite3_column_text(res, 5),
-                        (char *) sqlite3_column_text(res, 4), NULL, 0, NULL, NULL);
+    set_host_properties(host, sqlite3_column_int(res, 2),
+                        RRD_MEMORY_MODE_DBENGINE,
+                        (char *) sqlite3_column_text(res, 1),
+                        (char *) sqlite3_column_text(res, 3),
+                        (char *) sqlite3_column_text(res, 5),
+                        (char *) sqlite3_column_text(res, 4),
+                        NULL, 0, NULL, NULL);
 
     uuid_copy(host->host_uuid, *((uuid_t *) sqlite3_column_blob(res, 0)));
 
@@ -1511,20 +1563,21 @@ void db_execute(const char *cmd)
     int cnt = 0;
     while (cnt < SQL_MAX_RETRY) {
         char *err_msg;
-        rc = sqlite3_exec(db_meta, cmd, 0, 0, &err_msg);
+        rc = sqlite3_exec_monitored(db_meta, cmd, 0, 0, &err_msg);
         if (rc != SQLITE_OK) {
             error_report("Failed to execute '%s', rc = %d (%s) -- attempt %d", cmd, rc, err_msg, cnt);
             sqlite3_free(err_msg);
             if (likely(rc == SQLITE_BUSY || rc == SQLITE_LOCKED)) {
                 usleep(SQLITE_INSERT_DELAY * USEC_PER_MS);
             }
-            else break;
+            else
+                break;
         }
         else
             break;
+
         ++cnt;
     }
-    return;
 }
 
 void db_lock(void)
@@ -1559,7 +1612,7 @@ int file_is_migrated(char *path)
         return 0;
     }
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
 
     if (unlikely(sqlite3_finalize(res) != SQLITE_OK))
         error_report("Failed to finalize the prepared statement when checking if metadata file is migrated");
@@ -1753,8 +1806,8 @@ static RRDDIM *create_rrdim_entry(ONEWAYALLOC *owa, RRDSET *st, char *id, char *
     rrddim_flag_set(rd, RRDDIM_FLAG_NONE);
 
     uuid_copy(rd->metric_uuid, *metric_uuid);
-    rd->id = onewayalloc_strdupz(owa, id);
-    rd->name = onewayalloc_strdupz(owa, name);
+    rd->id = string_strdupz(id);
+    rd->name = string_strdupz(name);
 
     for(int tier = 0; tier < storage_tiers ;tier++) {
         rd->tiers[tier] = onewayalloc_callocz(owa, 1, sizeof(*rd->tiers[tier]));
@@ -1838,14 +1891,15 @@ void sql_build_context_param_list(ONEWAYALLOC  *owa, struct context_param **para
     uuid_t rrdeng_uuid;
     uuid_t chart_id;
 
-    while (sqlite3_step(res) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
         char id[512];
         sprintf(id, "%s.%s", sqlite3_column_text(res, 3), sqlite3_column_text(res, 1));
 
         if (!st || uuid_compare(*(uuid_t *)sqlite3_column_blob(res, 7), chart_id)) {
             if (unlikely(st && !st->counter)) {
-                onewayalloc_freez(owa, st->context);
-                onewayalloc_freez(owa, (char *) st->name);
+                string_freez(st->context);
+                string_freez(st->name);
+                string_freez(st->id);
                 onewayalloc_freez(owa, st);
             }
             st = onewayalloc_callocz(owa, 1, sizeof(*st));
@@ -1854,19 +1908,21 @@ void sql_build_context_param_list(ONEWAYALLOC  *owa, struct context_param **para
             snprintfz(
                 n, RRD_ID_LENGTH_MAX, "%s.%s", (char *)sqlite3_column_text(res, 4),
                 (char *)sqlite3_column_text(res, 3));
-            st->name = onewayalloc_strdupz(owa, n);
+            st->name = string_strdupz(n);
             st->update_every = sqlite3_column_int(res, 6);
             st->counter = 0;
             if (chart) {
-                st->context = onewayalloc_strdupz(owa, (char *)sqlite3_column_text(res, 8));
-                strncpyz(st->id, chart, RRD_ID_LENGTH_MAX);
-            }
+                st->context = string_strdupz((char *)sqlite3_column_text(res, 8));
+                st->id = string_strdupz(chart);
+            } else
+                st->id = string_strdupz(n);
+
             uuid_copy(chart_id, *(uuid_t *)sqlite3_column_blob(res, 7));
             st->last_entry_t = 0;
             st->rrdhost = host;
         }
 
-        if (unlikely(find_dimension_first_last_t(machine_guid, (char *)st->name, (char *)sqlite3_column_text(res, 1),
+        if (unlikely(find_dimension_first_last_t(machine_guid, (char *)rrdset_name(st), (char *)sqlite3_column_text(res, 1),
                 (uuid_t *)sqlite3_column_blob(res, 0), &(*param_list)->first_entry_t, &(*param_list)->last_entry_t,
                 &rrdeng_uuid, 0)))
             continue;
@@ -1884,13 +1940,14 @@ void sql_build_context_param_list(ONEWAYALLOC  *owa, struct context_param **para
     }
     if (st) {
         if (!st->counter) {
-            onewayalloc_freez(owa,st->context);
-            onewayalloc_freez(owa,(char *)st->name);
+            string_freez(st->context);
+            string_freez(st->name);
+            string_freez(st->id);
             onewayalloc_freez(owa,st);
         }
         else
             if (!st->context && context)
-                st->context = onewayalloc_strdupz(owa,context);
+                st->context = string_strdupz(context);
     }
 
 failed:
@@ -2038,7 +2095,7 @@ void compute_chart_hash(RRDSET *st)
     char  priority_str[32];
 
     if (rrdhost_flag_check(st->rrdhost, RRDHOST_FLAG_ACLK_STREAM_CONTEXTS)) {
-        internal_error(true, "Skipping compute_chart_hash for host %s because context streaming is enabled", st->rrdhost->hostname);
+        internal_error(true, "Skipping compute_chart_hash for host %s because context streaming is enabled", rrdhost_hostname(st->rrdhost));
         return;
     }
 
@@ -2047,15 +2104,14 @@ void compute_chart_hash(RRDSET *st)
     evpctx = EVP_MD_CTX_create();
     EVP_DigestInit_ex(evpctx, EVP_sha256(), NULL);
     //EVP_DigestUpdate(evpctx, st->type, strlen(st->type));
-    EVP_DigestUpdate(evpctx, st->id, strlen(st->id));
-    EVP_DigestUpdate(evpctx, st->name, strlen(st->name));
-    EVP_DigestUpdate(evpctx, st->family, strlen(st->family));
-    EVP_DigestUpdate(evpctx, st->context, strlen(st->context));
-    EVP_DigestUpdate(evpctx, st->title, strlen(st->title));
-    EVP_DigestUpdate(evpctx, st->units, strlen(st->units));
-    EVP_DigestUpdate(evpctx, st->plugin_name, strlen(st->plugin_name));
-    if (st->module_name)
-        EVP_DigestUpdate(evpctx, st->module_name, strlen(st->module_name));
+    EVP_DigestUpdate(evpctx, rrdset_id(st), string_strlen(st->id));
+    EVP_DigestUpdate(evpctx, rrdset_name(st), string_strlen(st->name));
+    EVP_DigestUpdate(evpctx, rrdset_family(st), string_strlen(st->family));
+    EVP_DigestUpdate(evpctx, rrdset_context(st), string_strlen(st->context));
+    EVP_DigestUpdate(evpctx, rrdset_title(st), string_strlen(st->title));
+    EVP_DigestUpdate(evpctx, rrdset_units(st), string_strlen(st->units));
+    EVP_DigestUpdate(evpctx, rrdset_plugin_name(st), string_strlen(st->plugin_name));
+    EVP_DigestUpdate(evpctx, rrdset_module_name(st), string_strlen(st->module_name));
 //    EVP_DigestUpdate(evpctx, priority_str, strlen(priority_str));
     EVP_DigestUpdate(evpctx, &st->priority, sizeof(st->priority));
     EVP_DigestUpdate(evpctx, &st->chart_type, sizeof(st->chart_type));
@@ -2066,20 +2122,20 @@ void compute_chart_hash(RRDSET *st)
     char uuid_str[GUID_LEN + 1];
     uuid_unparse_lower(*((uuid_t *) &hash_value), uuid_str);
     //info("Calculating HASH %s for chart %s", uuid_str, st->name);
-    uuid_copy(st->state->hash_id, *((uuid_t *) &hash_value));
+    uuid_copy(st->uuid, *((uuid_t *) &hash_value));
 
     (void)sql_store_chart_hash(
         (uuid_t *)&hash_value,
         st->chart_uuid,
-        st->type,
-        st->id,
-        st->name,
-        st->family,
-        st->context,
-        st->title,
-        st->units,
-        st->plugin_name,
-        st->module_name,
+        rrdset_type(st),
+        rrdset_id(st),
+        rrdset_name(st),
+        rrdset_family(st),
+        rrdset_context(st),
+        rrdset_title(st),
+        rrdset_units(st),
+        rrdset_plugin_name(st),
+        rrdset_module_name(st),
         st->priority,
         st->chart_type);
 #else
@@ -2199,7 +2255,7 @@ int update_node_id(uuid_t *host_id, uuid_t *node_id)
     char host_guid[GUID_LEN + 1];
     uuid_unparse_lower(*host_id, host_guid);
     rrd_wrlock();
-    host = rrdhost_find_by_guid(host_guid, 0);
+    host = rrdhost_find_by_guid(host_guid);
     if (likely(host))
             set_host_node_id(host, node_id);
     rrd_unlock();
@@ -2242,7 +2298,7 @@ char *get_hostname_by_node_id(char *node)
         goto failed;
     }
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (likely(rc == SQLITE_ROW))
         hostname = strdupz((char *)sqlite3_column_text(res, 0));
 
@@ -2280,7 +2336,7 @@ int get_host_id(uuid_t *node_id, uuid_t *host_id)
         goto failed;
     }
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (likely(rc == SQLITE_ROW && host_id))
         uuid_copy(*host_id, *((uuid_t *) sqlite3_column_blob(res, 0)));
 
@@ -2316,7 +2372,7 @@ int get_node_id(uuid_t *host_id, uuid_t *node_id)
         goto failed;
     }
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (likely(rc == SQLITE_ROW && node_id))
         uuid_copy(*node_id, *((uuid_t *) sqlite3_column_blob(res, 0)));
 
@@ -2395,7 +2451,7 @@ struct  node_instance_list *get_node_list(void)
 
     int row = 0;
     char host_guid[37];
-    while (sqlite3_step(res) == SQLITE_ROW)
+    while (sqlite3_step_monitored(res) == SQLITE_ROW)
         row++;
 
     if (sqlite3_reset(res) != SQLITE_OK) {
@@ -2406,7 +2462,7 @@ struct  node_instance_list *get_node_list(void)
     int max_rows = row;
     row = 0;
     rrd_rdlock();
-    while (sqlite3_step(res) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
         if (sqlite3_column_bytes(res, 0) == sizeof(uuid_t))
             uuid_copy(node_list[row].node_id, *((uuid_t *)sqlite3_column_blob(res, 0)));
         if (sqlite3_column_bytes(res, 1) == sizeof(uuid_t)) {
@@ -2414,7 +2470,7 @@ struct  node_instance_list *get_node_list(void)
             uuid_copy(node_list[row].host_id, *host_id);
             node_list[row].queryable = 1;
             uuid_unparse_lower(*host_id, host_guid);
-            RRDHOST *host = rrdhost_find_by_guid(host_guid, 0);
+            RRDHOST *host = rrdhost_find_by_guid(host_guid);
             node_list[row].live = host && (host == localhost || host->receiver) ? 1 : 0;
             node_list[row].hops = (host && host->system_info) ? host->system_info->hops :
                                   uuid_compare(*host_id, localhost->host_uuid) ? 1 : 0;
@@ -2461,7 +2517,7 @@ void sql_load_node_id(RRDHOST *host)
         goto failed;
     }
 
-    rc = sqlite3_step(res);
+    rc = sqlite3_step_monitored(res);
     if (likely(rc == SQLITE_ROW)) {
         if (likely(sqlite3_column_bytes(res, 0) == sizeof(uuid_t)))
             set_host_node_id(host, (uuid_t *)sqlite3_column_blob(res, 0));
@@ -2497,7 +2553,7 @@ void sql_build_host_system_info(uuid_t *host_id, struct rrdhost_system_info *sys
         goto skip_loading;
     }
 
-    while (sqlite3_step(res) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
         rrdhost_set_system_info_variable(system_info, (char *) sqlite3_column_text(res, 0),
                                          (char *) sqlite3_column_text(res, 1));
     }
@@ -2652,9 +2708,9 @@ void sql_store_host_labels(RRDHOST *host)
 {
     int rc = exec_statement_with_uuid(SQL_DELETE_HOST_LABELS, &host->host_uuid);
     if (rc != SQLITE_OK)
-        error_report("Failed to remove old host labels for host %s", host->hostname);
+        error_report("Failed to remove old host labels for host %s", rrdhost_hostname(host));
 
-    rrdlabels_walkthrough_read(host->host_labels, save_host_label_callback, host);
+    rrdlabels_walkthrough_read(host->rrdlabels, save_host_label_callback, host);
 }
 
 #define SELECT_HOST_LABELS "SELECT label_key, label_value, source_type FROM host_label WHERE host_id = @host_id " \
@@ -2681,7 +2737,7 @@ DICTIONARY *sql_load_host_labels(uuid_t *host_id)
 
     labels = rrdlabels_create();
 
-    while (sqlite3_step(res) == SQLITE_ROW) {
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
         rrdlabels_add(
             labels,
             (const char *)sqlite3_column_text(res, 0),

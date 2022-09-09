@@ -153,7 +153,7 @@ int do_proc_softirqs(int update_every, usec_t dt) {
             // some interrupt may have changed without changing the total number of lines
             // if the same number of interrupts have been added and removed between two
             // calls of this function.
-            if(unlikely(!irr->rd || strncmp(irr->name, irr->rd->name, MAX_INTERRUPT_NAME) != 0)) {
+            if(unlikely(!irr->rd || strncmp(irr->name, rrddim_name(irr->rd), MAX_INTERRUPT_NAME) != 0)) {
                 irr->rd = rrddim_add(st_system_softirqs, irr->id, irr->name, 1, 1, RRD_ALGORITHM_INCREMENTAL);
                 rrddim_set_name(st_system_softirqs, irr->rd, irr->name);
 
@@ -220,7 +220,7 @@ int do_proc_softirqs(int update_every, usec_t dt) {
 
                 char core[50+1];
                 snprintfz(core, 50, "cpu%d", c);
-                rrdlabels_add(core_st[c]->state->chart_labels, "cpu", core, RRDLABEL_SRC_AUTO);
+                rrdlabels_add(core_st[c]->rrdlabels, "cpu", core, RRDLABEL_SRC_AUTO);
             }
             else
                 rrdset_next(core_st[c]);

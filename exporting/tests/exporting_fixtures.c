@@ -39,25 +39,25 @@ int setup_rrdhost()
 
     localhost->rrd_update_every = 1;
 
-    localhost->tags = strdupz("TAG1=VALUE1 TAG2=VALUE2");
+    localhost->tags = string_strdupz("TAG1=VALUE1 TAG2=VALUE2");
 
-    localhost->host_labels = rrdlabels_create();
-    rrdlabels_add(localhost->host_labels, "key1", "value1", RRDLABEL_SRC_CONFIG);
-    rrdlabels_add(localhost->host_labels, "key2", "value2", RRDLABEL_SRC_CONFIG);
+    localhost->rrdlabels = rrdlabels_create();
+    rrdlabels_add(localhost->rrdlabels, "key1", "value1", RRDLABEL_SRC_CONFIG);
+    rrdlabels_add(localhost->rrdlabels, "key2", "value2", RRDLABEL_SRC_CONFIG);
 
     localhost->rrdset_root = calloc(1, sizeof(RRDSET));
     RRDSET *st = localhost->rrdset_root;
     st->rrdhost = localhost;
-    strcpy(st->id, "chart_id");
-    st->name = strdupz("chart_name");
+    st->id = string_strdupz("chart_id");
+    st->name = string_strdupz("chart_name");
     st->rrd_memory_mode |= RRD_MEMORY_MODE_SAVE;
     st->update_every = 1;
 
     localhost->rrdset_root->dimensions = calloc(1, sizeof(RRDDIM));
     RRDDIM *rd = localhost->rrdset_root->dimensions;
     rd->rrdset = st;
-    rd->id = strdupz("dimension_id");
-    rd->name = strdupz("dimension_name");
+    rd->id = string_strdupz("dimension_id");
+    rd->name = string_strdupz("dimension_name");
     rd->last_collected_value = 123000321;
     rd->last_collected_time.tv_sec = 15051;
     rd->collections_counter++;
@@ -77,18 +77,18 @@ int setup_rrdhost()
 int teardown_rrdhost()
 {
     RRDDIM *rd = localhost->rrdset_root->dimensions;
-    free((void *)rd->name);
-    free((void *)rd->id);
+    string_freez(rd->name);
+    string_freez(rd->id);
     free(rd->tiers[0]);
     free(rd);
 
     RRDSET *st = localhost->rrdset_root;
-    free((void *)st->name);
+    string_freez(st->name);
     free(st);
 
-    rrdlabels_destroy(localhost->host_labels);
+    rrdlabels_destroy(localhost->rrdlabels);
 
-    free((void *)localhost->tags);
+    string_freez(localhost->tags);
     free(localhost);
 
     return 0;
