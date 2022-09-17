@@ -6,6 +6,16 @@
 
 **Merged pull requests:**
 
+- fix typo not deleting collected flag; force removing collected flag on child disconnect [\#13672](https://github.com/netdata/netdata/pull/13672) ([ktsaou](https://github.com/ktsaou))
+- add proxysql dashboard info [\#13669](https://github.com/netdata/netdata/pull/13669) ([ilyam8](https://github.com/ilyam8))
+- Additional sqlite statistics [\#13668](https://github.com/netdata/netdata/pull/13668) ([stelfrag](https://github.com/stelfrag))
+- Advance the buffer properly to scan the journal file [\#13666](https://github.com/netdata/netdata/pull/13666) ([stelfrag](https://github.com/stelfrag))
+- Add sqlite page cache hit and miss statistics [\#13665](https://github.com/netdata/netdata/pull/13665) ([stelfrag](https://github.com/stelfrag))
+- bump go.d.plugin to v0.39.0 [\#13662](https://github.com/netdata/netdata/pull/13662) ([ilyam8](https://github.com/ilyam8))
+- update Postgres dashboard info [\#13661](https://github.com/netdata/netdata/pull/13661) ([ilyam8](https://github.com/ilyam8))
+- Use mmap if possible during startup for journal replay [\#13660](https://github.com/netdata/netdata/pull/13660) ([stelfrag](https://github.com/stelfrag))
+- Update dashboard to version v2.29.0. [\#13654](https://github.com/netdata/netdata/pull/13654) ([netdatabot](https://github.com/netdatabot))
+- Fix container virtualization info [\#13653](https://github.com/netdata/netdata/pull/13653) ([vlvkobal](https://github.com/vlvkobal))
 - Do not free AR dimensions from within ML. [\#13651](https://github.com/netdata/netdata/pull/13651) ([vkalintiris](https://github.com/vkalintiris))
 - Improve agent shutdown time [\#13649](https://github.com/netdata/netdata/pull/13649) ([stelfrag](https://github.com/stelfrag))
 - add \_collect\_job label to python.d/\* charts [\#13648](https://github.com/netdata/netdata/pull/13648) ([ilyam8](https://github.com/ilyam8))
@@ -20,6 +30,7 @@
 - Deaggregate the `gui` and `email` app groupx and improve GUI coverage. [\#13631](https://github.com/netdata/netdata/pull/13631) ([Ferroin](https://github.com/Ferroin))
 - Faster rrdcontext [\#13629](https://github.com/netdata/netdata/pull/13629) ([ktsaou](https://github.com/ktsaou))
 - eBPF different improvements [\#13624](https://github.com/netdata/netdata/pull/13624) ([thiagoftsm](https://github.com/thiagoftsm))
+- adjust systemdunits alarms [\#13623](https://github.com/netdata/netdata/pull/13623) ([ilyam8](https://github.com/ilyam8))
 - fix apps plugin users charts descriptipon [\#13621](https://github.com/netdata/netdata/pull/13621) ([ilyam8](https://github.com/ilyam8))
 - add Postgres total connection utilization alarm [\#13620](https://github.com/netdata/netdata/pull/13620) ([ilyam8](https://github.com/ilyam8))
 - update Postgres "connections" dashboard info [\#13619](https://github.com/netdata/netdata/pull/13619) ([ilyam8](https://github.com/ilyam8))
@@ -40,6 +51,7 @@
 - feat\(python.d/nvidia\_smi\): collect power state [\#13580](https://github.com/netdata/netdata/pull/13580) ([ilyam8](https://github.com/ilyam8))
 - fix\(python.d/nvidia\_smi\): repsect update\_every for polling [\#13579](https://github.com/netdata/netdata/pull/13579) ([ilyam8](https://github.com/ilyam8))
 - prevent crash on rrdcontext apis when rrdcontexts is not initialized [\#13578](https://github.com/netdata/netdata/pull/13578) ([ktsaou](https://github.com/ktsaou))
+- CMake improvements part 1 [\#13575](https://github.com/netdata/netdata/pull/13575) ([underhood](https://github.com/underhood))
 - bump go.d.plugin to v0.37.2 [\#13574](https://github.com/netdata/netdata/pull/13574) ([ilyam8](https://github.com/ilyam8))
 - Updating info for postgreqsql metrics [\#13573](https://github.com/netdata/netdata/pull/13573) ([shyamvalsan](https://github.com/shyamvalsan))
 - add `apt` to `apps_groups.conf` [\#13571](https://github.com/netdata/netdata/pull/13571) ([andrewm4894](https://github.com/andrewm4894))
@@ -341,14 +353,6 @@
 - Fix coverity issue 378598 [\#13022](https://github.com/netdata/netdata/pull/13022) ([MrZammler](https://github.com/MrZammler))
 - Skip collecting network interface speed and duplex if carrier is down [\#13019](https://github.com/netdata/netdata/pull/13019) ([vlvkobal](https://github.com/vlvkobal))
 - fix COVERITY\_PATH added with INSTALL\_DIR into PATH [\#13014](https://github.com/netdata/netdata/pull/13014) ([maneamarius](https://github.com/maneamarius))
-- Only try to update repo metadata in updater script if needed. [\#13009](https://github.com/netdata/netdata/pull/13009) ([Ferroin](https://github.com/Ferroin))
-- Treat dimensions as normal when we don't have enough/valid data. [\#13005](https://github.com/netdata/netdata/pull/13005) ([vkalintiris](https://github.com/vkalintiris))
-- Use printf instead of echo for printing collected warnings in kickstart.sh. [\#13002](https://github.com/netdata/netdata/pull/13002) ([Ferroin](https://github.com/Ferroin))
-- Update dashboard to version v2.25.4. [\#13000](https://github.com/netdata/netdata/pull/13000) ([netdatabot](https://github.com/netdatabot))
-- Run the /net/dev module of the proc plugin in a separate thread [\#12996](https://github.com/netdata/netdata/pull/12996) ([vlvkobal](https://github.com/vlvkobal))
-- Autodetect coverity install path to increase robustness [\#12995](https://github.com/netdata/netdata/pull/12995) ([maneamarius](https://github.com/maneamarius))
-- Fix compilation warnings [\#12993](https://github.com/netdata/netdata/pull/12993) ([vlvkobal](https://github.com/vlvkobal))
-- Delay children chart obsoletion check [\#12992](https://github.com/netdata/netdata/pull/12992) ([MrZammler](https://github.com/MrZammler))
 
 ## [v1.34.1](https://github.com/netdata/netdata/tree/v1.34.1) (2022-04-15)
 
