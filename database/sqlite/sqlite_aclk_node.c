@@ -3,16 +3,13 @@
 #include "sqlite_functions.h"
 #include "sqlite_aclk_node.h"
 
-#ifdef ENABLE_ACLK
-#include "../../aclk/aclk_charts_api.h"
-#endif
+#include "../../aclk/aclk_contexts_api.h"
 
 #ifdef ENABLE_ACLK
 DICTIONARY *collectors_from_charts(RRDHOST *host, DICTIONARY *dict) {
     RRDSET *st;
     char name[500];
 
-    rrdhost_rdlock(host);
     rrdset_foreach_read(st, host) {
         if (rrdset_is_available_for_viewers(st)) {
             struct collector_info col = {
@@ -23,7 +20,7 @@ DICTIONARY *collectors_from_charts(RRDHOST *host, DICTIONARY *dict) {
             dictionary_set(dict, name, &col, sizeof(struct collector_info));
         }
     }
-    rrdhost_unlock(host);
+    rrdset_foreach_done(st);
 
     return dict;
 }
@@ -36,7 +33,7 @@ void sql_build_node_collectors(struct aclk_database_worker_config *wc)
         return;
 
     struct update_node_collectors upd_node_collectors;
-    DICTIONARY *dict = dictionary_create(DICTIONARY_FLAG_SINGLE_THREADED);
+    DICTIONARY *dict = dictionary_create(DICT_OPTION_SINGLE_THREADED);
 
     upd_node_collectors.node_id = wc->node_id;
     upd_node_collectors.claim_id = get_agent_claimid();
@@ -78,7 +75,7 @@ void sql_build_node_info(struct aclk_database_worker_config *wc, struct aclk_dat
         { .name = "proto", .version = 1,                     .enabled = 1 },
         { .name = "ml",    .version = ml_capable(localhost), .enabled = ml_enabled(wc->host) },
         { .name = "mc",    .version = enable_metric_correlations ? metric_correlations_version : 0, .enabled = enable_metric_correlations },
-        { .name = "ctx",   .version = 1,                     .enabled = rrdcontext_enabled},
+        { .name = "ctx",   .version = 1,                     .enabled = 1 },
         { .name = NULL,    .version = 0,                     .enabled = 0 }
     };
     node_info.node_instance_capabilities = instance_caps;

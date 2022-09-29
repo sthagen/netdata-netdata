@@ -736,12 +736,6 @@ static void get_netdata_configured_variables() {
     }
 
     // --------------------------------------------------------------------
-    // rrdcontext
-
-    rrdcontext_enabled = config_get_boolean(CONFIG_SECTION_CLOUD, "rrdcontexts", rrdcontext_enabled);
-
-
-    // --------------------------------------------------------------------
     // get various system parameters
 
     get_system_HZ();
@@ -987,7 +981,6 @@ int main(int argc, char **argv) {
                             // No call to load the config file on this code-path
                             post_conf_load(&user);
                             get_netdata_configured_variables();
-                            rrdcontext_enabled = CONFIG_BOOLEAN_NO;
                             default_rrd_update_every = 1;
                             default_rrd_memory_mode = RRD_MEMORY_MODE_RAM;
                             default_health_enabled = 0;
@@ -1004,6 +997,7 @@ int main(int argc, char **argv) {
                             if(test_dbengine()) return 1;
 #endif
                             if(test_sqlite()) return 1;
+                            if(string_unittest(10000)) return 1;
                             if (dictionary_unittest(10000))
                                 return 1;
                             if (rrdlabels_unittest())
@@ -1027,6 +1021,9 @@ int main(int argc, char **argv) {
                         }
                         else if(strcmp(optarg, "dicttest") == 0) {
                             return dictionary_unittest(10000);
+                        }
+                        else if(strcmp(optarg, "stringtest") == 0) {
+                            return string_unittest(10000);
                         }
                         else if(strcmp(optarg, "rrdlabelstest") == 0) {
                             return rrdlabels_unittest();

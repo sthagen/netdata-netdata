@@ -34,6 +34,8 @@ extern void rrdhost_destroy_rrdcontexts(RRDHOST *host);
 extern void rrdcontext_host_child_connected(RRDHOST *host);
 extern void rrdcontext_host_child_disconnected(RRDHOST *host);
 
+extern int rrdcontext_foreach_instance_with_rrdset_in_context(RRDHOST *host, const char *context, int (*callback)(RRDSET *st, void *data), void *data);
+
 typedef enum {
     RRDCONTEXT_OPTION_NONE               = 0,
     RRDCONTEXT_OPTION_SHOW_METRICS       = (1 << 0),
@@ -82,8 +84,6 @@ extern void rrdcontext_hub_stop_streaming_command(void *cmd);
 
 // ----------------------------------------------------------------------------
 // public API for threads
-
-extern int rrdcontext_enabled;
 
 extern void rrdcontext_db_rotation(void);
 extern void *rrdcontext_main(void *);

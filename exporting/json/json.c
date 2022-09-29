@@ -197,7 +197,7 @@ int format_dimension_collected_json_plaintext(struct instance *instance, RRDDIM 
         rrdset_name(st),
         rrdset_family(st),
         rrdset_context(st),
-        rrdset_type(st),
+        rrdset_parts_type(st),
         rrdset_units(st),
         rrddim_id(rd),
         rrddim_name(rd),
@@ -281,7 +281,7 @@ int format_dimension_stored_json_plaintext(struct instance *instance, RRDDIM *rd
         rrdset_name(st),
         rrdset_family(st),
         rrdset_context(st),
-        rrdset_type(st),
+        rrdset_parts_type(st),
         rrdset_units(st),
         rrddim_id(rd),
         rrddim_name(rd),
@@ -344,7 +344,7 @@ void json_http_prepare_header(struct instance *instance)
         "\r\n",
         instance->config.destination,
         simple_connector_data->auth_string ? simple_connector_data->auth_string : "",
-        buffer_strlen(simple_connector_data->last_buffer->buffer));
+        (unsigned long int) buffer_strlen(simple_connector_data->last_buffer->buffer));
 
     return;
 }
