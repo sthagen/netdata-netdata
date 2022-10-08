@@ -1109,7 +1109,7 @@ fi
 
 # Check if submodules have not been fetched. Fail if ML was explicitly requested.
 AC_MSG_CHECKING([if git submodules are present for machine learning functionality])
-if test -f "ml/kmeans/dlib/dlib/all/source.cpp" -a -f "ml/json/single_include/nlohmann/json.hpp"; then
+if test -f "ml/dlib/dlib/all/source.cpp" -a -f "ml/json/single_include/nlohmann/json.hpp"; then
     AC_MSG_RESULT([yes])
     have_ml_submodules="yes"
 else
@@ -1149,7 +1149,7 @@ fi
 AM_CONDITIONAL([ENABLE_ML], [test "${build_ml}" = "yes"])
 if test "${build_ml}" = "yes"; then
     AC_DEFINE([ENABLE_ML], [1], [anomaly detection usability])
-    OPTIONAL_ML_CFLAGS="-DDLIB_NO_GUI_SUPPORT -I \$(abs_top_srcdir)/ml/kmeans/dlib"
+    OPTIONAL_ML_CFLAGS="-DDLIB_NO_GUI_SUPPORT -I \$(abs_top_srcdir)/ml/dlib"
     OPTIONAL_ML_LIBS=""
 fi
 
@@ -1540,6 +1540,7 @@ configdir="${sysconfdir}/netdata"
 libconfigdir="${libdir}/netdata/conf.d"
 logdir="${localstatedir}/log/netdata"
 pluginsdir="${libexecdir}/netdata/plugins.d"
+libsysdir="${libdir}/netdata/system"
 
 AC_SUBST([varlibdir])
 AC_SUBST([registrydir])
@@ -1551,6 +1552,7 @@ AC_SUBST([libconfigdir])
 AC_SUBST([logdir])
 AC_SUBST([pluginsdir])
 AC_SUBST([webdir])
+AC_SUBST([libsysdir])
 
 CFLAGS="${originalCFLAGS} ${OPTIONAL_LTO_CFLAGS} ${OPTIONAL_PROTOBUF_CFLAGS} ${OPTIONAL_MATH_CFLAGS} ${OPTIONAL_NFACCT_CFLAGS} \
     ${OPTIONAL_ZLIB_CFLAGS} ${OPTIONAL_UUID_CFLAGS} \
@@ -1695,8 +1697,6 @@ AC_CONFIG_FILES([
     exporting/tests/Makefile
     health/Makefile
     health/notifications/Makefile
-    ml/Makefile
-    ml/kmeans/Makefile
     libnetdata/Makefile
     libnetdata/tests/Makefile
     libnetdata/adaptive_resortable_list/Makefile
