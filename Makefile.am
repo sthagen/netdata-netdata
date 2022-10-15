@@ -380,8 +380,6 @@ PROC_PLUGIN_FILES = \
     collectors/proc.plugin/proc_net_netstat.c \
     collectors/proc.plugin/proc_net_rpc_nfs.c \
     collectors/proc.plugin/proc_net_rpc_nfsd.c \
-    collectors/proc.plugin/proc_net_snmp.c \
-    collectors/proc.plugin/proc_net_snmp6.c \
     collectors/proc.plugin/proc_net_sctp_snmp.c \
     collectors/proc.plugin/proc_net_sockstat.c \
     collectors/proc.plugin/proc_net_sockstat6.c \
@@ -966,6 +964,7 @@ NETDATA_COMMON_LIBS = \
     $(OPTIONAL_SSL_LIBS) \
     $(OPTIONAL_JSONC_LIBS) \
     $(OPTIONAL_ATOMIC_LIBS) \
+    $(OPTIONAL_DL_LIBS) \
     $(NULL)
 
 if LINK_STATIC_JSONC

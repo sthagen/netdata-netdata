@@ -55,13 +55,17 @@ void netdata_cleanup_and_exit(int ret) {
         // free the database
         info("EXIT: freeing database memory...");
 #ifdef ENABLE_DBENGINE
-        for(int tier = 0; tier < storage_tiers ; tier++)
-            rrdeng_prepare_exit(multidb_ctx[tier]);
+        if(dbengine_enabled) {
+            for (int tier = 0; tier < storage_tiers; tier++)
+                rrdeng_prepare_exit(multidb_ctx[tier]);
+        }
 #endif
         rrdhost_free_all();
 #ifdef ENABLE_DBENGINE
-        for(int tier = 0; tier < storage_tiers ; tier++)
-            rrdeng_exit(multidb_ctx[tier]);
+        if(dbengine_enabled) {
+            for (int tier = 0; tier < storage_tiers; tier++)
+                rrdeng_exit(multidb_ctx[tier]);
+        }
 #endif
     }
     sql_close_context_database();
@@ -255,7 +259,8 @@ void cancel_main_threads() {
 
     for (i = 0; static_threads[i].name != NULL ; i++)
         freez(static_threads[i].thread);
-    free(static_threads);
+
+    freez(static_threads);
 }
 
 struct option_def option_definitions[] = {
@@ -1001,6 +1006,8 @@ int main(int argc, char **argv) {
                             if(string_unittest(10000)) return 1;
                             if (dictionary_unittest(10000))
                                 return 1;
+                            if(aral_unittest(10000))
+                                return 1;
                             if (rrdlabels_unittest())
                                 return 1;
                             if (ctx_unittest())
@@ -1022,6 +1029,9 @@ int main(int argc, char **argv) {
                         }
                         else if(strcmp(optarg, "dicttest") == 0) {
                             return dictionary_unittest(10000);
+                        }
+                        else if(strcmp(optarg, "araltest") == 0) {
+                            return aral_unittest(10000);
                         }
                         else if(strcmp(optarg, "stringtest") == 0) {
                             return string_unittest(10000);
@@ -1307,6 +1317,12 @@ int main(int argc, char **argv) {
         i = (int)config_get_number(CONFIG_SECTION_GLOBAL, "glibc malloc arena max for netdata", 1);
         if(i > 0)
             mallopt(M_ARENA_MAX, 1);
+
+
+#ifdef NETDATA_INTERNAL_CHECKS
+        mallopt(M_PERTURB, 0x5A);
+        // mallopt(M_MXFAST, 0);
+#endif
 #endif
 
         // initialize the system clocks
@@ -1405,8 +1421,13 @@ int main(int argc, char **argv) {
 
             if(st->enabled && st->init_routine)
                 st->init_routine();
-        }
 
+            if(st->env_name)
+                setenv(st->env_name, st->enabled?"YES":"NO", 1);
+
+            if(st->global_variable)
+                *st->global_variable = (st->enabled) ? true : false;
+        }
 
         // --------------------------------------------------------------------
         // create the listening sockets

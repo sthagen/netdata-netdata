@@ -103,7 +103,7 @@ static int check_metadata_logfile_superblock(uv_file file)
         error("File has unknown version %"PRIu16". Compatibility is not guaranteed.", superblock->version);
     }
 error:
-    free(superblock);
+    posix_memfree(superblock);
     return ret;
 }
 
@@ -388,8 +388,6 @@ static int scan_metalog_files(struct metalog_instance *ctx)
     parser_add_keyword(parser, PLUGINSD_KEYWORD_GUID, pluginsd_guid);
     parser_add_keyword(parser, PLUGINSD_KEYWORD_CONTEXT, pluginsd_context);
     parser_add_keyword(parser, PLUGINSD_KEYWORD_TOMBSTONE, pluginsd_tombstone);
-    parser->plugins_action->dimension_action = &metalog_pluginsd_dimension_action;
-    parser->plugins_action->chart_action     = &metalog_pluginsd_chart_action;
     parser->plugins_action->guid_action      = &metalog_pluginsd_guid_action;
     parser->plugins_action->context_action   = &metalog_pluginsd_context_action;
     parser->plugins_action->tombstone_action = &metalog_pluginsd_tombstone_action;

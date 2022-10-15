@@ -2,9 +2,6 @@
 
 #define NETDATA_RRD_INTERNALS
 #include "rrd.h"
-#ifdef ENABLE_DBENGINE
-#include "database/engine/rrdengineapi.h"
-#endif
 #include "storage_engine.h"
 
 // ----------------------------------------------------------------------------
@@ -26,6 +23,12 @@ struct rrddim_constructor {
     } react_action;
 
 };
+
+// isolated call to appear
+// separate in statistics
+static void *rrddim_alloc_db(size_t entries) {
+    return callocz(entries, sizeof(storage_number));
+}
 
 static void rrddim_insert_callback(const DICTIONARY_ITEM *item __maybe_unused, void *rrddim, void *constructor_data) {
     struct rrddim_constructor *ctr = constructor_data;
@@ -73,7 +76,7 @@ static void rrddim_insert_callback(const DICTIONARY_ITEM *item __maybe_unused, v
         size_t entries = st->entries;
         if(entries < 5) entries = 5;
 
-        rd->db = callocz(entries, sizeof(storage_number));
+        rd->db = rrddim_alloc_db(entries);
         rd->memsize = entries * sizeof(storage_number);
     }
 
@@ -98,7 +101,7 @@ static void rrddim_insert_callback(const DICTIONARY_ITEM *item __maybe_unused, v
             rd->tiers[tier]->mode = eng->id;
             rd->tiers[tier]->collect_ops = eng->api.collect_ops;
             rd->tiers[tier]->query_ops = eng->api.query_ops;
-            rd->tiers[tier]->db_metric_handle = eng->api.init(rd, host->storage_instance[tier]);
+            rd->tiers[tier]->db_metric_handle = eng->api.metric_get_or_create(rd, host->storage_instance[tier], rd->rrdset->storage_metrics_groups[tier]);
             storage_point_unset(rd->tiers[tier]->virtual_point);
             initialized++;
 
@@ -117,7 +120,7 @@ static void rrddim_insert_callback(const DICTIONARY_ITEM *item __maybe_unused, v
         size_t initialized = 0;
         for (int tier = 0; tier < storage_tiers; tier++) {
             if (rd->tiers[tier]) {
-                rd->tiers[tier]->db_collection_handle = rd->tiers[tier]->collect_ops.init(rd->tiers[tier]->db_metric_handle);
+                rd->tiers[tier]->db_collection_handle = rd->tiers[tier]->collect_ops.init(rd->tiers[tier]->db_metric_handle, st->update_every * storage_tiers_grouping_iterations[tier]);
                 initialized++;
             }
         }
@@ -214,7 +217,7 @@ static void rrddim_delete_callback(const DICTIONARY_ITEM *item __maybe_unused, v
 
         STORAGE_ENGINE* eng = storage_engine_get(rd->tiers[tier]->mode);
         if(eng)
-            eng->api.free(rd->tiers[tier]->db_metric_handle);
+            eng->api.metric_release(rd->tiers[tier]->db_metric_handle);
 
         freez(rd->tiers[tier]);
         rd->tiers[tier] = NULL;
@@ -222,7 +225,7 @@ static void rrddim_delete_callback(const DICTIONARY_ITEM *item __maybe_unused, v
 
     if(rd->db) {
         if(rd->rrd_memory_mode == RRD_MEMORY_MODE_RAM)
-            munmap(rd->db, rd->memsize);
+            netdata_munmap(rd->db, rd->memsize);
         else
             freez(rd->db);
     }
@@ -250,7 +253,7 @@ static bool rrddim_conflict_callback(const DICTIONARY_ITEM *item __maybe_unused,
         for(int tier = 0; tier < storage_tiers ;tier++) {
             if (rd->tiers[tier])
                 rd->tiers[tier]->db_collection_handle =
-                    rd->tiers[tier]->collect_ops.init(rd->tiers[tier]->db_metric_handle);
+                    rd->tiers[tier]->collect_ops.init(rd->tiers[tier]->db_metric_handle, st->update_every * storage_tiers_grouping_iterations[tier]);
         }
 
         rrddim_flag_clear(rd, RRDDIM_FLAG_ARCHIVED);
@@ -546,22 +549,28 @@ inline void rrddim_isnot_obsolete(RRDSET *st __maybe_unused, RRDDIM *rd) {
 // ----------------------------------------------------------------------------
 // RRDDIM - collect values for a dimension
 
-inline collected_number rrddim_set_by_pointer(RRDSET *st __maybe_unused, RRDDIM *rd, collected_number value) {
+inline collected_number rrddim_set_by_pointer(RRDSET *st, RRDDIM *rd, collected_number value) {
+    struct timeval now;
+    now_realtime_timeval(&now);
+
+    return rrddim_timed_set_by_pointer(st, rd, now, value);
+}
+
+collected_number rrddim_timed_set_by_pointer(RRDSET *st __maybe_unused, RRDDIM *rd, struct timeval collected_time, collected_number value) {
     debug(D_RRD_CALLS, "rrddim_set_by_pointer() for chart %s, dimension %s, value " COLLECTED_NUMBER_FORMAT, rrdset_name(st), rrddim_name(rd), value);
 
-    now_realtime_timeval(&rd->last_collected_time);
+    rd->last_collected_time = collected_time;
     rd->collected_value = value;
     rd->updated = 1;
-
     rd->collections_counter++;
 
     collected_number v = (value >= 0) ? value : -value;
-    if(unlikely(v > rd->collected_value_max)) rd->collected_value_max = v;
-
-    // fprintf(stderr, "%s.%s %llu " COLLECTED_NUMBER_FORMAT " dt %0.6f" " rate " NETDATA_DOUBLE_FORMAT "\n", st->name, rd->name, st->usec_since_last_update, value, (float)((double)st->usec_since_last_update / (double)1000000), (NETDATA_DOUBLE)((value - rd->last_collected_value) * (NETDATA_DOUBLE)rd->multiplier / (NETDATA_DOUBLE)rd->divisor * 1000000.0 / (NETDATA_DOUBLE)st->usec_since_last_update));
+    if (unlikely(v > rd->collected_value_max))
+        rd->collected_value_max = v;
 
     return rd->last_collected_value;
 }
+
 
 collected_number rrddim_set(RRDSET *st, const char *id, collected_number value) {
     RRDHOST *host = st->rrdhost;
@@ -641,7 +650,7 @@ void rrddim_memory_file_free(RRDDIM *rd) {
 
     struct rrddim_map_save_v019 *rd_on_file = rd->rd_on_file;
     freez(rd_on_file->cache_filename);
-    munmap(rd_on_file, rd_on_file->memsize);
+    netdata_munmap(rd_on_file, rd_on_file->memsize);
 
     // remove the pointers from the RRDDIM
     rd->rd_on_file = NULL;

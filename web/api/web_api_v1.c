@@ -721,10 +721,6 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
 
         if (likely(context_param_list && context_param_list->rd))  // Just set the first one
             st = context_param_list->rd->rrdset;
-        else {
-            if (!chart_label_key && !chart_labels_filter)
-                sql_build_context_param_list(owa, &context_param_list, host, context, NULL);
-        }
     }
     else {
         st = rrdset_find(host, chart);
@@ -732,8 +728,6 @@ inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, c
             st = rrdset_find_byname(host, chart);
         if (likely(st))
             st->last_accessed_time = now_realtime_sec();
-        else
-            sql_build_context_param_list(owa, &context_param_list, host, NULL, chart);
     }
 
     if (!st) {
@@ -1325,7 +1319,7 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     buffer_strcat(wb, "\t\"ml-info\": ");
     buffer_strcat(wb, ml_info);
 
-    free(ml_info);
+    freez(ml_info);
 #endif
 
     buffer_strcat(wb, "\n}");
@@ -1621,9 +1615,14 @@ int web_client_api_request_v1_dbengine_stats(RRDHOST *host __maybe_unused, struc
 
     BUFFER *wb = w->response.data;
     buffer_flush(wb);
+
+    if(!dbengine_enabled) {
+        buffer_strcat(wb, "dbengine is not enabled");
+        return HTTP_RESP_NOT_FOUND;
+    }
+
     wb->contenttype = CT_APPLICATION_JSON;
     buffer_no_cacheable(wb);
-
     buffer_strcat(wb, "{");
     for(int tier = 0; tier < storage_tiers ;tier++) {
         buffer_sprintf(wb, "%s\n\t\"tier%d\": {", tier?",":"", tier);

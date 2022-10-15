@@ -126,18 +126,15 @@ PARSER_RC streaming_timestamp(char **words, void *user, PLUGINSD_ACTION *plugins
     return PARSER_RC_ERROR;
 }
 
-#define CLAIMED_ID_MIN_WORDS 3
 PARSER_RC streaming_claimed_id(char **words, void *user, PLUGINSD_ACTION *plugins_action)
 {
     UNUSED(plugins_action);
 
-    int i;
     uuid_t uuid;
     RRDHOST *host = ((PARSER_USER_OBJECT *)user)->host;
 
-    for (i = 0; words[i]; i++) ;
-    if (i != CLAIMED_ID_MIN_WORDS) {
-        error("Command CLAIMED_ID came malformed %d parameters are expected but %d received", CLAIMED_ID_MIN_WORDS - 1, i - 1);
+    if (!words[1] || !words[2]) {
+        error("Command CLAIMED_ID came malformed, uuid = '%s', claim_id = '%s'", words[1]?words[1]:"[unset]", words[2]?words[2]:"[unset]");
         return PARSER_RC_ERROR;
     }
 
@@ -306,7 +303,7 @@ static int receiver_read(struct receiver_state *r, FILE *fp) {
         internal_error(true, "read_stream() failed (1).");
         return 1;
     }
-    
+
     worker_set_metric(WORKER_RECEIVER_JOB_BYTES_READ, ret);
 
     if (!is_compressed_data(r->read_buffer, ret)) {
@@ -487,13 +484,10 @@ static int rrdpush_receive(struct receiver_state *rpt)
     mode = rrd_memory_mode_id(appconfig_get(&stream_config, rpt->key, "default memory mode", rrd_memory_mode_name(mode)));
     mode = rrd_memory_mode_id(appconfig_get(&stream_config, rpt->machine_guid, "memory mode", rrd_memory_mode_name(mode)));
 
-#ifndef ENABLE_DBENGINE
-    if (unlikely(mode == RRD_MEMORY_MODE_DBENGINE)) {
-        close(rpt->fd);
-        log_stream_connection(rpt->client_ip, rpt->client_port, rpt->key, rpt->machine_guid, rpt->hostname, "REJECTED -- DBENGINE MEMORY MODE NOT SUPPORTED");
-        return 1;
+    if (unlikely(mode == RRD_MEMORY_MODE_DBENGINE && !dbengine_enabled)) {
+        error("STREAM %s [receive from %s:%s]: dbengine is not enabled, falling back to default.", rpt->hostname, rpt->client_ip, rpt->client_port);
+        mode = default_rrd_memory_mode;
     }
-#endif
 
     health_enabled = appconfig_get_boolean_ondemand(&stream_config, rpt->key, "health enabled by default", health_enabled);
     health_enabled = appconfig_get_boolean_ondemand(&stream_config, rpt->machine_guid, "health enabled", health_enabled);
@@ -750,6 +744,7 @@ static int rrdpush_receive(struct receiver_state *rpt)
     rpt->host->senders_connect_time = now_realtime_sec();
     rpt->host->senders_last_chart_command = 0;
     rpt->host->trigger_chart_obsoletion_check = 1;
+
     rrdhost_unlock(rpt->host);
 
     // call the plugins.d processor to receive the metrics
@@ -765,6 +760,8 @@ static int rrdpush_receive(struct receiver_state *rpt)
         aclk_host_state_update(rpt->host, 1);
 #endif
 
+    rrdhost_set_is_parent_label(++localhost->senders_count);
+
     rrdcontext_host_child_connected(rpt->host);
 
     size_t count = streaming_parser(rpt, &cd, fp_in, fp_out);
@@ -778,10 +775,12 @@ static int rrdpush_receive(struct receiver_state *rpt)
 
 #ifdef ENABLE_ACLK
     // in case we have cloud connection we inform cloud
-    // new child connected
+    // a child disconnected
     if (netdata_cloud_setting)
         aclk_host_state_update(rpt->host, 0);
 #endif
+
+    rrdhost_set_is_parent_label(--localhost->senders_count);
 
     // During a shutdown there is cleanup code in rrdhost that will cancel the sender thread
     if (!netdata_exit && rpt->host) {
