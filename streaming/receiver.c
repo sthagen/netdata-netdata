@@ -159,7 +159,7 @@ PARSER_RC streaming_claimed_id(char **words, void *user, PLUGINSD_ACTION *plugin
         freez(host->aclk_state.claimed_id);
     host->aclk_state.claimed_id = strcmp(words[2], "NULL") ? strdupz(words[2]) : NULL;
 
-    store_claim_id(&host->host_uuid, host->aclk_state.claimed_id ? &uuid : NULL);
+    metaqueue_store_claim_id(&host->host_uuid, host->aclk_state.claimed_id ? &uuid : NULL);
 
     rrdhost_aclk_state_unlock(host);
 
@@ -735,10 +735,10 @@ static int rrdpush_receive(struct receiver_state *rpt)
     if(health_enabled != CONFIG_BOOLEAN_NO) {
         if(alarms_delay > 0) {
             rpt->host->health_delay_up_to = now_realtime_sec() + alarms_delay;
-            info(
-                "Postponing health checks for %" PRId64 " seconds, on host '%s', because it was just connected.",
-                (int64_t)alarms_delay,
-                rrdhost_hostname(rpt->host));
+            log_health(
+                "[%s]: Postponing health checks for %" PRId64 " seconds, because it was just connected.",
+                rrdhost_hostname(rpt->host),
+                (int64_t)alarms_delay);
         }
     }
     rpt->host->senders_connect_time = now_realtime_sec();

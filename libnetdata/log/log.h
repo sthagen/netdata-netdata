@@ -45,6 +45,7 @@ extern "C" {
 #define D_ACLK              0x0000000200000000
 #define D_METADATALOG       0x0000000400000000
 #define D_ACLK_SYNC         0x0000000800000000
+#define D_META_SYNC         0x0000002000000000
 #define D_SYSTEM            0x8000000000000000
 
 extern int web_server_is_multithreaded;
@@ -56,9 +57,13 @@ extern const char *program_name;
 extern int stdaccess_fd;
 extern FILE *stdaccess;
 
+extern int stdhealth_fd;
+extern FILE *stdhealth;
+
 extern const char *stdaccess_filename;
 extern const char *stderr_filename;
 extern const char *stdout_filename;
+extern const char *stdhealth_filename;
 extern const char *facility_log;
 
 #ifdef ENABLE_ACLK
@@ -71,6 +76,7 @@ extern int aclklog_enabled;
 extern int access_log_syslog;
 extern int error_log_syslog;
 extern int output_log_syslog;
+extern int health_log_syslog;
 
 extern time_t error_log_throttle_period;
 extern unsigned long error_log_errors_per_period, error_log_errors_per_period_backup;
@@ -106,6 +112,7 @@ void info_int( const char *file, const char *function, const unsigned long line,
 void error_int( const char *prefix, const char *file, const char *function, const unsigned long line, const char *fmt, ... ) PRINTFLIKE(5, 6);
 void fatal_int( const char *file, const char *function, const unsigned long line, const char *fmt, ... ) NORETURN PRINTFLIKE(4, 5);
 void log_access( const char *fmt, ... ) PRINTFLIKE(1, 2);
+void log_health( const char *fmt, ... ) PRINTFLIKE(1, 2);
 
 #ifdef ENABLE_ACLK
 void log_aclk_message_bin( const char *data, const size_t data_len, int tx, const char *mqtt_topic, const char *message_name);
