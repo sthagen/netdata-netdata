@@ -34,8 +34,8 @@ extern DICTIONARY *rrdhost_root_index;
     "name, family, context, title, unit, plugin, module, priority, update_every , chart_type , memory_mode , " \
     "history_entries) values (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16);"
 
-#define SQL_STORE_DIMENSION "INSERT OR REPLACE INTO dimension (dim_id, chart_id, id, name, multiplier, divisor , algorithm) " \
-        "VALUES (@dim_id, @chart_id, @id, @name, @multiplier, @divisor, @algorithm);"
+#define SQL_STORE_DIMENSION "INSERT OR REPLACE INTO dimension (dim_id, chart_id, id, name, multiplier, divisor , algorithm, options) " \
+        "VALUES (@dim_id, @chart_id, @id, @name, @multiplier, @divisor, @algorithm, @options);"
 
 #define SELECT_DIMENSION_LIST "SELECT dim_id, rowid FROM dimension WHERE rowid > @row_id"
 
@@ -595,7 +595,7 @@ bind_fail:
  */
 static int sql_store_dimension(
     uuid_t *dim_uuid, uuid_t *chart_uuid, const char *id, const char *name, collected_number multiplier,
-    collected_number divisor, int algorithm)
+    collected_number divisor, int algorithm, bool hidden)
 {
     static __thread sqlite3_stmt *res = NULL;
     int rc, param = 0;
@@ -643,6 +643,13 @@ static int sql_store_dimension(
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
+    if (hidden)
+        rc = sqlite3_bind_text(res, ++param, "hidden", -1, SQLITE_STATIC);
+    else
+        rc = sqlite3_bind_null(res, ++param);
+    if (unlikely(rc != SQLITE_OK))
+        goto bind_fail;
+
     rc = execute_insert(res);
     if (unlikely(rc != SQLITE_DONE))
         error_report("Failed to store dimension, rc = %d", rc);
@@ -664,7 +671,7 @@ static bool dimension_can_be_deleted(uuid_t *dim_uuid)
 {
 #ifdef ENABLE_DBENGINE
     bool no_retention = true;
-    for (int tier = 0; tier < storage_tiers; tier++) {
+    for (size_t tier = 0; tier < storage_tiers; tier++) {
         if (!multidb_ctx[tier])
             continue;
         time_t first_time_t = 0, last_time_t = 0;
@@ -722,8 +729,8 @@ static void check_dimension_metadata(struct metadata_wc *wc)
         wc->check_metadata_after = now + METADATA_MAINTENANCE_RETRY;
     } else
         wc->row_id = 0;
-    info("METADATA: Checked %u, deleted %u -- will resume after row %"PRIu64" in %ld seconds", total_checked, total_deleted, wc->row_id,
-         wc->check_metadata_after - now);
+    info("METADATA: Checked %u, deleted %u -- will resume after row %"PRIu64" in %lld seconds", total_checked, total_deleted, wc->row_id,
+         (long long)(wc->check_metadata_after - now));
 
 skip_run:
     rc = sqlite3_finalize(res);
@@ -967,7 +974,8 @@ static bool metadata_scan_host(RRDHOST *host, uint32_t max_count) {
                     string2str(rd->name),
                     rd->multiplier,
                     rd->divisor,
-                    rd->algorithm);
+                    rd->algorithm,
+                    rrddim_option_check(rd, RRDDIM_OPTION_HIDDEN));
 
                 if (unlikely(rc))
                     error_report("METADATA: Failed to store dimension %s", string2str(rd->id));
@@ -1165,7 +1173,8 @@ static void metadata_event_loop(void *arg)
                         string2str(rd->name),
                         rd->multiplier,
                         rd->divisor,
-                        rd->algorithm);
+                        rd->algorithm,
+                        rrddim_option_check(rd, RRDDIM_OPTION_HIDDEN));
 
                     if (unlikely(rc))
                         error_report("Failed to store dimension %s", rrddim_id(rd));
@@ -1320,7 +1329,7 @@ error_after_loop_init:
     worker_unregister();
 }
 
-struct metadata_wc metasync_worker;
+struct metadata_wc metasync_worker = {.loop = NULL};
 
 void metadata_sync_shutdown(void)
 {
@@ -1447,6 +1456,8 @@ void metaqueue_host_update_info(const char *machine_guid)
 
 void metaqueue_delete_dimension_uuid(uuid_t *uuid)
 {
+    if (unlikely(!metasync_worker.loop))
+        return;
     uuid_t *use_uuid = mallocz(sizeof(*uuid));
     uuid_copy(*use_uuid, *uuid);
     queue_metadata_cmd(METADATA_DEL_DIMENSION, use_uuid, NULL);
@@ -1525,9 +1536,9 @@ static void *metadata_unittest_threads(void)
     int threads_to_create = 4;
     fprintf(
         stderr,
-        "\nChecking metadata queue using %d threads for %ld seconds...\n",
+        "\nChecking metadata queue using %d threads for %lld seconds...\n",
         threads_to_create,
-        seconds_to_run);
+        (long long)seconds_to_run);
 
     netdata_thread_t threads[threads_to_create];
     tu.join = 0;
