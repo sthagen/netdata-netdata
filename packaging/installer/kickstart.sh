@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Next unused error code: F050C
+# Next unused error code: F050D
 
 # ======================================================================
 # Constants
@@ -248,10 +248,16 @@ telemetry_event() {
     TOTAL_RAM="$((TOTAL_RAM * 1024))"
   fi
 
-  if [ -f /etc/machine-id ]; then
-    DISTINCT_ID="$(cat /etc/machine-id)"
+  if [ "${KERNEL_NAME}" = Darwin ] && command -v ioreg >/dev/null 2>&1; then
+    DISTINCT_ID="macos-$(ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/ { split($0, line, "\""); printf("%s\n", line[4]); }')"
+  elif [ -f /etc/machine-id ]; then
+    DISTINCT_ID="machine-$(cat /etc/machine-id)"
+  elif [ -f /var/db/dbus/machine-id ]; then
+    DISTINCT_ID="dbus-$(cat /var/db/dbus/machine-id)"
+  elif [ -f /var/lib/dbus/machine-id ]; then
+    DISTINCT_ID="dbus-$(cat /var/lib/dbus/machine-id)"
   elif command -v uuidgen > /dev/null 2>&1; then
-    DISTINCT_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    DISTINCT_ID="uuid-$(uuidgen | tr '[:upper:]' '[:lower:]')"
   else
     DISTINCT_ID="null"
   fi
@@ -902,7 +908,15 @@ handle_existing_install() {
 
         return 0
       elif [ "${INSTALL_TYPE}" = "unknown" ]; then
-        fatal "We do not support trying to update or claim installations when we cannot determine the install type. You will need to uninstall the existing install using the same method you used to install it to proceed." F0106
+        if [ "${INTERACTIVE}" -eq 0 ] && [ "${NETDATA_CLAIM_ONLY}" -eq 0 ]; then
+          fatal "We do not support trying to update or claim installations when we cannot determine the install type. You will need to uninstall the existing install using the same method you used to install it to proceed. If you just want to claim this install, you can re-run this command with the --claim-only option." F0106
+        elif [ "${INTERACTIVE}" -eq 1 ] && [ "${NETDATA_CLAIM_ONLY}" -eq 0 ]; then
+          if confirm "Attempting to update an existing install is not officially supported. It may work, but it also might break your system. If you just want to claim this install, you should re-run this command with the --claim-only option instead. Are you sure you want to continue?"; then
+            progress "OK, continuing"
+          else
+            fatal "Cancelling update of unknown installation type at user request." F050C
+          fi
+        fi
       fi
 
       ret=0

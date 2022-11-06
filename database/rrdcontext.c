@@ -2406,7 +2406,7 @@ static void query_target_add_metric(QUERY_TARGET_LOCALS *qtl, RRDMETRIC_ACQUIRED
         tier_retention[tier].eng = eng;
         tier_retention[tier].db_update_every = (time_t) (qtl->host->db[tier].tier_grouping * ri->update_every);
 
-        if(rm->rrddim && rm->rrddim->tiers[tier]->db_metric_handle)
+        if(rm->rrddim && rm->rrddim->tiers[tier] && rm->rrddim->tiers[tier]->db_metric_handle)
             tier_retention[tier].db_metric_handle = eng->api.metric_dup(rm->rrddim->tiers[tier]->db_metric_handle);
         else
             tier_retention[tier].db_metric_handle = eng->api.metric_get(qtl->host->db[tier].instance, &rm->uuid, NULL);
@@ -2417,7 +2417,7 @@ static void query_target_add_metric(QUERY_TARGET_LOCALS *qtl, RRDMETRIC_ACQUIRED
 
             if(!common_first_time_t)
                 common_first_time_t = tier_retention[tier].db_first_time_t;
-            else
+            else if(tier_retention[tier].db_first_time_t)
                 common_first_time_t = MIN(common_first_time_t, tier_retention[tier].db_first_time_t);
 
             if(!common_last_time_t)
@@ -2427,7 +2427,7 @@ static void query_target_add_metric(QUERY_TARGET_LOCALS *qtl, RRDMETRIC_ACQUIRED
 
             if(!common_update_every)
                 common_update_every = tier_retention[tier].db_update_every;
-            else
+            else if(tier_retention[tier].db_update_every)
                 common_update_every = MIN(common_update_every, tier_retention[tier].db_update_every);
 
             tiers_added++;
@@ -2439,7 +2439,12 @@ static void query_target_add_metric(QUERY_TARGET_LOCALS *qtl, RRDMETRIC_ACQUIRED
         }
     }
 
-    bool timeframe_matches = (tiers_added && common_first_time_t <= qt->window.before && common_last_time_t >= qt->window.after) ? true : false;
+    bool release_retention = true;
+    bool timeframe_matches =
+            (tiers_added
+            && (common_first_time_t - common_update_every * 2) <= qt->window.before
+            && (common_last_time_t + common_update_every * 2) >= qt->window.after
+            ) ? true : false;
 
     if(timeframe_matches) {
         RRDR_DIMENSION_FLAGS options = RRDR_DIMENSION_DEFAULT;
@@ -2517,11 +2522,13 @@ static void query_target_add_metric(QUERY_TARGET_LOCALS *qtl, RRDMETRIC_ACQUIRED
                 qm->tiers[tier].db_last_time_t = tier_retention[tier].db_last_time_t;
                 qm->tiers[tier].db_update_every = tier_retention[tier].db_update_every;
             }
+            release_retention = false;
         }
     }
-    else {
+    else
         qtl->metrics_skipped_due_to_not_matching_timeframe++;
 
+    if(release_retention) {
         // cleanup anything we allocated to the retention we will not use
         for(size_t tier = 0; tier < storage_tiers ;tier++) {
             if (tier_retention[tier].db_metric_handle)
