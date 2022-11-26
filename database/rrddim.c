@@ -84,6 +84,23 @@ static void rrddim_insert_callback(const DICTIONARY_ITEM *item __maybe_unused, v
 
     if (unlikely(rrdcontext_find_dimension_uuid(st, rrddim_id(rd), &(rd->metric_uuid)))) {
         uuid_generate(rd->metric_uuid);
+        bool found_in_sql = false; (void)found_in_sql;
+
+//        bool found_in_sql = true;
+//        if(unlikely(sql_find_dimension_uuid(st, rd, &rd->metric_uuid))) {
+//            found_in_sql = false;
+//            uuid_generate(rd->metric_uuid);
+//        }
+
+#ifdef NETDATA_INTERNAL_CHECKS
+        char uuid_str[UUID_STR_LEN];
+        uuid_unparse_lower(rd->metric_uuid, uuid_str);
+        error_report("Dimension UUID for host %s chart [%s] dimension [%s] not found in context. It is now set to %s (%s)",
+                     string2str(host->hostname),
+                     string2str(st->name),
+                     string2str(rd->name),
+                     uuid_str, found_in_sql ? "found in sqlite" : "newly generated");
+#endif
     }
 
     // initialize the db tiers
@@ -418,13 +435,18 @@ time_t rrddim_last_entry_t(RRDDIM *rd) {
     return latest;
 }
 
+time_t rrddim_first_entry_t_of_tier(RRDDIM *rd, size_t tier) {
+    if(unlikely(tier > storage_tiers || !rd->tiers[tier]))
+        return 0;
+
+    return rd->tiers[tier]->query_ops->oldest_time(rd->tiers[tier]->db_metric_handle);
+}
+
 time_t rrddim_first_entry_t(RRDDIM *rd) {
     time_t oldest = 0;
 
     for(size_t tier = 0; tier < storage_tiers ;tier++) {
-        if(unlikely(!rd->tiers[tier])) continue;
-
-        time_t t = rd->tiers[tier]->query_ops->oldest_time(rd->tiers[tier]->db_metric_handle);
+        time_t t = rrddim_first_entry_t_of_tier(rd, tier);
         if(t != 0 && (oldest == 0 || t < oldest))
             oldest = t;
     }

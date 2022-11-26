@@ -203,10 +203,6 @@ APPS_PLUGIN_FILES = \
     $(LIBNETDATA_FILES) \
     $(NULL)
 
-CHECKS_PLUGIN_FILES = \
-    collectors/checks.plugin/plugin_checks.c \
-    $(NULL)
-
 FREEBSD_PLUGIN_FILES = \
     collectors/freebsd.plugin/plugin_freebsd.c \
     collectors/freebsd.plugin/plugin_freebsd.h \
@@ -690,6 +686,8 @@ ACLK_FILES = \
     aclk/aclk_alarm_api.h \
     aclk/aclk_contexts_api.c \
     aclk/aclk_contexts_api.h \
+    aclk/aclk_capas.c \
+    aclk/aclk_capas.h \
     aclk/helpers/mqtt_wss_pal.h \
     aclk/helpers/ringbuffer_pal.h \
     aclk/schema-wrappers/connection.cc \
@@ -916,7 +914,6 @@ NETDATA_FILES = \
     $(LIBNETDATA_FILES) \
     $(API_PLUGIN_FILES) \
     $(EXPORTING_ENGINE_FILES) \
-    $(CHECKS_PLUGIN_FILES) \
     $(HEALTH_PLUGIN_FILES) \
     $(ML_FILES) \
     $(ML_TESTS_FILES) \

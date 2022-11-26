@@ -11,7 +11,8 @@ typedef enum {
     WORKER_METRIC_EMPTY = 0,
     WORKER_METRIC_IDLE_BUSY = 1,
     WORKER_METRIC_ABSOLUTE = 2,
-    WORKER_METRIC_INCREMENTAL = 3,
+    WORKER_METRIC_INCREMENT = 3,
+    WORKER_METRIC_INCREMENTAL_TOTAL = 4,
 } WORKER_METRIC_TYPE;
 
 void worker_register(const char *workname);
@@ -29,6 +30,7 @@ void workers_foreach(const char *workname, void (*callback)(
                                                       void *data
                                                       , pid_t pid
                                                       , const char *thread_tag
+                                                      , size_t max_job_id
                                                       , size_t utilization_usec
                                                       , size_t duration_usec
                                                       , size_t jobs_started
