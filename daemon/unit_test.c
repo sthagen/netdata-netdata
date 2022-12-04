@@ -2,6 +2,61 @@
 
 #include "common.h"
 
+static bool cmd_arg_sanitization_test(const char *expected, const char *src, char *dst, size_t dst_size) {
+    bool ok = sanitize_command_argument_string(dst, src, dst_size);
+
+    if (!expected)
+        return ok == false;
+
+    return strcmp(expected, dst) == 0;
+}
+
+bool command_argument_sanitization_tests() {
+    char dst[1024];
+
+    for (size_t i = 0; i != 5; i++)  {
+        const char *expected = i == 4 ? "'\\''" : NULL;
+        if (cmd_arg_sanitization_test(expected, "'", dst, i) == false) {
+            fprintf(stderr, "expected: >>>%s<<<, got: >>>%s<<<\n", expected, dst);
+            return 1;
+        }
+    }
+
+    for (size_t i = 0; i != 9; i++)  {
+        const char *expected = i == 8 ? "'\\'''\\''" : NULL;
+        if (cmd_arg_sanitization_test(expected, "''", dst, i) == false) {
+            fprintf(stderr, "expected: >>>%s<<<, got: >>>%s<<<\n", expected, dst);
+            return 1;
+        }
+    }
+
+    for (size_t i = 0; i != 7; i++)  {
+        const char *expected = i == 6 ? "'\\''a" : NULL;
+        if (cmd_arg_sanitization_test(expected, "'a", dst, i) == false) {
+            fprintf(stderr, "expected: >>>%s<<<, got: >>>%s<<<\n", expected, dst);
+            return 1;
+        }
+    }
+
+    for (size_t i = 0; i != 7; i++)  {
+        const char *expected = i == 6 ? "a'\\''" : NULL;
+        if (cmd_arg_sanitization_test(expected, "a'", dst, i) == false) {
+            fprintf(stderr, "expected: >>>%s<<<, got: >>>%s<<<\n", expected, dst);
+            return 1;
+        }
+    }
+
+    for (size_t i = 0; i != 22; i++)  {
+        const char *expected = i == 21 ? "foo'\\''a'\\'''\\'''\\''b" : NULL;
+        if (cmd_arg_sanitization_test(expected, "--foo'a'''b", dst, i) == false) {
+            fprintf(stderr, "expected: >>>%s<<<, got: >>>%s<<<\n length: %zu\n", expected, dst, strlen(dst));
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static int check_number_printing(void) {
     struct {
         NETDATA_DOUBLE n;
@@ -1938,7 +1993,7 @@ static int test_dbengine_check_rrdr(RRDSET *st[CHARTS], RRDDIM *rd[CHARTS][DIMS]
         ONEWAYALLOC *owa = onewayalloc_create(0);
         RRDR *r = rrd2rrdr_legacy(owa, st[i], points, time_start, time_end,
                                   RRDR_GROUPING_AVERAGE, 0, RRDR_OPTION_NATURAL_POINTS,
-                                  NULL, NULL, 0, 0);
+                                  NULL, NULL, 0, 0, QUERY_SOURCE_UNITTEST);
         if (!r) {
             fprintf(stderr, "    DB-engine unittest %s: empty RRDR on region %d ### E R R O R ###\n", rrdset_name(st[i]), current_region);
             return ++errors;
@@ -2076,7 +2131,7 @@ int test_dbengine(void)
         ONEWAYALLOC *owa = onewayalloc_create(0);
         RRDR *r = rrd2rrdr_legacy(owa, st[i], points, time_start[0] + update_every,
                                   time_end[REGIONS - 1], RRDR_GROUPING_AVERAGE, 0,
-                                  RRDR_OPTION_NATURAL_POINTS, NULL, NULL, 0, 0);
+                                  RRDR_OPTION_NATURAL_POINTS, NULL, NULL, 0, 0, QUERY_SOURCE_UNITTEST);
 
         if (!r) {
             fprintf(stderr, "    DB-engine unittest %s: empty RRDR ### E R R O R ###\n", rrdset_name(st[i]));

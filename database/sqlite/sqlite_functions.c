@@ -71,7 +71,7 @@ SQLITE_API int sqlite3_exec_monitored(
     char **errmsg                              /* Error msg written here */
 ) {
     int rc = sqlite3_exec(db, sql, callback, data, errmsg);
-    sqlite3_query_completed(rc == SQLITE_OK, rc == SQLITE_BUSY, rc == SQLITE_LOCKED);
+    global_statistics_sqlite3_query_completed(rc == SQLITE_OK, rc == SQLITE_BUSY, rc == SQLITE_LOCKED);
     return rc;
 }
 
@@ -83,14 +83,14 @@ SQLITE_API int sqlite3_step_monitored(sqlite3_stmt *stmt) {
         rc = sqlite3_step(stmt);
         switch (rc) {
             case SQLITE_DONE:
-                sqlite3_query_completed(1, 0, 0);
+                global_statistics_sqlite3_query_completed(1, 0, 0);
                 break;
             case SQLITE_ROW:
-                sqlite3_row_completed();
+                global_statistics_sqlite3_row_completed();
                 break;
             case SQLITE_BUSY:
             case SQLITE_LOCKED:
-                sqlite3_query_completed(rc == SQLITE_DONE, rc == SQLITE_BUSY, rc == SQLITE_LOCKED);
+                global_statistics_sqlite3_query_completed(rc == SQLITE_DONE, rc == SQLITE_BUSY, rc == SQLITE_LOCKED);
                 usleep(SQLITE_INSERT_DELAY * USEC_PER_MS);
                 continue;
             default:
@@ -1263,7 +1263,9 @@ int bind_text_null(sqlite3_stmt *res, int position, const char *text, bool can_b
 int sql_metadata_cache_stats(int op)
 {
     int count, dummy;
+    netdata_thread_disable_cancelability();
     sqlite3_db_status(db_meta, op, &count, &dummy, 0);
+    netdata_thread_enable_cancelability();
     return count;
 }
 

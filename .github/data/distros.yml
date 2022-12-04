@@ -27,6 +27,8 @@ include:
     test:
       ebpf-core: true
   - <<: *alpine
+    version: "3.17"
+  - <<: *alpine
     version: "3.16"
   - <<: *alpine
     version: "3.15"
@@ -102,7 +104,7 @@ include:
       dnf remove -y json-c-devel
     packages: &fedora_packages
       type: rpm
-      repo_distro: fedora/36
+      repo_distro: fedora/37
       arches:
         - x86_64
         - aarch64
@@ -145,13 +147,6 @@ include:
         - aarch64
     test:
       ebpf-core: true
-  - <<: *opensuse
-    version: "15.3"
-    packages:
-      <<: *opensuse_packages
-      repo_distro: opensuse/15.3
-    test:
-      ebpf-core: false
 
   - &oracle
     distro: oraclelinux

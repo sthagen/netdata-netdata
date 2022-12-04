@@ -112,7 +112,7 @@ static void rrddim_insert_callback(const DICTIONARY_ITEM *item __maybe_unused, v
             rd->tiers[tier]->tier_grouping = host->db[tier].tier_grouping;
             rd->tiers[tier]->collect_ops = &eng->api.collect_ops;
             rd->tiers[tier]->query_ops = &eng->api.query_ops;
-            rd->tiers[tier]->db_metric_handle = eng->api.metric_get_or_create(rd, host->db[tier].instance, rd->rrdset->storage_metrics_groups[tier]);
+            rd->tiers[tier]->db_metric_handle = eng->api.metric_get_or_create(rd, host->db[tier].instance);
             storage_point_unset(rd->tiers[tier]->virtual_point);
             initialized++;
 
@@ -131,7 +131,7 @@ static void rrddim_insert_callback(const DICTIONARY_ITEM *item __maybe_unused, v
         size_t initialized = 0;
         for (size_t tier = 0; tier < storage_tiers; tier++) {
             if (rd->tiers[tier]) {
-                rd->tiers[tier]->db_collection_handle = rd->tiers[tier]->collect_ops->init(rd->tiers[tier]->db_metric_handle, st->rrdhost->db[tier].tier_grouping * st->update_every);
+                rd->tiers[tier]->db_collection_handle = rd->tiers[tier]->collect_ops->init(rd->tiers[tier]->db_metric_handle, st->rrdhost->db[tier].tier_grouping * st->update_every, rd->rrdset->storage_metrics_groups[tier]);
                 initialized++;
             }
         }
@@ -195,19 +195,19 @@ static void rrddim_delete_callback(const DICTIONARY_ITEM *item __maybe_unused, v
 
     debug(D_RRD_CALLS, "rrddim_free() %s.%s", rrdset_name(st), rrddim_name(rd));
 
-    size_t tiers_available = 0, tiers_said_yes = 0;
+    size_t tiers_available = 0, tiers_said_no_retention = 0;
     for(size_t tier = 0; tier < storage_tiers ;tier++) {
         if(rd->tiers[tier] && rd->tiers[tier]->db_collection_handle) {
             tiers_available++;
 
             if(rd->tiers[tier]->collect_ops->finalize(rd->tiers[tier]->db_collection_handle))
-                tiers_said_yes++;
+                tiers_said_no_retention++;
 
             rd->tiers[tier]->db_collection_handle = NULL;
         }
     }
 
-    if (tiers_available == tiers_said_yes && tiers_said_yes && rd->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
+    if (tiers_available == tiers_said_no_retention && tiers_said_no_retention && rd->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
         /* This metric has no data and no references */
         metaqueue_delete_dimension_uuid(&rd->metric_uuid);
     }
@@ -261,7 +261,7 @@ static bool rrddim_conflict_callback(const DICTIONARY_ITEM *item __maybe_unused,
     for(size_t tier = 0; tier < storage_tiers ;tier++) {
         if (rd->tiers[tier] && !rd->tiers[tier]->db_collection_handle)
             rd->tiers[tier]->db_collection_handle =
-                rd->tiers[tier]->collect_ops->init(rd->tiers[tier]->db_metric_handle, st->rrdhost->db[tier].tier_grouping * st->update_every);
+                rd->tiers[tier]->collect_ops->init(rd->tiers[tier]->db_metric_handle, st->rrdhost->db[tier].tier_grouping * st->update_every, rd->rrdset->storage_metrics_groups[tier]);
     }
 
     if(rrddim_flag_check(rd, RRDDIM_FLAG_ARCHIVED)) {
