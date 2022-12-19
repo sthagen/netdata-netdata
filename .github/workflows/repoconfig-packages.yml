@@ -96,7 +96,7 @@ jobs:
               /netdata/packaging/repoconfig/build-${{ matrix.format }}.sh
       - name: SSH setup
         id: ssh-setup
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'pull_request' && github.repository == 'netdata/netdata'
         continue-on-error: true
         uses: shimataro/ssh-key-action@v2
         with:
@@ -106,23 +106,17 @@ jobs:
       - name: Upload to packages.netdata.cloud
         id: package-upload
         continue-on-error: true
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'pull_request' && github.repository == 'netdata/netdata'
         run: |
-          .github/scripts/package-upload.sh \
-          ${{ matrix.repo_distro }} \
-          ${{ matrix.arch }} \
-          ${{ matrix.format }} \
-          netdata/netdata
-          .github/scripts/package-upload.sh \
-          ${{ matrix.repo_distro }} \
-          ${{ matrix.arch }} \
-          ${{ matrix.format }} \
-          netdata/netdata-edge
-          .github/scripts/package-upload.sh \
-          ${{ matrix.repo_distro }} \
-          ${{ matrix.arch }} \
-          ${{ matrix.format }} \
-          netdata/netdata-repoconfig
+          for arch in ${{ matrix.arches }}; do
+            for suffix in '' -edge -repoconfig ; do
+              .github/scripts/package-upload.sh \
+              ${{ matrix.pkgclouddistro }} \
+              ${arch} \
+              ${{ matrix.format }} \
+              netdata/netdata${suffix}
+            done
+          done
       - name: Upload Packages
         id: publish
         if: github.event_name != 'pull_request' && github.repository == 'netdata/netdata'

@@ -96,7 +96,7 @@ configure any of these collectors according to your setup and infrastructure.
 
 - [Docker containers](/collectors/cgroups.plugin/README.md): Monitor the health and performance of individual Docker
   containers using the cgroups collector plugin.
-- [DockerD](/collectors/python.d.plugin/dockerd/README.md): Collect container health statistics.
+- [DockerD](https://learn.netdata.cloud/docs/agent/collectors/go.d.plugin/modules/docker/): Collect container health statistics.
 - [Docker Engine](https://learn.netdata.cloud/docs/agent/collectors/go.d.plugin/modules/docker_engine/): Collect
   runtime statistics from the `docker` daemon using the `metrics-address` feature.
 - [Docker Hub](https://learn.netdata.cloud/docs/agent/collectors/go.d.plugin/modules/dockerhub/): Collect statistics
@@ -410,7 +410,7 @@ The Netdata Agent can collect these system- and hardware-level metrics using a v
 ### Networks
 
 - [Access points](/collectors/charts.d.plugin/ap/README.md): Visualizes data related to access points.
-- [fping.plugin](fping.plugin/README.md): Measure network latency, jitter and packet loss between the monitored node
+- [Ping](https://learn.netdata.cloud/docs/agent/collectors/go.d.plugin/modules/ping/): Measure network latency, jitter and packet loss between the monitored node
   and any number of remote network end points.
 - [Netfilter](/collectors/nfacct.plugin/README.md): Collect netfilter firewall, connection tracker, and accounting
   metrics using `libmnl` and `libnetfilter_acct`.
@@ -460,7 +460,7 @@ The Netdata Agent can collect these system- and hardware-level metrics using a v
 
 ### Users
 
-- [systemd-logind](/collectors/python.d.plugin/logind/README.md): Monitor active sessions, users, and seats tracked
+- [systemd-logind](https://learn.netdata.cloud/docs/agent/collectors/go.d.plugin/modules/logind/): Monitor active sessions, users, and seats tracked
   by `systemd-logind` or `elogind`.
 - [User/group usage](/collectors/apps.plugin/README.md): Gather CPU, disk, memory, network, and other metrics per user
   and user group using the `apps.plugin` collector.
@@ -499,6 +499,41 @@ the `go.d.plugin`.
 These collectors are developed and maintained by third parties and, unlike the other collectors, are not installed by
 default. To use a third-party collector, visit their GitHub/documentation page and follow their installation procedures.
 
+<details>
+<summary>Typical third party Python collector installation instructions</summary>
+
+In general the below steps should be sufficient to use a third party collector.
+
+1. Download collector code file into [folder expected by Netdata](https://learn.netdata.cloud/docs/agent/collectors/plugins.d#environment-variables).
+2. Download default collector configuration file into [folder expected by Netdata](https://learn.netdata.cloud/docs/agent/collectors/plugins.d#environment-variables).
+3. [Edit configuration file](/docs/collect/enable-configure#configure-a-collector) from step 2 if required.
+4. [Enable collector](/docs/collect/enable-configure#enable-a-collector-or-its-orchestrator).
+5. [Restart Netdata](/docs/configure/start-stop-restart.md) 
+
+For example below are the steps to enable the [Python ClickHouse collector](https://github.com/netdata/community/tree/main/collectors/python.d.plugin/clickhouse).
+
+```bash
+# download python collector script to /usr/libexec/netdata/python.d/
+$ sudo wget https://raw.githubusercontent.com/netdata/community/main/collectors/python.d.plugin/clickhouse/clickhouse.chart.py -O /usr/libexec/netdata/python.d/clickhouse.chart.py
+
+# (optional) download default .conf to /etc/netdata/python.d/
+$ sudo wget https://raw.githubusercontent.com/netdata/community/main/collectors/python.d.plugin/clickhouse/clickhouse.conf -O /etc/netdata/python.d/clickhouse.conf
+
+# enable collector by adding line a new line with "clickhouse: yes" to /etc/netdata/python.d.conf file
+# this will apend to the file if it already exists or create it if not
+$ sudo echo "clickhouse: yes" >> /etc/netdata/python.d.conf
+
+# (optional) edit clickhouse.conf if needed
+$ sudo vi /etc/netdata/python.d/clickhouse.conf
+
+# restart netdata 
+# see docs for more information: https://learn.netdata.cloud/docs/configure/start-stop-restart
+$ sudo systemctl restart netdata
+```
+
+</details>
+
+
 - [CyberPower UPS](https://github.com/HawtDogFlvrWtr/netdata_cyberpwrups_plugin): Polls CyberPower UPS data using
   PowerPanel® Personal Linux.
 - [Logged-in users](https://github.com/veksh/netdata-numsessions): Collect the number of currently logged-on users.
@@ -509,6 +544,7 @@ default. To use a third-party collector, visit their GitHub/documentation page a
 - [Teamspeak 3](https://github.com/coraxx/netdata_ts3_plugin): Pulls active users and bandwidth from TeamSpeak 3
   servers.
 - [SSH](https://github.com/Yaser-Amiri/netdata-ssh-module): Monitor failed authentication requests of an SSH server.
+- [ClickHouse](https://github.com/netdata/community/tree/main/collectors/python.d.plugin/clickhouse): Monitor [ClickHouse](https://clickhouse.com/) database.
 
 ## Etc
 
