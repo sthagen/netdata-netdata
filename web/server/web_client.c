@@ -1250,12 +1250,15 @@ static inline void web_client_send_http_header(struct web_client *w) {
         if(bytes > 0)
             w->stats_sent_bytes += bytes;
 
-        error("HTTP headers failed to be sent (I sent %zu bytes but the system sent %zd bytes). Closing web client."
-              , buffer_strlen(w->response.header_output)
-              , bytes);
+        if (bytes < 0) {
 
-        WEB_CLIENT_IS_DEAD(w);
-        return;
+            error("HTTP headers failed to be sent (I sent %zu bytes but the system sent %zd bytes). Closing web client."
+                  , buffer_strlen(w->response.header_output)
+                  , bytes);
+
+            WEB_CLIENT_IS_DEAD(w);
+            return;
+        }
     }
     else
         w->stats_sent_bytes += bytes;
@@ -1314,6 +1317,9 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
 }
 
 static inline int web_client_process_url(RRDHOST *host, struct web_client *w, char *url) {
+    if(unlikely(!service_running(ABILITY_WEB_REQUESTS)))
+        return web_client_permission_denied(w);
+
     static uint32_t
             hash_api = 0,
             hash_netdata_conf = 0,
@@ -1612,7 +1618,6 @@ ssize_t web_client_send_chunk_header(struct web_client *w, size_t len)
 
     else if(bytes == 0) {
         debug(D_WEB_CLIENT, "%llu: Did not send chunk header to the client.", w->id);
-        WEB_CLIENT_IS_DEAD(w);
     }
     else {
         debug(D_WEB_CLIENT, "%llu: Failed to send chunk header to client.", w->id);
@@ -1635,7 +1640,6 @@ ssize_t web_client_send_chunk_close(struct web_client *w)
 
     else if(bytes == 0) {
         debug(D_WEB_CLIENT, "%llu: Did not send chunk suffix to the client.", w->id);
-        WEB_CLIENT_IS_DEAD(w);
     }
     else {
         debug(D_WEB_CLIENT, "%llu: Failed to send chunk suffix to client.", w->id);
@@ -1658,7 +1662,6 @@ ssize_t web_client_send_chunk_finalize(struct web_client *w)
 
     else if(bytes == 0) {
         debug(D_WEB_CLIENT, "%llu: Did not send chunk finalize suffix to the client.", w->id);
-        WEB_CLIENT_IS_DEAD(w);
     }
     else {
         debug(D_WEB_CLIENT, "%llu: Failed to send chunk finalize suffix to client.", w->id);
@@ -1775,7 +1778,6 @@ ssize_t web_client_send_deflate(struct web_client *w)
         debug(D_WEB_CLIENT, "%llu: Did not send any bytes to the client (zhave = %zu, zsent = %zu, need to send = %zu).",
             w->id, w->response.zhave, w->response.zsent, w->response.zhave - w->response.zsent);
 
-        WEB_CLIENT_IS_DEAD(w);
     }
     else {
         debug(D_WEB_CLIENT, "%llu: Failed to send data to client.", w->id);
@@ -1828,7 +1830,6 @@ ssize_t web_client_send(struct web_client *w) {
     }
     else if(likely(bytes == 0)) {
         debug(D_WEB_CLIENT, "%llu: Did not send any bytes to the client.", w->id);
-        WEB_CLIENT_IS_DEAD(w);
     }
     else {
         debug(D_WEB_CLIENT, "%llu: Failed to send data to client.", w->id);
@@ -1928,10 +1929,32 @@ ssize_t web_client_receive(struct web_client *w)
         debug(D_WEB_CLIENT, "%llu: Received %zd bytes.", w->id, bytes);
         debug(D_WEB_DATA, "%llu: Received data: '%s'.", w->id, &w->response.data->buffer[old]);
     }
-    else {
+    else if (bytes < 0) {
         debug(D_WEB_CLIENT, "%llu: receive data failed.", w->id);
         WEB_CLIENT_IS_DEAD(w);
-    }
+    } else
+        debug(D_WEB_CLIENT, "%llu: Received %zd bytes.", w->id, bytes);
 
     return(bytes);
+}
+
+
+int web_client_socket_is_now_used_for_streaming(struct web_client *w) {
+    // prevent the web_client from closing the streaming socket
+
+    WEB_CLIENT_IS_DEAD(w);
+
+    if(web_server_mode == WEB_SERVER_MODE_STATIC_THREADED) {
+        web_client_flag_set(w, WEB_CLIENT_FLAG_DONT_CLOSE_SOCKET);
+    }
+    else {
+        if(w->ifd == w->ofd)
+            w->ifd = w->ofd = -1;
+        else
+            w->ifd = -1;
+    }
+
+    buffer_flush(w->response.data);
+
+    return HTTP_RESP_OK;
 }

@@ -149,6 +149,8 @@ LIBNETDATA_FILES = \
     libnetdata/eval/eval.c \
     libnetdata/eval/eval.h \
     libnetdata/inlined.h \
+    libnetdata/july/july.c \
+    libnetdata/july/july.h \
     libnetdata/libnetdata.c \
     libnetdata/libnetdata.h \
     libnetdata/required_dummies.h \
@@ -547,8 +549,12 @@ if ENABLE_DBENGINE
         database/engine/rrdengineapi.h \
         database/engine/pagecache.c \
         database/engine/pagecache.h \
-        database/engine/rrdenglocking.c \
-        database/engine/rrdenglocking.h \
+        database/engine/cache.c \
+        database/engine/cache.h \
+        database/engine/metric.c \
+        database/engine/metric.h \
+        database/engine/pdc.c \
+        database/engine/pdc.h \
         $(NULL)
 endif
 
@@ -731,9 +737,12 @@ libmqttwebsockets_a_SOURCES = \
     mqtt_websockets/c-rbuf/include/ringbuffer.h \
     mqtt_websockets/c-rbuf/src/ringbuffer_internal.h \
     mqtt_websockets/MQTT-C/src/mqtt.c \
-    mqtt_websockets/MQTT-C/include/mqtt.h
+    mqtt_websockets/MQTT-C/include/mqtt.h \
+    mqtt_websockets/c_rhash/src/c_rhash.c \
+    mqtt_websockets/c_rhash/include/c_rhash.h \
+    mqtt_websockets/c_rhash/src/c_rhash_internal.h
 
-libmqttwebsockets_a_CFLAGS = $(CFLAGS) -DMQTT_WSS_CUSTOM_ALLOC -DRBUF_CUSTOM_MALLOC -I$(srcdir)/aclk/helpers
+libmqttwebsockets_a_CFLAGS = $(CFLAGS) -DMQTT_WSS_CUSTOM_ALLOC -DRBUF_CUSTOM_MALLOC -I$(srcdir)/aclk/helpers -I$(srcdir)/mqtt_websockets/c_rhash/include
 
 if MQTT_WSS_DEBUG
 libmqttwebsockets_a_CFLAGS += -DMQTT_WSS_DEBUG
@@ -893,6 +902,8 @@ DAEMON_FILES = \
     daemon/common.h \
     daemon/daemon.c \
     daemon/daemon.h \
+	daemon/event_loop.c \
+    daemon/event_loop.h \
     daemon/global_statistics.c \
     daemon/global_statistics.h \
     daemon/analytics.c \

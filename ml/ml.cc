@@ -52,16 +52,12 @@ void ml_host_new(RRDHOST *RH) {
 
     Host *H = new Host(RH);
     RH->ml_host = reinterpret_cast<ml_host_t *>(H);
-
-    H->startAnomalyDetectionThreads();
 }
 
 void ml_host_delete(RRDHOST *RH) {
     Host *H = reinterpret_cast<Host *>(RH->ml_host);
     if (!H)
         return;
-
-    H->stopAnomalyDetectionThreads();
 
     delete H;
     RH->ml_host = nullptr;
@@ -160,7 +156,14 @@ void ml_start_anomaly_detection_threads(RRDHOST *RH) {
 void ml_stop_anomaly_detection_threads(RRDHOST *RH) {
     if (RH && RH->ml_host) {
         Host *H = reinterpret_cast<Host *>(RH->ml_host);
-        H->stopAnomalyDetectionThreads();
+        H->stopAnomalyDetectionThreads(true);
+    }
+}
+
+void ml_cancel_anomaly_detection_threads(RRDHOST *RH) {
+    if (RH && RH->ml_host) {
+        Host *H = reinterpret_cast<Host *>(RH->ml_host);
+        H->stopAnomalyDetectionThreads(false);
     }
 }
 
