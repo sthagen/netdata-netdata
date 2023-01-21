@@ -49,6 +49,8 @@ float last_backoff_value = 0;
 
 time_t aclk_block_until = 0;
 
+int aclk_alert_reloaded = 0; //1 on health log exchange, and again on health_reload
+
 #ifdef ENABLE_ACLK
 mqtt_wss_client mqttwss_client;
 
@@ -729,8 +731,8 @@ void *aclk_main(void *ptr)
         stats_thread->client = mqttwss_client;
         aclk_stats_thread_prepare(query_threads.count, proto_hdl_cnt);
         netdata_thread_create(
-            stats_thread->thread, ACLK_STATS_THREAD_NAME, NETDATA_THREAD_OPTION_JOINABLE, aclk_stats_main_thread,
-            stats_thread);
+                stats_thread->thread, "ACLK_STATS", NETDATA_THREAD_OPTION_JOINABLE, aclk_stats_main_thread,
+                stats_thread);
     }
 
     // Keep reconnecting and talking until our time has come
@@ -945,7 +947,7 @@ char *aclk_state(void)
 #ifndef ENABLE_ACLK
     return strdupz("ACLK Available: No");
 #else
-    BUFFER *wb = buffer_create(1024);
+    BUFFER *wb = buffer_create(1024, &netdata_buffers_statistics.buffers_aclk);
     struct tm *tmptr, tmbuf;
     char *ret;
 

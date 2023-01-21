@@ -726,15 +726,15 @@ static long query_plan_points_coverage_weight(time_t db_first_time_s, time_t db_
         db_last_time_s < after_wanted)
         return -LONG_MAX;
 
-    time_t common_first_t = MAX(db_first_time_s, after_wanted);
-    time_t common_last_t = MIN(db_last_time_s, before_wanted);
+    long long common_first_t = MAX(db_first_time_s, after_wanted);
+    long long common_last_t = MIN(db_last_time_s, before_wanted);
 
-    long time_coverage = (common_last_t - common_first_t) * 1000000 / (before_wanted - after_wanted);
-    size_t points_wanted_in_coverage = points_wanted * time_coverage / 1000000;
+    long long time_coverage = (common_last_t - common_first_t) * 1000000LL / (before_wanted - after_wanted);
+    long long points_wanted_in_coverage = (long long)points_wanted * time_coverage / 1000000LL;
 
-    long points_available = (common_last_t - common_first_t) / db_update_every_s;
-    long points_delta = (long)(points_available - points_wanted_in_coverage);
-    long points_coverage = (points_delta < 0) ? (long)(points_available * time_coverage / points_wanted_in_coverage) : time_coverage;
+    long long points_available = (common_last_t - common_first_t) / db_update_every_s;
+    long long points_delta = (long)(points_available - points_wanted_in_coverage);
+    long long points_coverage = (points_delta < 0) ? (long)(points_available * time_coverage / points_wanted_in_coverage) : time_coverage;
 
     // a way to benefit higher tiers
     // points_coverage += (long)tier * 10000;
@@ -742,7 +742,7 @@ static long query_plan_points_coverage_weight(time_t db_first_time_s, time_t db_
     if(points_available <= 0)
         return -LONG_MAX;
 
-    return points_coverage + (long)(25000 * tier); // 2.5% benefit for each higher tier
+    return (long)(points_coverage + (25000LL * tier)); // 2.5% benefit for each higher tier
 }
 
 static size_t query_metric_best_tier_for_timeframe(QUERY_METRIC *qm, time_t after_wanted, time_t before_wanted, size_t points_wanted) {
@@ -1550,7 +1550,7 @@ void rrdr_fill_tier_gap_from_smaller_tiers(RRDDIM *rd, size_t tier, time_t now_s
     if(unlikely(tier >= storage_tiers)) return;
     if(storage_tiers_backfill[tier] == RRD_BACKFILL_NONE) return;
 
-    struct rrddim_tier *t = rd->tiers[tier];
+    struct rrddim_tier *t = &rd->tiers[tier];
     if(unlikely(!t)) return;
 
     time_t latest_time_s = t->query_ops->latest_time_s(t->db_metric_handle);
@@ -1567,14 +1567,14 @@ void rrdr_fill_tier_gap_from_smaller_tiers(RRDDIM *rd, size_t tier, time_t now_s
 
     // for each lower tier
     for(int read_tier = (int)tier - 1; read_tier >= 0 ; read_tier--){
-        time_t smaller_tier_first_time = rd->tiers[read_tier]->query_ops->oldest_time_s(rd->tiers[read_tier]->db_metric_handle);
-        time_t smaller_tier_last_time = rd->tiers[read_tier]->query_ops->latest_time_s(rd->tiers[read_tier]->db_metric_handle);
+        time_t smaller_tier_first_time = rd->tiers[read_tier].query_ops->oldest_time_s(rd->tiers[read_tier].db_metric_handle);
+        time_t smaller_tier_last_time = rd->tiers[read_tier].query_ops->latest_time_s(rd->tiers[read_tier].db_metric_handle);
         if(smaller_tier_last_time <= latest_time_s) continue;  // it is as bad as we are
 
         long after_wanted = (latest_time_s < smaller_tier_first_time) ? smaller_tier_first_time : latest_time_s;
         long before_wanted = smaller_tier_last_time;
 
-        struct rrddim_tier *tmp = rd->tiers[read_tier];
+        struct rrddim_tier *tmp = &rd->tiers[read_tier];
         tmp->query_ops->init(tmp->db_metric_handle, &handle, after_wanted, before_wanted, STORAGE_PRIORITY_HIGH);
 
         size_t points_read = 0;

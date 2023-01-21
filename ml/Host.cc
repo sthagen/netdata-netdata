@@ -142,6 +142,9 @@ void Host::detectOnce() {
         TSCopy.RemainingUT = 0;
     }
 
+    if(!RH)
+        return;
+
     worker_is_busy(WORKER_JOB_DETECTION_DIM_CHART);
     updateDimensionsChart(RH, MLSCopy);
 
@@ -337,10 +340,10 @@ void Host::startAnomalyDetectionThreads() {
 
     char Tag[NETDATA_THREAD_TAG_MAX + 1];
 
-    snprintfz(Tag, NETDATA_THREAD_TAG_MAX, "TRAIN[%s]", rrdhost_hostname(RH));
+    snprintfz(Tag, NETDATA_THREAD_TAG_MAX, "MLTR[%s]", rrdhost_hostname(RH));
     netdata_thread_create(&TrainingThread, Tag, NETDATA_THREAD_OPTION_DEFAULT, train_main, static_cast<void *>(this));
 
-    snprintfz(Tag, NETDATA_THREAD_TAG_MAX, "DETECT[%s]", rrdhost_hostname(RH));
+    snprintfz(Tag, NETDATA_THREAD_TAG_MAX, "MLDT[%s]", rrdhost_hostname(RH));
     netdata_thread_create(&DetectionThread, Tag, NETDATA_THREAD_OPTION_DEFAULT, detect_main, static_cast<void *>(this));
 }
 

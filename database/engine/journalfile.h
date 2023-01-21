@@ -17,13 +17,33 @@ struct rrdengine_journalfile;
 
 #define is_descr_journal_v2(descr) ((descr)->extent_entry != NULL)
 
+typedef enum __attribute__ ((__packed__)) {
+    JOURNALFILE_FLAG_IS_AVAILABLE          = (1 << 0),
+    JOURNALFILE_FLAG_IS_MOUNTED            = (1 << 1),
+    JOURNALFILE_FLAG_MOUNTED_FOR_RETENTION = (1 << 2),
+} JOURNALFILE_FLAGS;
+
 /* only one event loop is supported for now */
 struct rrdengine_journalfile {
+    struct {
+        SPINLOCK spinlock;
+        void *data;                    // MMAPed file of journal v2
+        uint32_t size;                 // Total file size mapped
+        int fd;
+    } mmap;
+
+    struct {
+        SPINLOCK spinlock;
+        JOURNALFILE_FLAGS flags;
+        int32_t refcount;
+        time_t first_time_s;
+        time_t last_time_s;
+        time_t not_needed_since_s;
+    } v2;
+
     uv_file file;
     uint64_t pos;
     void *data;
-    void *journal_data;                         // MMAPed file of journal v2
-    uint32_t journal_data_size;                 // Total file size mapped
     struct rrdengine_datafile *datafile;
 };
 
@@ -94,36 +114,37 @@ struct journal_v2_header {
     uint32_t page_offset;
     uint32_t extent_trailer_offset;     // CRC for entent list
     uint32_t metric_trailer_offset;     // CRC for metric list
-    uint32_t original_file_size;        // This is the original journal file
-    uint32_t total_file_size;           // This is the total file size
+    uint32_t journal_v1_file_size;      // This is the original journal file
+    uint32_t journal_v2_file_size;      // This is the total file size
     void *data;                         // Used when building the index
 };
 
 #define JOURNAL_V2_HEADER_PADDING_SZ (RRDENG_BLOCK_SIZE - (sizeof(struct journal_v2_header)))
 
-
-
-/* only one event loop is supported for now */
-struct transaction_commit_log {
-    uint64_t transaction_id;
-};
-
 struct wal;
 
-void generate_journalfilepath(struct rrdengine_datafile *datafile, char *str, size_t maxlen);
-void generate_journalfilepath_v2(struct rrdengine_datafile *datafile, char *str, size_t maxlen);
-void journalfile_init(struct rrdengine_journalfile *journalfile, struct rrdengine_datafile *datafile);
+void journalfile_v1_generate_path(struct rrdengine_datafile *datafile, char *str, size_t maxlen);
+void journalfile_v2_generate_path(struct rrdengine_datafile *datafile, char *str, size_t maxlen);
+struct rrdengine_journalfile *journalfile_alloc_and_init(struct rrdengine_datafile *datafile);
 void wal_flush_transaction_buffer(struct rrdengine_instance *ctx, struct rrdengine_datafile *datafile, struct wal *wal, uv_loop_t *loop);
-int close_journal_file(struct rrdengine_journalfile *journalfile, struct rrdengine_datafile *datafile);
-int unlink_journal_file(struct rrdengine_journalfile *journalfile);
-int destroy_journal_file_unsafe(struct rrdengine_journalfile *journalfile, struct rrdengine_datafile *datafile);
-int create_journal_file(struct rrdengine_journalfile *journalfile, struct rrdengine_datafile *datafile);
-int load_journal_file(struct rrdengine_instance *ctx, struct rrdengine_journalfile *journalfile,
-                             struct rrdengine_datafile *datafile);
-void init_commit_log(struct rrdengine_instance *ctx);
+int journalfile_close(struct rrdengine_journalfile *journalfile, struct rrdengine_datafile *datafile);
+int journalfile_unlink(struct rrdengine_journalfile *journalfile);
+int journalfile_destroy_unsafe(struct rrdengine_journalfile *journalfile, struct rrdengine_datafile *datafile);
+int journalfile_create(struct rrdengine_journalfile *journalfile, struct rrdengine_datafile *datafile);
+int journalfile_load(struct rrdengine_instance *ctx, struct rrdengine_journalfile *journalfile,
+                     struct rrdengine_datafile *datafile);
+void journalfile_v2_populate_retention_to_mrg(struct rrdengine_instance *ctx, struct rrdengine_journalfile *journalfile);
 
-void do_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno __maybe_unused, uint8_t type __maybe_unused,
-                               Pvoid_t JudyL_metrics, Pvoid_t JudyL_extents_pos,
-                               size_t number_of_extents, size_t number_of_metrics, size_t number_of_pages, void *user_data);
+void journalfile_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno __maybe_unused, uint8_t type __maybe_unused,
+                                        Pvoid_t JudyL_metrics, Pvoid_t JudyL_extents_pos,
+                                        size_t number_of_extents, size_t number_of_metrics, size_t number_of_pages, void *user_data);
+
+
+bool journalfile_v2_data_available(struct rrdengine_journalfile *journalfile);
+size_t journalfile_v2_data_size_get(struct rrdengine_journalfile *journalfile);
+void journalfile_v2_data_set(struct rrdengine_journalfile *journalfile, int fd, void *journal_data, uint32_t journal_data_size);
+struct journal_v2_header *journalfile_v2_data_acquire(struct rrdengine_journalfile *journalfile, size_t *data_size, time_t wanted_first_time_s, time_t wanted_last_time_s);
+void journalfile_v2_data_release(struct rrdengine_journalfile *journalfile);
+void journalfile_v2_data_unmount_cleanup(time_t now_s);
 
 #endif /* NETDATA_JOURNALFILE_H */

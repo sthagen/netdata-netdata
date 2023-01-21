@@ -3,9 +3,10 @@
 #include "replication.h"
 #include "Judy.h"
 
-#define STREAMING_START_MAX_SENDER_BUFFER_PERCENTAGE_ALLOWED 50
-#define MAX_SENDER_BUFFER_PERCENTAGE_ALLOWED 50
-#define MIN_SENDER_BUFFER_PERCENTAGE_ALLOWED 10
+#define STREAMING_START_MAX_SENDER_BUFFER_PERCENTAGE_ALLOWED 50ULL
+#define MAX_REPLICATION_MESSAGE_PERCENT_SENDER_BUFFER 25ULL
+#define MAX_SENDER_BUFFER_PERCENTAGE_ALLOWED 50ULL
+#define MIN_SENDER_BUFFER_PERCENTAGE_ALLOWED 10ULL
 
 #define WORKER_JOB_FIND_NEXT                            1
 #define WORKER_JOB_QUERYING                             2
@@ -45,6 +46,12 @@ struct replication_query_statistics replication_get_query_statistics(void) {
     return ret;
 }
 
+size_t replication_buffers_allocated = 0;
+
+size_t replication_allocated_buffers(void) {
+    return __atomic_load_n(&replication_buffers_allocated, __ATOMIC_RELAXED);
+}
+
 // ----------------------------------------------------------------------------
 // sending replication replies
 
@@ -80,6 +87,7 @@ struct replication_query {
 
         bool locked_data_collection;
         bool execute;
+        bool interrupted;
     } query;
 
     time_t wall_clock_time;
@@ -107,6 +115,8 @@ static struct replication_query *replication_query_prepare(
 ) {
     size_t dimensions = rrdset_number_of_dimensions(st);
     struct replication_query *q = callocz(1, sizeof(struct replication_query) + dimensions * sizeof(struct replication_dimension));
+    __atomic_add_fetch(&replication_buffers_allocated, sizeof(struct replication_query) + dimensions * sizeof(struct replication_dimension), __ATOMIC_RELAXED);
+
     q->dimensions = dimensions;
     q->st = st;
 
@@ -168,7 +178,7 @@ static struct replication_query *replication_query_prepare(
         d->rda = dictionary_acquired_item_dup(rd_dfe.dict, rd_dfe.item);
         d->rd = rd;
 
-        q->ops->init(rd->tiers[0]->db_metric_handle, &d->handle, q->query.after, q->query.before,
+        q->ops->init(rd->tiers[0].db_metric_handle, &d->handle, q->query.after, q->query.before,
                      q->query.locked_data_collection ? STORAGE_PRIORITY_HIGH : STORAGE_PRIORITY_LOW);
         d->enabled = true;
         d->skip = false;
@@ -196,8 +206,7 @@ static struct replication_query *replication_query_prepare(
     return q;
 }
 
-static time_t replication_query_finalize(struct replication_query *q, bool executed) {
-    time_t query_before = q->query.before;
+static void replication_query_finalize(struct replication_query *q, bool executed) {
     size_t dimensions = q->dimensions;
 
     // release all the dictionary items acquired
@@ -230,9 +239,8 @@ static time_t replication_query_finalize(struct replication_query *q, bool execu
         netdata_spinlock_unlock(&replication_queries.spinlock);
     }
 
+    __atomic_sub_fetch(&replication_buffers_allocated, sizeof(struct replication_query) + dimensions * sizeof(struct replication_dimension), __ATOMIC_RELAXED);
     freez(q);
-
-    return query_before;
 }
 
 static void replication_query_align_to_optimal_before(struct replication_query *q) {
@@ -258,10 +266,7 @@ static void replication_query_align_to_optimal_before(struct replication_query *
         q->query.before = expanded_before;
 }
 
-static time_t replication_query_execute_and_finalize(BUFFER *wb, struct replication_query *q) {
-    if(!q->query.execute)
-        return replication_query_finalize(q, false);
-
+static void replication_query_execute(BUFFER *wb, struct replication_query *q, size_t max_msg_size) {
     replication_query_align_to_optimal_before(q);
 
     time_t after = q->query.after;
@@ -277,6 +282,7 @@ static time_t replication_query_execute_and_finalize(BUFFER *wb, struct replicat
 #endif
 
     time_t now = after + 1;
+    time_t last_end_time_in_buffer = 0;
     while(now <= before) {
         time_t min_start_time = 0, min_end_time = 0;
         for (size_t i = 0; i < dimensions ;i++) {
@@ -332,6 +338,20 @@ static time_t replication_query_execute_and_finalize(BUFFER *wb, struct replicat
             actual_before = min_end_time;
 #endif
 
+            if(buffer_strlen(wb) > max_msg_size && last_end_time_in_buffer) {
+                internal_error(true, "REPLICATION: buffer size %zu is more than the max message size %zu for chart '%s' of host '%s'."
+                                     "Interrupting replication query at %ld, before the expected %ld.",
+                               buffer_strlen(wb), max_msg_size, rrdset_id(q->st), rrdhost_hostname(q->st->rrdhost),
+                               last_end_time_in_buffer, q->query.before);
+
+                q->query.before = last_end_time_in_buffer;
+                q->query.enable_streaming = false;
+                q->query.interrupted = true;
+
+                break;
+            }
+            last_end_time_in_buffer = min_end_time;
+
             buffer_sprintf(wb, PLUGINSD_KEYWORD_REPLAY_BEGIN " '' %llu %llu %llu\n",
                            (unsigned long long) min_start_time,
                            (unsigned long long) min_end_time,
@@ -381,7 +401,6 @@ static time_t replication_query_execute_and_finalize(BUFFER *wb, struct replicat
 
     q->points_read = points_read;
     q->points_generated = points_generated;
-    return replication_query_finalize(q, true);
 }
 
 static void replication_send_chart_collection_state(BUFFER *wb, RRDSET *st) {
@@ -445,13 +464,10 @@ void replication_response_cancel_and_finalize(struct replication_query *q) {
 
 static bool sender_is_still_connected_for_this_request(struct replication_request *rq);
 
-bool replication_response_execute_and_finalize(struct replication_query *q) {
+bool replication_response_execute_and_finalize(struct replication_query *q, size_t max_msg_size) {
     struct replication_request *rq = q->rq;
     RRDSET *st = q->st;
     RRDHOST *host = st->rrdhost;
-    time_t after = q->request.after;
-    time_t before; // the query will report this
-    bool enable_streaming = q->query.enable_streaming;
 
     // we might want to optimize this by filling a temporary buffer
     // and copying the result to the host's buffer in order to avoid
@@ -463,10 +479,15 @@ bool replication_response_execute_and_finalize(struct replication_query *q) {
     bool locked_data_collection = q->query.locked_data_collection;
     q->query.locked_data_collection = false;
 
-    before = replication_query_execute_and_finalize(wb, q);
+    if(q->query.execute)
+        replication_query_execute(wb, q, max_msg_size);
 
-    // IMPORTANT: q is invalid now
-    q = NULL;
+    time_t after = q->request.after;
+    time_t before = q->query.before;
+    bool enable_streaming = q->query.enable_streaming;
+
+    replication_query_finalize(q, q->query.execute);
+    q = NULL; // IMPORTANT: q is invalid now
 
     // get again the world clock time
     if(enable_streaming)
@@ -805,6 +826,7 @@ static struct replication_thread {
     struct {
         size_t executed;                // the number of replication requests executed
         size_t latest_first_time;       // the 'after' timestamp of the last request we executed
+        size_t memory;                  // the total memory allocated by replication
     } atomic;                           // access should be with atomic operations
 
     struct {
@@ -837,6 +859,7 @@ static struct replication_thread {
         .atomic = {
                 .executed = 0,
                 .latest_first_time = 0,
+                .memory = 0,
         },
         .main_thread = {
                 .last_executed = 0,
@@ -844,6 +867,10 @@ static struct replication_thread {
                 .threads_ptrs = NULL,
         },
 };
+
+size_t replication_allocated_memory(void) {
+    return __atomic_load_n(&replication_globals.atomic.memory, __ATOMIC_RELAXED);
+}
 
 #define replication_set_latest_first_time(t) __atomic_store_n(&replication_globals.atomic.latest_first_time, t, __ATOMIC_RELAXED)
 #define replication_get_latest_first_time() __atomic_load_n(&replication_globals.atomic.latest_first_time, __ATOMIC_RELAXED)
@@ -897,6 +924,7 @@ static struct replication_sort_entry *replication_sort_entry_create_unsafe(struc
     fatal_when_replication_is_not_locked_for_me();
 
     struct replication_sort_entry *rse = mallocz(sizeof(struct replication_sort_entry));
+    __atomic_add_fetch(&replication_globals.atomic.memory, sizeof(struct replication_sort_entry), __ATOMIC_RELAXED);
 
     rrdpush_sender_pending_replication_requests_plus_one(rq->sender);
 
@@ -914,6 +942,7 @@ static struct replication_sort_entry *replication_sort_entry_create_unsafe(struc
 
 static void replication_sort_entry_destroy(struct replication_sort_entry *rse) {
     freez(rse);
+    __atomic_sub_fetch(&replication_globals.atomic.memory, sizeof(struct replication_sort_entry), __ATOMIC_RELAXED);
 }
 
 static void replication_sort_entry_add(struct replication_request *rq) {
@@ -947,12 +976,19 @@ static void replication_sort_entry_add(struct replication_request *rq) {
     Pvoid_t *inner_judy_ptr;
 
     // find the outer judy entry, using after as key
-    inner_judy_ptr = JudyLGet(replication_globals.unsafe.queue.JudyL_array, (Word_t) rq->after, PJE0);
-    if(!inner_judy_ptr)
-        inner_judy_ptr = JudyLIns(&replication_globals.unsafe.queue.JudyL_array, (Word_t) rq->after, PJE0);
+    size_t mem_before_outer_judyl = JudyLMemUsed(replication_globals.unsafe.queue.JudyL_array);
+    inner_judy_ptr = JudyLIns(&replication_globals.unsafe.queue.JudyL_array, (Word_t) rq->after, PJE0);
+    size_t mem_after_outer_judyl = JudyLMemUsed(replication_globals.unsafe.queue.JudyL_array);
+    if(unlikely(!inner_judy_ptr || inner_judy_ptr == PJERR))
+        fatal("REPLICATION: corrupted outer judyL");
 
     // add it to the inner judy, using unique_id as key
+    size_t mem_before_inner_judyl = JudyLMemUsed(*inner_judy_ptr);
     Pvoid_t *item = JudyLIns(inner_judy_ptr, rq->unique_id, PJE0);
+    size_t mem_after_inner_judyl = JudyLMemUsed(*inner_judy_ptr);
+    if(unlikely(!item || item == PJERR))
+        fatal("REPLICATION: corrupted inner judyL");
+
     *item = rse;
     rq->indexed_in_judy = true;
     rq->not_indexed_buffer_full = false;
@@ -962,6 +998,8 @@ static void replication_sort_entry_add(struct replication_request *rq) {
         replication_globals.unsafe.first_time_t = rq->after;
 
     replication_recursive_unlock();
+
+    __atomic_add_fetch(&replication_globals.atomic.memory, (mem_after_inner_judyl - mem_before_inner_judyl) + (mem_after_outer_judyl - mem_before_outer_judyl), __ATOMIC_RELAXED);
 }
 
 static bool replication_sort_entry_unlink_and_free_unsafe(struct replication_sort_entry *rse, Pvoid_t **inner_judy_ppptr, bool preprocessing) {
@@ -977,17 +1015,27 @@ static bool replication_sort_entry_unlink_and_free_unsafe(struct replication_sor
     rse->rq->indexed_in_judy = false;
     rse->rq->not_indexed_preprocessing = preprocessing;
 
+    size_t memory_saved = 0;
+
     // delete it from the inner judy
+    size_t mem_before_inner_judyl = JudyLMemUsed(**inner_judy_ppptr);
     JudyLDel(*inner_judy_ppptr, rse->rq->unique_id, PJE0);
+    size_t mem_after_inner_judyl = JudyLMemUsed(**inner_judy_ppptr);
+    memory_saved = mem_before_inner_judyl - mem_after_inner_judyl;
 
     // if no items left, delete it from the outer judy
     if(**inner_judy_ppptr == NULL) {
+        size_t mem_before_outer_judyl = JudyLMemUsed(replication_globals.unsafe.queue.JudyL_array);
         JudyLDel(&replication_globals.unsafe.queue.JudyL_array, rse->rq->after, PJE0);
+        size_t mem_after_outer_judyl = JudyLMemUsed(replication_globals.unsafe.queue.JudyL_array);
+        memory_saved += mem_before_outer_judyl - mem_after_outer_judyl;
         inner_judy_deleted = true;
     }
 
     // free memory
     replication_sort_entry_destroy(rse);
+
+    __atomic_sub_fetch(&replication_globals.atomic.memory, memory_saved, __ATOMIC_RELAXED);
 
     return inner_judy_deleted;
 }
@@ -1204,7 +1252,8 @@ static bool replication_execute_request(struct replication_request *rq, bool wor
 
     // send the replication data
     rq->q->rq = rq;
-    replication_response_execute_and_finalize(rq->q);
+    replication_response_execute_and_finalize(
+            rq->q, (size_t)((unsigned long long)rq->sender->host->sender->buffer->max_size * MAX_REPLICATION_MESSAGE_PERCENT_SENDER_BUFFER / 100ULL));
 
     netdata_thread_enable_cancelability();
 
@@ -1404,11 +1453,16 @@ static int replication_execute_next_pending_request(void) {
     struct replication_request *rq;
 
     if(unlikely(!rqs)) {
-        max_requests_ahead = libuv_worker_threads * 2;
+        max_requests_ahead = get_system_cpus() / 2;
+
+        if(max_requests_ahead > libuv_worker_threads * 2)
+            max_requests_ahead = libuv_worker_threads * 2;
+
         if(max_requests_ahead < 2)
             max_requests_ahead = 2;
 
         rqs = callocz(max_requests_ahead, sizeof(struct replication_request));
+        __atomic_add_fetch(&replication_buffers_allocated, max_requests_ahead * sizeof(struct replication_request), __ATOMIC_RELAXED);
     }
 
     // fill the queue
@@ -1499,6 +1553,7 @@ static void *replication_worker_thread(void *ptr) {
 
     while(service_running(SERVICE_REPLICATION)) {
         if(unlikely(replication_execute_next_pending_request() == REQUEST_QUEUE_EMPTY)) {
+            sender_thread_buffer_free();
             worker_is_busy(WORKER_JOB_WAIT);
             worker_is_idle();
             sleep_usec(1 * USEC_PER_SEC);
@@ -1517,9 +1572,11 @@ static void replication_main_cleanup(void *ptr) {
     for(int i = 0; i < threads ;i++) {
         netdata_thread_join(*replication_globals.main_thread.threads_ptrs[i], NULL);
         freez(replication_globals.main_thread.threads_ptrs[i]);
+        __atomic_sub_fetch(&replication_buffers_allocated, sizeof(netdata_thread_t), __ATOMIC_RELAXED);
     }
     freez(replication_globals.main_thread.threads_ptrs);
     replication_globals.main_thread.threads_ptrs = NULL;
+    __atomic_sub_fetch(&replication_buffers_allocated, threads * sizeof(netdata_thread_t *), __ATOMIC_RELAXED);
 
     // custom code
     worker_unregister();
@@ -1539,10 +1596,14 @@ void *replication_thread_main(void *ptr __maybe_unused) {
     if(--threads) {
         replication_globals.main_thread.threads = threads;
         replication_globals.main_thread.threads_ptrs = mallocz(threads * sizeof(netdata_thread_t *));
+        __atomic_add_fetch(&replication_buffers_allocated, threads * sizeof(netdata_thread_t *), __ATOMIC_RELAXED);
 
         for(int i = 0; i < threads ;i++) {
+            char tag[NETDATA_THREAD_TAG_MAX + 1];
+            snprintfz(tag, NETDATA_THREAD_TAG_MAX, "REPLAY[%d]", i + 2);
             replication_globals.main_thread.threads_ptrs[i] = mallocz(sizeof(netdata_thread_t));
-            netdata_thread_create(replication_globals.main_thread.threads_ptrs[i], "REPLICATION",
+            __atomic_add_fetch(&replication_buffers_allocated, sizeof(netdata_thread_t), __ATOMIC_RELAXED);
+            netdata_thread_create(replication_globals.main_thread.threads_ptrs[i], tag,
                                   NETDATA_THREAD_OPTION_JOINABLE, replication_worker_thread, NULL);
         }
     }
@@ -1630,14 +1691,16 @@ void *replication_thread_main(void *ptr __maybe_unused) {
             // the timeout also defines now frequently we will traverse all the pending requests
             // when the outbound buffers of all senders is full
             usec_t timeout;
-            if(slow)
+            if(slow) {
                 // no work to be done, wait for a request to come in
                 timeout = 1000 * USEC_PER_MS;
+                sender_thread_buffer_free();
+            }
 
             else if(replication_globals.unsafe.pending > 0) {
-                if(replication_globals.unsafe.sender_resets == last_sender_resets) {
+                if(replication_globals.unsafe.sender_resets == last_sender_resets)
                     timeout = 1000 * USEC_PER_MS;
-                }
+
                 else {
                     // there are pending requests waiting to be executed,
                     // but none could be executed at this time.

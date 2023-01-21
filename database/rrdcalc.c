@@ -627,7 +627,7 @@ static void rrdcalc_rrdhost_delete_callback(const DICTIONARY_ITEM *item __maybe_
 
 void rrdcalc_rrdhost_index_init(RRDHOST *host) {
     if(!host->rrdcalc_root_index) {
-        host->rrdcalc_root_index = dictionary_create(DICT_OPTION_DONT_OVERWRITE_VALUE);
+        host->rrdcalc_root_index = dictionary_create_advanced(DICT_OPTION_DONT_OVERWRITE_VALUE, &dictionary_stats_category_rrdhealth);
 
         dictionary_register_insert_callback(host->rrdcalc_root_index, rrdcalc_rrdhost_insert_callback, NULL);
         dictionary_register_conflict_callback(host->rrdcalc_root_index, rrdcalc_rrdhost_conflict_callback, NULL);
@@ -739,7 +739,7 @@ void rrdcalc_delete_alerts_not_matching_host_labels_from_this_host(RRDHOST *host
             continue;
 
         if(!rrdlabels_match_simple_pattern_parsed(host->rrdlabels, rc->host_labels_pattern, '=')) {
-            info("Health configuration for alarm '%s' cannot be applied, because the host %s does not have the label(s) '%s'",
+            log_health("Health configuration for alarm '%s' cannot be applied, because the host %s does not have the label(s) '%s'",
                  rrdcalc_name(rc),
                  rrdhost_hostname(host),
                  rrdcalc_host_labels(rc));
@@ -755,7 +755,7 @@ void rrdcalc_delete_alerts_not_matching_host_labels_from_all_hosts() {
 
     RRDHOST *host;
     rrdhost_foreach_read(host) {
-        if (unlikely(!host->health_enabled))
+        if (unlikely(!host->health.health_enabled))
             continue;
 
         if (host->rrdlabels)

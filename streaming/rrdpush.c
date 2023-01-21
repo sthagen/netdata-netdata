@@ -373,6 +373,7 @@ bool rrdset_push_chart_definition_now(RRDSET *st) {
     BUFFER *wb = sender_start(host->sender);
     rrdpush_send_chart_definition(wb, st);
     sender_commit(host->sender, wb);
+    sender_thread_buffer_free();
 
     return true;
 }
@@ -437,6 +438,8 @@ void rrdpush_send_host_labels(RRDHOST *host) {
     buffer_sprintf(wb, "OVERWRITE %s\n", "labels");
 
     sender_commit(host->sender, wb);
+
+    sender_thread_buffer_free();
 }
 
 void rrdpush_claimed_id(RRDHOST *host)
@@ -454,6 +457,8 @@ void rrdpush_claimed_id(RRDHOST *host)
 
     rrdhost_aclk_state_unlock(host);
     sender_commit(host->sender, wb);
+
+    sender_thread_buffer_free();
 }
 
 int connect_to_one_of_destinations(
@@ -515,6 +520,8 @@ bool destinations_init_add_one(char *entry, void *data) {
     struct rrdpush_destinations *d = callocz(1, sizeof(struct rrdpush_destinations));
     d->destination = string_strdupz(entry);
 
+    __atomic_add_fetch(&netdata_buffers_statistics.rrdhost_senders, sizeof(struct rrdpush_destinations), __ATOMIC_RELAXED);
+
     DOUBLE_LINKED_LIST_APPEND_UNSAFE(t->list, d, prev, next);
 
     t->count++;
@@ -545,6 +552,7 @@ void rrdpush_destinations_free(RRDHOST *host) {
         DOUBLE_LINKED_LIST_REMOVE_UNSAFE(host->destinations, tmp, prev, next);
         string_freez(tmp->destination);
         freez(tmp);
+        __atomic_sub_fetch(&netdata_buffers_statistics.rrdhost_senders, sizeof(struct rrdpush_destinations), __ATOMIC_RELAXED);
     }
 
     host->destinations = NULL;
@@ -597,7 +605,7 @@ static void rrdpush_sender_thread_spawn(RRDHOST *host) {
 
     if(!rrdhost_flag_check(host, RRDHOST_FLAG_RRDPUSH_SENDER_SPAWN)) {
         char tag[NETDATA_THREAD_TAG_MAX + 1];
-        snprintfz(tag, NETDATA_THREAD_TAG_MAX, "STREAM_SENDER[%s]", rrdhost_hostname(host));
+        snprintfz(tag, NETDATA_THREAD_TAG_MAX, THREAD_TAG_STREAM_SENDER "[%s]", rrdhost_hostname(host));
 
         if(netdata_thread_create(&host->rrdpush_sender_thread, tag, NETDATA_THREAD_OPTION_DEFAULT, rrdpush_sender_thread, (void *) host->sender))
             error("STREAM %s [send]: failed to create new thread for client.", rrdhost_hostname(host));
@@ -633,9 +641,13 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *url) {
     struct receiver_state *rpt = callocz(1, sizeof(*rpt));
     rpt->last_msg_t = now_realtime_sec();
     rpt->capabilities = STREAM_CAP_INVALID;
+    rpt->hops = 1;
+
+    __atomic_add_fetch(&netdata_buffers_statistics.rrdhost_receivers, sizeof(*rpt), __ATOMIC_RELAXED);
+    __atomic_add_fetch(&netdata_buffers_statistics.rrdhost_allocations_size, sizeof(struct rrdhost_system_info), __ATOMIC_RELAXED);
 
     rpt->system_info = callocz(1, sizeof(struct rrdhost_system_info));
-    rpt->system_info->hops = 1;
+    rpt->system_info->hops = rpt->hops;
 
     rpt->fd                = w->ifd;
     rpt->client_ip         = strdupz(w->client_ip);
@@ -689,7 +701,7 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *url) {
             rpt->utc_offset = (int32_t)strtol(value, NULL, 0);
 
         else if(!strcmp(name, "hops"))
-            rpt->system_info->hops = (uint16_t) strtoul(value, NULL, 0);
+            rpt->hops = rpt->system_info->hops = (uint16_t) strtoul(value, NULL, 0);
 
         else if(!strcmp(name, "ml_capable"))
             rpt->system_info->ml_capable = strtoul(value, NULL, 0);
@@ -1035,7 +1047,7 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *url) {
     debug(D_SYSTEM, "starting STREAM receive thread.");
 
     char tag[FILENAME_MAX + 1];
-    snprintfz(tag, FILENAME_MAX, "STREAM_RECEIVER[%s,[%s]:%s]", rpt->hostname, w->client_ip, w->client_port);
+    snprintfz(tag, FILENAME_MAX, THREAD_TAG_STREAM_RECEIVER "[%s,[%s]:%s]", rpt->hostname, w->client_ip, w->client_port);
 
     if(netdata_thread_create(&rpt->thread, tag, NETDATA_THREAD_OPTION_DEFAULT, rrdpush_receiver_thread, (void *)rpt)) {
         rrdpush_receive_log_status(
@@ -1068,7 +1080,7 @@ static void stream_capabilities_to_string(BUFFER *wb, STREAM_CAPABILITIES caps) 
 }
 
 void log_receiver_capabilities(struct receiver_state *rpt) {
-    BUFFER *wb = buffer_create(100);
+    BUFFER *wb = buffer_create(100, NULL);
     stream_capabilities_to_string(wb, rpt->capabilities);
 
     info("STREAM %s [receive from [%s]:%s]: established link with negotiated capabilities: %s",
@@ -1078,7 +1090,7 @@ void log_receiver_capabilities(struct receiver_state *rpt) {
 }
 
 void log_sender_capabilities(struct sender_state *s) {
-    BUFFER *wb = buffer_create(100);
+    BUFFER *wb = buffer_create(100, NULL);
     stream_capabilities_to_string(wb, s->capabilities);
 
     info("STREAM %s [send to %s]: established link with negotiated capabilities: %s",

@@ -45,13 +45,16 @@ typedef enum __attribute__ ((__packed__)) {
 } QUERY_SOURCE;
 
 typedef enum __attribute__ ((__packed__)) storage_priority {
-    STORAGE_PRIORITY_CRITICAL = 0,
+    STORAGE_PRIORITY_INTERNAL_DBENGINE = 0,
+    STORAGE_PRIORITY_INTERNAL_QUERY_PREP,
+
+    // query priorities
     STORAGE_PRIORITY_HIGH,
     STORAGE_PRIORITY_NORMAL,
     STORAGE_PRIORITY_LOW,
     STORAGE_PRIORITY_BEST_EFFORT,
 
-    STORAGE_PRIO_MAX_DONT_USE,
+    STORAGE_PRIORITY_INTERNAL_MAX_DONT_USE,
 } STORAGE_PRIORITY;
 
 // forward declarations
@@ -120,8 +123,8 @@ typedef struct storage_point {
     time_t start_time_s;    // the time the point starts
     time_t end_time_s;      // the time the point ends
 
-    unsigned count;         // the number of original points aggregated
-    unsigned anomaly_count; // the number of original points found anomalous
+    size_t count;           // the number of original points aggregated
+    size_t anomaly_count;   // the number of original points found anomalous
 
     SN_FLAGS flags;         // flags stored with the point
 } STORAGE_POINT;
@@ -152,9 +155,16 @@ extern int default_rrd_history_entries;
 extern int gap_when_lost_iterations_above;
 extern time_t rrdset_free_obsolete_time_s;
 
+#if defined(ENV32BIT)
+#define MIN_LIBUV_WORKER_THREADS 8
+#define MAX_LIBUV_WORKER_THREADS 64
+#define RESERVED_LIBUV_WORKER_THREADS 3
+#else
 #define MIN_LIBUV_WORKER_THREADS 16
 #define MAX_LIBUV_WORKER_THREADS 128
 #define RESERVED_LIBUV_WORKER_THREADS 6
+#endif
+
 extern int libuv_worker_threads;
 
 #define RRD_ID_LENGTH_MAX 200
@@ -295,6 +305,25 @@ int rrdlabels_unittest(void);
 bool exporting_labels_filter_callback(const char *name, const char *value, RRDLABEL_SRC ls, void *data);
 
 // ----------------------------------------------------------------------------
+// engine-specific iterator state for dimension data collection
+typedef struct storage_collect_handle STORAGE_COLLECT_HANDLE;
+
+// ----------------------------------------------------------------------------
+// Storage tier data for every dimension
+
+struct rrddim_tier {
+    STORAGE_POINT virtual_point;
+    size_t tier_grouping;
+    time_t next_point_time_s;
+    STORAGE_METRIC_HANDLE *db_metric_handle;        // the metric handle inside the database
+    STORAGE_COLLECT_HANDLE *db_collection_handle;   // the data collection handle
+    struct storage_engine_collect_ops *collect_ops;
+    struct storage_engine_query_ops *query_ops;
+};
+
+void rrdr_fill_tier_gap_from_smaller_tiers(RRDDIM *rd, size_t tier, time_t now_s);
+
+// ----------------------------------------------------------------------------
 // RRD DIMENSION - this is a metric
 
 struct rrddim {
@@ -336,7 +365,7 @@ struct rrddim {
     // ------------------------------------------------------------------------
     // data collection members
 
-    struct rrddim_tier *tiers[RRD_STORAGE_TIERS];   // our tiers of databases
+    struct rrddim_tier tiers[RRD_STORAGE_TIERS];   // our tiers of databases
 
     struct timeval last_collected_time;             // when was this dimension last updated
                                                     // this is actual date time we updated the last_collected_value
@@ -409,10 +438,6 @@ void rrddim_memory_file_save(RRDDIM *rd);
 
 #define storage_point_is_unset(x) (!(x).count)
 #define storage_point_is_empty(x) (!netdata_double_isnumber((x).sum))
-
-// ----------------------------------------------------------------------------
-// engine-specific iterator state for dimension data collection
-typedef struct storage_collect_handle STORAGE_COLLECT_HANDLE;
 
 // ------------------------------------------------------------------------
 // function pointers that handle data collection
@@ -489,21 +514,6 @@ struct storage_engine {
 
 STORAGE_ENGINE* storage_engine_get(RRD_MEMORY_MODE mmode);
 STORAGE_ENGINE* storage_engine_find(const char* name);
-
-// ----------------------------------------------------------------------------
-// Storage tier data for every dimension
-
-struct rrddim_tier {
-    size_t tier_grouping;
-    STORAGE_METRIC_HANDLE *db_metric_handle;        // the metric handle inside the database
-    STORAGE_COLLECT_HANDLE *db_collection_handle;   // the data collection handle
-    STORAGE_POINT virtual_point;
-    time_t next_point_time_s;
-    struct storage_engine_collect_ops *collect_ops;
-    struct storage_engine_query_ops *query_ops;
-};
-
-void rrdr_fill_tier_gap_from_smaller_tiers(RRDDIM *rd, size_t tier, time_t now_s);
 
 // ----------------------------------------------------------------------------
 // these loop macros make sure the linked list is accessed with the right lock
@@ -888,6 +898,17 @@ typedef struct alarm_log {
     netdata_rwlock_t alarm_log_rwlock;
 } ALARM_LOG;
 
+typedef struct health {
+    unsigned int health_enabled;                   // 1 when this host has health enabled
+    time_t health_delay_up_to;                     // a timestamp to delay alarms processing up to
+    STRING *health_default_exec;                   // the full path of the alarms notifications program
+    STRING *health_default_recipient;              // the default recipient for all alarms
+    char *health_log_filename;                     // the alarms event log filename
+    size_t health_log_entries_written;             // the number of alarm events written to the alarms event log
+    FILE *health_log_fp;                           // the FILE pointer to the open alarms event log file
+    uint32_t health_default_warn_repeat_every;     // the default value for the interval between repeating warning notifications
+    uint32_t health_default_crit_repeat_every;     // the default value for the interval between repeating critical notifications
+} HEALTH;
 
 // ----------------------------------------------------------------------------
 // RRD HOST
@@ -1005,17 +1026,8 @@ struct rrdhost {
     // ------------------------------------------------------------------------
     // health monitoring options
 
-    unsigned int health_enabled;                   // 1 when this host has health enabled
-    bool health_spawn;                             // true when health thread is running
-    unsigned int aclk_alert_reloaded;              // 1 on thread start and health reload, 0 after removed are sent
-    time_t health_delay_up_to;                     // a timestamp to delay alarms processing up to
-    STRING *health_default_exec;                   // the full path of the alarms notifications program
-    STRING *health_default_recipient;              // the default recipient for all alarms
-    char *health_log_filename;                     // the alarms event log filename
-    size_t health_log_entries_written;             // the number of alarm events written to the alarms event log
-    FILE *health_log_fp;                           // the FILE pointer to the open alarms event log file
-    uint32_t health_default_warn_repeat_every;     // the default value for the interval between repeating warning notifications
-    uint32_t health_default_crit_repeat_every;     // the default value for the interval between repeating critical notifications
+    // health variables
+    HEALTH health;
 
     // all RRDCALCs are primarily allocated and linked here
     DICTIONARY *rrdcalc_root_index;

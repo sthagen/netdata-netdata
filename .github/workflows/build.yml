@@ -171,6 +171,7 @@ jobs:
   matrix: # Generate the shared build matrix for our build tests.
     name: Prepare Build Matrix
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -212,6 +213,7 @@ jobs:
   prepare-test-images: # Prepare the test environments for our build checks. This also checks dependency handling code for each tested environment.
     name: Prepare Test Environments
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     needs:
       - matrix
     env:
@@ -240,7 +242,7 @@ jobs:
             BASE=${{ matrix.distro }}
             PRE=${{ matrix.env_prep }}
             RMJSONC=${{ matrix.jsonc_removal }}
-          outputs: type=oci,dest=/tmp/image.tar
+          outputs: type=docker,dest=/tmp/image.tar
           tags: test:${{ matrix.artifact_key }}
       - name: Retry delay
         if: ${{ steps.build1.outcome == 'failure' }}
@@ -258,7 +260,7 @@ jobs:
             BASE=${{ matrix.distro }}
             PRE=${{ matrix.env_prep }}
             RMJSONC=${{ matrix.jsonc_removal }}
-          outputs: type=oci,dest=/tmp/image.tar
+          outputs: type=docker,dest=/tmp/image.tar
           tags: test:${{ matrix.artifact_key }}
       - name: Retry delay
         if: ${{ steps.build1.outcome == 'failure' && steps.build2.outcome == 'failure' }}
@@ -275,7 +277,7 @@ jobs:
             BASE=${{ matrix.distro }}
             PRE=${{ matrix.env_prep }}
             RMJSONC=${{ matrix.jsonc_removal }}
-          outputs: type=oci,dest=/tmp/image.tar
+          outputs: type=docker,dest=/tmp/image.tar
           tags: test:${{ matrix.artifact_key }}
       - name: Upload image artifact
         id: upload
@@ -312,6 +314,7 @@ jobs:
   source-build: # Test various source build arrangements.
     name: Test Source Build
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     needs:
       - matrix
       - prepare-test-images
@@ -332,29 +335,27 @@ jobs:
           name: ${{ matrix.artifact_key }}-test-env
       - name: Load test environment
         id: load
-        run: |
-          docker load --input image.tar | tee image-info.txt
-          echo "image=$(cut -d ':' -f 3 image-info.txt)" >> "${GITHUB_OUTPUT}"
+        run: docker load --input image.tar
       - name: Regular build on ${{ matrix.distro }}
         id: build-basic
         run: |
-          docker run --security-opt seccomp=unconfined -w /netdata sha256:${{ steps.load.outputs.image }} \
+          docker run --security-opt seccomp=unconfined -w /netdata test:${{ matrix.artifact_key }} \
               /bin/sh -c 'autoreconf -ivf && ./configure --disable-dependency-tracking && make -j2'
       - name: netdata-installer on ${{ matrix.distro }}, disable cloud
         id: build-no-cloud
         run: |
-          docker run --security-opt seccomp=unconfined -w /netdata sha256:${{ steps.load.outputs.image }} \
+          docker run --security-opt seccomp=unconfined -w /netdata test:${{ matrix.artifact_key }} \
               /bin/sh -c './netdata-installer.sh --dont-wait --dont-start-it --disable-cloud --one-time-build'
       - name: netdata-installer on ${{ matrix.distro }}, require cloud
         id: build-cloud
         run: |
-          docker run --security-opt seccomp=unconfined -w /netdata sha256:${{ steps.load.outputs.image }} \
+          docker run --security-opt seccomp=unconfined -w /netdata test:${{ matrix.artifact_key }} \
               /bin/sh -c './netdata-installer.sh --dont-wait --dont-start-it --require-cloud --one-time-build'
       - name: netdata-installer on ${{ matrix.distro }}, require cloud, no JSON-C
         id: build-no-jsonc
         if: matrix.jsonc_removal != ''
         run: |
-          docker run --security-opt seccomp=unconfined -w /netdata sha256:${{ steps.load.outputs.image }} \
+          docker run --security-opt seccomp=unconfined -w /netdata test:${{ matrix.artifact_key }} \
               /bin/sh -c '/rmjsonc.sh && ./netdata-installer.sh --dont-wait --dont-start-it --require-cloud --one-time-build'
       - name: Failure Notification
         uses: rtCamp/action-slack-notify@v2
@@ -385,6 +386,7 @@ jobs:
   updater-check: # Test the generated dist archive using the updater code.
     name: Test Generated Distfile and Updater Code
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     needs:
       - build-dist
       - matrix
@@ -413,10 +415,10 @@ jobs:
       - name: Prepare artifact directory
         id: prepare
         run: |
-          mkdir -p artifacts || exit 1
-          echo "9999.0.0-0" > artifacts/latest-version.txt || exit 1
-          cp dist-tarball/* artifacts || exit 1
-          cd artifacts || exit 1
+          mkdir -p artifacts/download/latest || exit 1
+          echo "9999.0.0-0" > artifacts/download/latest/latest-version.txt || exit 1
+          cp dist-tarball/* artifacts/download/latest || exit 1
+          cd artifacts/download/latest || exit 1
           ln -s ${{ needs.build-dist.outputs.distfile }} netdata-latest.tar.gz || exit 1
           sha256sum -b ./* > "sha256sums.txt" || exit 1
           cat sha256sums.txt
@@ -427,13 +429,11 @@ jobs:
           name: ${{ matrix.artifact_key }}-test-env
       - name: Load test environment
         id: load
-        run: |
-          docker load --input image.tar | tee image-info.txt
-          echo "image=$(cut -d ':' -f 3 image-info.txt)" >> "${GITHUB_OUTPUT}"
+        run: docker load --input image.tar
       - name: Install netdata and run the updater on ${{ matrix.distro }}
         id: updater-check
         run: |
-          docker run --security-opt seccomp=unconfined -e DISABLE_TELEMETRY=1 --network host -w /netdata sha256:${{ steps.load.outputs.image }} \
+          docker run --security-opt seccomp=unconfined -e DISABLE_TELEMETRY=1 --network host -w /netdata test:${{ matrix.artifact_key }} \
                 /netdata/.github/scripts/run-updater-check.sh
       - name: Failure Notification
         uses: rtCamp/action-slack-notify@v2
@@ -549,10 +549,15 @@ jobs:
         with:
           name: final-artifacts
           path: artifacts
+      - name: Prepare artifacts directory
+        id: prepare
+        run: |
+          mkdir -p download/latest
+          mv artifacts/* download/latest
       - name: Verify that artifacts work with installer
         id: verify
         env:
-          NETDATA_TARBALL_BASEURL: http://localhost:8080/artifacts
+          NETDATA_TARBALL_BASEURL: http://localhost:8080/
         run: packaging/installer/kickstart.sh --build-only --dont-start-it --disable-telemetry --dont-wait
       - name: Failure Notification
         uses: rtCamp/action-slack-notify@v2
@@ -598,10 +603,15 @@ jobs:
         with:
           name: final-artifacts
           path: artifacts
+      - name: Prepare artifacts directory
+        id: prepare
+        run: |
+          mkdir -p download/latest
+          mv artifacts/* download/latest
       - name: Verify that artifacts work with installer
         id: verify
         env:
-          NETDATA_TARBALL_BASEURL: http://localhost:8080/artifacts
+          NETDATA_TARBALL_BASEURL: http://localhost:8080/
         run: packaging/installer/kickstart.sh --static-only --dont-start-it --disable-telemetry
       - name: Failure Notification
         uses: rtCamp/action-slack-notify@v2
@@ -630,8 +640,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.type == 'nightly' && github.repository == 'netdata/netdata'
     needs:
-      - updater-check
-      - source-build
       - artifact-verification-dist
       - artifact-verification-static
     steps:
@@ -685,8 +693,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.type == 'nightly' && github.repository == 'netdata/netdata'
     needs:
-      - updater-check
-      - source-build
       - artifact-verification-dist
       - artifact-verification-static
     steps:
@@ -772,8 +778,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.type == 'release' && github.repository == 'netdata/netdata'
     needs:
-      - updater-check
-      - source-build
       - artifact-verification-dist
       - artifact-verification-static
       - normalize-tag

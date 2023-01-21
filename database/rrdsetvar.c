@@ -43,7 +43,7 @@ static inline void rrdsetvar_free_rrdvars_unsafe(RRDSET *st, RRDSETVAR *rs) {
     // ------------------------------------------------------------------------
     // HOST
 
-    if(host->rrdvars && host->health_enabled) {
+    if(host->rrdvars && host->health.health_enabled) {
         rrdvar_release_and_del(host->rrdvars, rs->rrdvar_host_chart_id);
         rs->rrdvar_host_chart_id = NULL;
 
@@ -93,7 +93,7 @@ static inline void rrdsetvar_update_rrdvars_unsafe(RRDSET *st, RRDSETVAR *rs) {
     // ------------------------------------------------------------------------
     // HOST
 
-    if(host->rrdvars && host->health_enabled) {
+    if(host->rrdvars && host->health.health_enabled) {
         rs->rrdvar_host_chart_id = rrdvar_add_and_acquire("host", host->rrdvars, key_chart_id, rs->type, options, rs->value);
         rs->rrdvar_host_chart_name = rrdvar_add_and_acquire("host", host->rrdvars, key_chart_name, rs->type, options, rs->value);
     }
@@ -189,7 +189,7 @@ static void rrdsetvar_delete_callback(const DICTIONARY_ITEM *item __maybe_unused
 
 void rrdsetvar_index_init(RRDSET *st) {
     if(!st->rrdsetvar_root_index) {
-        st->rrdsetvar_root_index = dictionary_create(DICT_OPTION_DONT_OVERWRITE_VALUE);
+        st->rrdsetvar_root_index = dictionary_create_advanced(DICT_OPTION_DONT_OVERWRITE_VALUE, &dictionary_stats_category_rrdhealth);
 
         dictionary_register_insert_callback(st->rrdsetvar_root_index, rrdsetvar_insert_callback, NULL);
         dictionary_register_conflict_callback(st->rrdsetvar_root_index, rrdsetvar_conflict_callback, NULL);

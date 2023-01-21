@@ -1184,6 +1184,14 @@ inline int madvise_sequential(void *mem, size_t len) {
     return ret;
 }
 
+inline int madvise_random(void *mem, size_t len) {
+    static int logger = 1;
+    int ret = madvise(mem, len, MADV_RANDOM);
+
+    if (ret != 0 && logger-- > 0) error("madvise(MADV_RANDOM) failed.");
+    return ret;
+}
+
 inline int madvise_dontfork(void *mem, size_t len) {
     static int logger = 1;
     int ret = madvise(mem, len, MADV_DONTFORK);
@@ -1197,6 +1205,14 @@ inline int madvise_willneed(void *mem, size_t len) {
     int ret = madvise(mem, len, MADV_WILLNEED);
 
     if (ret != 0 && logger-- > 0) error("madvise(MADV_WILLNEED) failed.");
+    return ret;
+}
+
+inline int madvise_dontneed(void *mem, size_t len) {
+    static int logger = 1;
+    int ret = madvise(mem, len, MADV_DONTNEED);
+
+    if (ret != 0 && logger-- > 0) error("madvise(MADV_DONTNEED) failed.");
     return ret;
 }
 
@@ -1224,7 +1240,7 @@ inline int madvise_mergeable(void *mem __maybe_unused, size_t len __maybe_unused
 #endif
 }
 
-void *netdata_mmap(const char *filename, size_t size, int flags, int ksm, bool read_only)
+void *netdata_mmap(const char *filename, size_t size, int flags, int ksm, bool read_only, int *open_fd)
 {
     // info("netdata_mmap('%s', %zu", filename, size);
 
@@ -1281,15 +1297,20 @@ void *netdata_mmap(const char *filename, size_t size, int flags, int ksm, bool r
             else info("Cannot seek to beginning of file '%s'.", filename);
         }
 
-        madvise_sequential(mem, size);
+        // madvise_sequential(mem, size);
         madvise_dontfork(mem, size);
         madvise_dontdump(mem, size);
-        if(flags & MAP_SHARED) madvise_willneed(mem, size);
+        // if(flags & MAP_SHARED) madvise_willneed(mem, size);
         if(ksm) madvise_mergeable(mem, size);
     }
 
 cleanup:
-    if(fd != -1) close(fd);
+    if(fd != -1) {
+        if (open_fd)
+            *open_fd = fd;
+        else
+            close(fd);
+    }
     if(mem == MAP_FAILED) return NULL;
     errno = 0;
     return mem;
@@ -1926,4 +1947,71 @@ bool run_command_and_copy_output_to_stdout(const char *command, int max_line_len
 
     netdata_pclose(NULL, fp, pid);
     return true;
+}
+
+void for_each_open_fd(OPEN_FD_ACTION action, OPEN_FD_EXCLUDE excluded_fds){
+    int fd;
+
+    switch(action){
+        case OPEN_FD_ACTION_CLOSE:
+            if(!(excluded_fds & OPEN_FD_EXCLUDE_STDIN))  (void)close(STDIN_FILENO);
+            if(!(excluded_fds & OPEN_FD_EXCLUDE_STDOUT)) (void)close(STDOUT_FILENO);
+            if(!(excluded_fds & OPEN_FD_EXCLUDE_STDERR)) (void)close(STDERR_FILENO);
+            break;
+        case OPEN_FD_ACTION_FD_CLOEXEC:
+            if(!(excluded_fds & OPEN_FD_EXCLUDE_STDIN))  (void)fcntl(STDIN_FILENO, F_SETFD, FD_CLOEXEC);
+            if(!(excluded_fds & OPEN_FD_EXCLUDE_STDOUT)) (void)fcntl(STDOUT_FILENO, F_SETFD, FD_CLOEXEC);
+            if(!(excluded_fds & OPEN_FD_EXCLUDE_STDERR)) (void)fcntl(STDERR_FILENO, F_SETFD, FD_CLOEXEC);
+            break;
+        default:
+            break; // do nothing
+    }
+
+#if defined(HAVE_CLOSE_RANGE)
+    if(close_range(STDERR_FILENO + 1, ~0U, (action == OPEN_FD_ACTION_FD_CLOEXEC ? CLOSE_RANGE_CLOEXEC : 0)) == 0) return;
+    error("close_range() failed, will try to close fds manually");
+#endif
+
+    DIR *dir = opendir("/proc/self/fd");
+    if (dir == NULL) {
+        struct rlimit rl;
+        int open_max = -1;
+
+        if(getrlimit(RLIMIT_NOFILE, &rl) == 0 && rl.rlim_max != RLIM_INFINITY) open_max = rl.rlim_max;
+#ifdef _SC_OPEN_MAX
+        else open_max = sysconf(_SC_OPEN_MAX);
+#endif
+
+        if (open_max == -1) open_max = 65535; // 65535 arbitrary default if everything else fails
+
+        for (fd = STDERR_FILENO + 1; fd < open_max; fd++) {
+            switch(action){
+                case OPEN_FD_ACTION_CLOSE:
+                    if(fd_is_valid(fd)) (void)close(fd);
+                    break;
+                case OPEN_FD_ACTION_FD_CLOEXEC:
+                    (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+                    break;
+                default:
+                    break; // do nothing
+            }
+        }
+    } else {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            fd = str2i(entry->d_name);
+            if(unlikely((fd == STDIN_FILENO ) || (fd == STDOUT_FILENO) || (fd == STDERR_FILENO) )) continue;
+            switch(action){
+                case OPEN_FD_ACTION_CLOSE:
+                    if(fd_is_valid(fd)) (void)close(fd);
+                    break;
+                case OPEN_FD_ACTION_FD_CLOEXEC:
+                    (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+                    break;
+                default:
+                    break; // do nothing
+            }
+        }
+        closedir(dir);
+    }
 }

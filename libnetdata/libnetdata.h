@@ -11,8 +11,16 @@ extern "C" {
 #include <config.h>
 #endif
 
+#define JUDYHS_INDEX_SIZE_ESTIMATE(key_bytes) (((key_bytes) + sizeof(Word_t) - 1) / sizeof(Word_t) * 4)
+
 #if defined(NETDATA_DEV_MODE) && !defined(NETDATA_INTERNAL_CHECKS)
 #define NETDATA_INTERNAL_CHECKS 1
+#endif
+
+#if SIZEOF_VOID_P == 4
+#define ENV32BIT 1
+#else
+#define ENV64BIT 1
 #endif
 
 // NETDATA_TRACE_ALLOCATIONS does not work under musl libc, so don't enable it
@@ -302,8 +310,10 @@ char *trim(char *s); // remove leading and trailing spaces; may return NULL
 char *trim_all(char *buffer); // like trim(), but also remove duplicate spaces inside the string; may return NULL
 
 int madvise_sequential(void *mem, size_t len);
+int madvise_random(void *mem, size_t len);
 int madvise_dontfork(void *mem, size_t len);
 int madvise_willneed(void *mem, size_t len);
+int madvise_dontneed(void *mem, size_t len);
 int madvise_dontdump(void *mem, size_t len);
 int madvise_mergeable(void *mem, size_t len);
 
@@ -341,7 +351,7 @@ void posix_memfree(void *ptr);
 void json_escape_string(char *dst, const char *src, size_t size);
 void json_fix_string(char *s);
 
-void *netdata_mmap(const char *filename, size_t size, int flags, int ksm, bool read_only);
+void *netdata_mmap(const char *filename, size_t size, int flags, int ksm, bool read_only, int *open_fd);
 int netdata_munmap(void *ptr, size_t size);
 int memory_file_save(const char *filename, void *mem, size_t size);
 
@@ -423,6 +433,17 @@ static inline char *get_word(char **words, size_t num_words, size_t index) {
 }
 
 bool run_command_and_copy_output_to_stdout(const char *command, int max_line_length);
+
+typedef enum {
+    OPEN_FD_ACTION_CLOSE,
+    OPEN_FD_ACTION_FD_CLOEXEC
+} OPEN_FD_ACTION;
+typedef enum {
+    OPEN_FD_EXCLUDE_STDIN   = 0x01,
+    OPEN_FD_EXCLUDE_STDOUT  = 0x02,
+    OPEN_FD_EXCLUDE_STDERR  = 0x04
+} OPEN_FD_EXCLUDE;
+void for_each_open_fd(OPEN_FD_ACTION action, OPEN_FD_EXCLUDE excluded_fds);
 
 void netdata_cleanup_and_exit(int ret) NORETURN;
 void send_statistics(const char *action, const char *action_result, const char *action_data);

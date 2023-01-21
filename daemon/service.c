@@ -52,13 +52,13 @@ static void svc_rrddim_obsolete_to_archive(RRDDIM *rd) {
 
         size_t tiers_available = 0, tiers_said_no_retention = 0;
         for(size_t tier = 0; tier < storage_tiers ;tier++) {
-            if(rd->tiers[tier]) {
+            if(rd->tiers[tier].db_collection_handle) {
                 tiers_available++;
 
-                if(rd->tiers[tier]->collect_ops->finalize(rd->tiers[tier]->db_collection_handle))
+                if(rd->tiers[tier].collect_ops->finalize(rd->tiers[tier].db_collection_handle))
                     tiers_said_no_retention++;
 
-                rd->tiers[tier]->db_collection_handle = NULL;
+                rd->tiers[tier].db_collection_handle = NULL;
             }
         }
 
@@ -201,7 +201,7 @@ static void svc_rrd_cleanup_obsolete_charts_from_all_hosts() {
             && (
                    (
                     host->child_last_chart_command
-                 && host->child_last_chart_command + host->health_delay_up_to < now_realtime_sec()
+                 && host->child_last_chart_command + host->health.health_delay_up_to < now_realtime_sec()
                    )
                 || (host->child_connect_time + TIME_TO_RUN_OBSOLETIONS_ON_CHILD_CONNECT < now_realtime_sec())
                 )

@@ -51,13 +51,15 @@ static DICTIONARY *rrdhost_root_index_hostname = NULL;
 
 static inline void rrdhost_init() {
     if(unlikely(!rrdhost_root_index)) {
-        rrdhost_root_index = dictionary_create(
-            DICT_OPTION_NAME_LINK_DONT_CLONE | DICT_OPTION_VALUE_LINK_DONT_CLONE | DICT_OPTION_DONT_OVERWRITE_VALUE);
+        rrdhost_root_index = dictionary_create_advanced(
+            DICT_OPTION_NAME_LINK_DONT_CLONE | DICT_OPTION_VALUE_LINK_DONT_CLONE | DICT_OPTION_DONT_OVERWRITE_VALUE,
+            &dictionary_stats_category_rrdhost);
     }
 
     if(unlikely(!rrdhost_root_index_hostname)) {
-        rrdhost_root_index_hostname = dictionary_create(
-            DICT_OPTION_NAME_LINK_DONT_CLONE | DICT_OPTION_VALUE_LINK_DONT_CLONE | DICT_OPTION_DONT_OVERWRITE_VALUE);
+        rrdhost_root_index_hostname = dictionary_create_advanced(
+            DICT_OPTION_NAME_LINK_DONT_CLONE | DICT_OPTION_VALUE_LINK_DONT_CLONE | DICT_OPTION_DONT_OVERWRITE_VALUE,
+            &dictionary_stats_category_rrdhost);
     }
 }
 
@@ -273,6 +275,7 @@ int is_legacy = 1;
 
     int is_in_multihost = (memory_mode == RRD_MEMORY_MODE_DBENGINE && !is_legacy);
     RRDHOST *host = callocz(1, sizeof(RRDHOST));
+    __atomic_add_fetch(&netdata_buffers_statistics.rrdhost_allocations_size, sizeof(RRDHOST), __ATOMIC_RELAXED);
 
     strncpyz(host->machine_guid, guid, GUID_LEN + 1);
 
@@ -281,8 +284,8 @@ int is_legacy = 1;
 
     rrdhost_init_hostname(host, hostname, false);
 
-    host->rrd_history_entries = align_entries_to_pagesize(memory_mode, entries);
-    host->health_enabled      = ((memory_mode == RRD_MEMORY_MODE_NONE)) ? 0 : health_enabled;
+    host->rrd_history_entries        = align_entries_to_pagesize(memory_mode, entries);
+    host->health.health_enabled      = ((memory_mode == RRD_MEMORY_MODE_NONE)) ? 0 : health_enabled;
 
     if (likely(!archived)) {
         rrdfunctions_init(host);
@@ -364,9 +367,7 @@ int is_legacy = 1;
     rrdfamily_index_init(host);
     rrdcalctemplate_index_init(host);
     rrdcalc_rrdhost_index_init(host);
-
-    if (health_enabled)
-        health_thread_spawn(host);
+    metaqueue_host_update_info(host);
 
     if (host->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
 #ifdef ENABLE_DBENGINE
@@ -389,7 +390,6 @@ int is_legacy = 1;
             host->db[0].tier_grouping = get_tier_grouping(0);
 
             ret = rrdeng_init(
-                host,
                 (struct rrdengine_instance **)&host->db[0].instance,
                 dbenginepath,
                 default_rrdeng_page_cache_mb,
@@ -397,8 +397,11 @@ int is_legacy = 1;
                 0); // may fail here for legacy dbengine initialization
 
             if(ret == 0) {
+                rrdeng_readiness_wait((struct rrdengine_instance *)host->db[0].instance);
+
                 // assign the rest of the shared storage instances to it
                 // to allow them collect its metrics too
+
                 for(size_t tier = 1; tier < storage_tiers ; tier++) {
                     host->db[tier].mode = RRD_MEMORY_MODE_DBENGINE;
                     host->db[tier].eng = storage_engine_get(host->db[tier].mode);
@@ -515,12 +518,12 @@ int is_legacy = 1;
          , rrdhost_has_rrdpush_sender_enabled(host)?"enabled":"disabled"
          , host->rrdpush_send_destination?host->rrdpush_send_destination:""
          , host->rrdpush_send_api_key?host->rrdpush_send_api_key:""
-         , host->health_enabled?"enabled":"disabled"
+         , host->health.health_enabled?"enabled":"disabled"
          , host->cache_dir
          , host->varlib_dir
-         , host->health_log_filename
-         , string2str(host->health_default_exec)
-         , string2str(host->health_default_recipient)
+         , host->health.health_log_filename
+         , string2str(host->health.health_default_exec)
+         , string2str(host->health.health_default_recipient)
     );
 
     if(!archived)
@@ -565,7 +568,7 @@ static void rrdhost_update(RRDHOST *host
 
     netdata_spinlock_lock(&host->rrdhost_update_lock);
 
-    host->health_enabled = (mode == RRD_MEMORY_MODE_NONE) ? 0 : health_enabled;
+    host->health.health_enabled = (mode == RRD_MEMORY_MODE_NONE) ? 0 : health_enabled;
 
     {
         struct rrdhost_system_info *old = host->system_info;
@@ -649,9 +652,6 @@ static void rrdhost_update(RRDHOST *host
         rrdhost_load_rrdcontext_data(host);
         info("Host %s is not in archived mode anymore", rrdhost_hostname(host));
     }
-
-    if (health_enabled)
-        health_thread_spawn(host);
 
     netdata_spinlock_unlock(&host->rrdhost_update_lock);
 }
@@ -869,14 +869,17 @@ void dbengine_init(char *hostname) {
         }
 
         internal_error(true, "DBENGINE tier %zu grouping iterations is set to %zu", tier, storage_tiers_grouping_iterations[tier]);
-        ret = rrdeng_init(NULL, NULL, dbenginepath, page_cache_mb, disk_space_mb, tier);
+        ret = rrdeng_init(NULL, dbenginepath, page_cache_mb, disk_space_mb, tier);
         if(ret != 0) {
             error("DBENGINE on '%s': Failed to initialize multi-host database tier %zu on path '%s'",
                   hostname, tier, dbenginepath);
             break;
         }
-        else
+        else {
+            if (rrdeng_ctx_exceeded_disk_quota(multidb_ctx[created_tiers]))
+                rrdeng_enq_cmd(multidb_ctx[created_tiers], RRDENG_OPCODE_DATABASE_ROTATE, NULL, NULL, STORAGE_PRIORITY_INTERNAL_DBENGINE, NULL, NULL);
             created_tiers++;
+        }
     }
 
     if(created_tiers && created_tiers < storage_tiers) {
@@ -886,6 +889,9 @@ void dbengine_init(char *hostname) {
     }
     else if(!created_tiers)
         fatal("DBENGINE on '%s', failed to initialize databases at '%s'.", hostname, netdata_configured_cache_dir);
+
+    for(size_t tier = 0; tier < storage_tiers ;tier++)
+        rrdeng_readiness_wait(multidb_ctx[tier]);
 
     dbengine_enabled = true;
 #else
@@ -990,6 +996,8 @@ int rrd_init(char *hostname, struct rrdhost_system_info *system_info, bool unitt
 
 void rrdhost_system_info_free(struct rrdhost_system_info *system_info) {
     if(likely(system_info)) {
+        __atomic_sub_fetch(&netdata_buffers_statistics.rrdhost_allocations_size, sizeof(struct rrdhost_system_info), __ATOMIC_RELAXED);
+
         freez(system_info->cloud_provider_type);
         freez(system_info->cloud_instance_type);
         freez(system_info->cloud_instance_region);
@@ -1030,8 +1038,10 @@ static void rrdhost_streaming_sender_structures_init(RRDHOST *host)
         return;
 
     host->sender = callocz(1, sizeof(*host->sender));
+    __atomic_add_fetch(&netdata_buffers_statistics.rrdhost_senders, sizeof(*host->sender), __ATOMIC_RELAXED);
+
     host->sender->host = host;
-    host->sender->buffer = cbuffer_new(CBUFFER_INITIAL_SIZE, 1024 * 1024);
+    host->sender->buffer = cbuffer_new(CBUFFER_INITIAL_SIZE, 1024 * 1024, &netdata_buffers_statistics.cbuffers_streaming);
     host->sender->capabilities = STREAM_OUR_CAPABILITIES;
 
     host->sender->rrdpush_sender_pipe[PIPE_READ] = -1;
@@ -1065,6 +1075,9 @@ static void rrdhost_streaming_sender_structures_free(RRDHOST *host)
         host->sender->compressor->destroy(&host->sender->compressor);
 #endif
     replication_cleanup_sender(host->sender);
+
+    __atomic_sub_fetch(&netdata_buffers_statistics.rrdhost_senders, sizeof(*host->sender), __ATOMIC_RELAXED);
+
     freez(host->sender);
     host->sender = NULL;
     rrdhost_flag_clear(host, RRDHOST_FLAG_RRDPUSH_SENDER_INITIALIZED);
@@ -1174,9 +1187,9 @@ void rrdhost_free___while_having_rrd_wrlock(RRDHOST *host, bool force) {
     freez(host->rrdpush_send_api_key);
     freez(host->rrdpush_send_destination);
     rrdpush_destinations_free(host);
-    string_freez(host->health_default_exec);
-    string_freez(host->health_default_recipient);
-    freez(host->health_log_filename);
+    string_freez(host->health.health_default_exec);
+    string_freez(host->health.health_default_recipient);
+    freez(host->health.health_log_filename);
     string_freez(host->registry_hostname);
     simple_pattern_free(host->rrdpush_send_charts_matching);
     netdata_rwlock_destroy(&host->health_log.alarm_log_rwlock);
@@ -1189,6 +1202,7 @@ void rrdhost_free___while_having_rrd_wrlock(RRDHOST *host, bool force) {
     rrdhost_destroy_rrdcontexts(host);
 
     string_freez(host->hostname);
+    __atomic_sub_fetch(&netdata_buffers_statistics.rrdhost_allocations_size, sizeof(RRDHOST), __ATOMIC_RELAXED);
     freez(host);
 #ifdef ENABLE_ACLK
     if (wc)
@@ -1375,7 +1389,6 @@ void reload_host_labels(void) {
     health_label_log_save(localhost);
 
     rrdpush_send_host_labels(localhost);
-    health_reload();
 }
 
 // ----------------------------------------------------------------------------

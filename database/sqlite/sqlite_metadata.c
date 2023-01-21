@@ -62,6 +62,7 @@ enum metadata_opcode {
     METADATA_DATABASE_TIMER,
     METADATA_DEL_DIMENSION,
     METADATA_STORE_CLAIM_ID,
+    METADATA_ADD_HOST_INFO,
     METADATA_SCAN_HOSTS,
     METADATA_MAINTENANCE,
     METADATA_SYNC_SHUTDOWN,
@@ -327,7 +328,7 @@ static int sql_store_host_info(RRDHOST *host)
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
-    rc = sqlite3_bind_int(res, ++param, (int ) host->health_enabled);
+    rc = sqlite3_bind_int(res, ++param, (int ) host->health.health_enabled);
     if (unlikely(rc != SQLITE_OK))
         goto bind_fail;
 
@@ -371,7 +372,7 @@ static BUFFER *sql_store_host_system_info(RRDHOST *host)
     if (unlikely(!system_info))
         return NULL;
 
-    BUFFER *work_buffer = buffer_create(1024);
+    BUFFER *work_buffer = buffer_create(1024, &netdata_buffers_statistics.buffers_sqlite);
 
     struct query_build key_data = {.sql = work_buffer, .count = 0};
     uuid_unparse_lower(host->host_uuid, key_data.uuid_str);
@@ -685,6 +686,16 @@ skip_run:
         error_report("Failed to finalize the prepared statement when reading dimensions");
 }
 
+static void cleanup_health_log(void)
+{
+    RRDHOST *host;
+    dfe_start_reentrant(rrdhost_root_index, host) {
+        if (rrdhost_flag_check(host, RRDHOST_FLAG_ARCHIVED))
+            continue;
+        sql_health_alarm_log_cleanup(host);
+    }
+    dfe_done(host);
+}
 
 //
 // EVENT LOOP STARTS HERE
@@ -844,6 +855,7 @@ static void start_metadata_cleanup(uv_work_t *req)
     worker_is_busy(UV_EVENT_METADATA_CLEANUP);
     struct metadata_wc *wc = req->data;
     check_dimension_metadata(wc);
+    cleanup_health_log();
     worker_is_idle();
 }
 
@@ -875,7 +887,7 @@ static bool metadata_scan_host(RRDHOST *host, uint32_t max_count) {
 
     bool more_to_do = false;
     uint32_t scan_count = 1;
-    BUFFER *work_buffer = buffer_create(1024);
+    BUFFER *work_buffer = buffer_create(1024, &netdata_buffers_statistics.buffers_sqlite);
 
     rrdset_foreach_reentrant(st, host) {
         if (scan_count == max_count) {
@@ -957,12 +969,13 @@ static void start_metadata_hosts(uv_work_t *req __maybe_unused)
         if (rrdhost_flag_check(host, RRDHOST_FLAG_ARCHIVED) || !rrdhost_flag_check(host, RRDHOST_FLAG_METADATA_UPDATE))
             continue;
         internal_error(true, "METADATA: Scanning host %s", rrdhost_hostname(host));
+        rrdhost_flag_clear(host,RRDHOST_FLAG_METADATA_UPDATE);
 
         if (unlikely(rrdhost_flag_check(host, RRDHOST_FLAG_METADATA_LABELS))) {
             rrdhost_flag_clear(host, RRDHOST_FLAG_METADATA_LABELS);
             int rc = exec_statement_with_uuid(SQL_DELETE_HOST_LABELS, &host->host_uuid);
             if (likely(rc == SQLITE_OK)) {
-                BUFFER *work_buffer = buffer_create(1024);
+                BUFFER *work_buffer = buffer_create(1024, &netdata_buffers_statistics.buffers_sqlite);
                 struct query_build tmp = {.sql = work_buffer, .count = 0};
                 uuid_unparse_lower(host->host_uuid, tmp.uuid_str);
                 rrdlabels_walkthrough_read(host->rrdlabels, host_label_store_to_sql_callback, &tmp);
@@ -1014,6 +1027,7 @@ static void metadata_event_loop(void *arg)
     worker_register_job_name(METADATA_DATABASE_TIMER,       "timer");
     worker_register_job_name(METADATA_DEL_DIMENSION,        "delete dimension");
     worker_register_job_name(METADATA_STORE_CLAIM_ID,       "add claim id");
+    worker_register_job_name(METADATA_ADD_HOST_INFO,        "add host info");
     worker_register_job_name(METADATA_MAINTENANCE,          "maintenance");
 
     int ret;
@@ -1063,6 +1077,8 @@ static void metadata_event_loop(void *arg)
 
     while (shutdown == 0 || (wc->flags & METADATA_WORKER_BUSY)) {
         uuid_t  *uuid;
+        RRDHOST *host = NULL;
+        int rc;
 
         worker_is_idle();
         uv_run(loop, UV_RUN_DEFAULT);
@@ -1101,6 +1117,12 @@ static void metadata_event_loop(void *arg)
                     store_claim_id((uuid_t *) cmd.param[0], (uuid_t *) cmd.param[1]);
                     freez((void *) cmd.param[0]);
                     freez((void *) cmd.param[1]);
+                    break;
+                case METADATA_ADD_HOST_INFO:
+                    host = (RRDHOST *) cmd.param[0];
+                    rc = sql_store_host_info(host);
+                    if (unlikely(rc))
+                        error_report("Failed to store host info in the database for %s", string2str(host->hostname));
                     break;
                 case METADATA_SCAN_HOSTS:
                     if (unlikely(metadata_flag_check(wc, METADATA_FLAG_SCANNING_HOSTS)))
@@ -1281,6 +1303,29 @@ void metaqueue_delete_dimension_uuid(uuid_t *uuid)
     queue_metadata_cmd(METADATA_DEL_DIMENSION, use_uuid, NULL);
 }
 
+void metaqueue_store_claim_id(uuid_t *host_uuid, uuid_t *claim_uuid)
+{
+    if (unlikely(!host_uuid))
+        return;
+
+    uuid_t *local_host_uuid = mallocz(sizeof(*host_uuid));
+    uuid_t *local_claim_uuid = NULL;
+
+    uuid_copy(*local_host_uuid, *host_uuid);
+    if (likely(claim_uuid)) {
+        local_claim_uuid = mallocz(sizeof(*claim_uuid));
+        uuid_copy(*local_claim_uuid, *claim_uuid);
+    }
+    queue_metadata_cmd(METADATA_STORE_CLAIM_ID, local_host_uuid, local_claim_uuid);
+}
+
+void metaqueue_host_update_info(RRDHOST *host)
+{
+    if (unlikely(!metasync_worker.loop))
+        return;
+    queue_metadata_cmd(METADATA_ADD_HOST_INFO, host, NULL);
+}
+
 //
 // unitests
 //
@@ -1328,7 +1373,7 @@ static void *metadata_unittest_threads(void)
     tu.join = 0;
     for (int i = 0; i < threads_to_create; i++) {
         char buf[100 + 1];
-        snprintf(buf, 100, "meta%d", i);
+        snprintf(buf, 100, "META[%d]", i);
         netdata_thread_create(
             &threads[i],
             buf,

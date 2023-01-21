@@ -31,11 +31,6 @@ struct rrdeng_cmd;
 
 #define MAX_PAGES_PER_EXTENT (64) /* TODO: can go higher only when journal supports bigger than 4KiB transactions */
 
-#define GET_JOURNAL_DATA(x) __atomic_load_n(&(x)->journal_data, __ATOMIC_ACQUIRE)
-#define GET_JOURNAL_DATA_SIZE(x) __atomic_load_n(&(x)->journal_data_size, __ATOMIC_ACQUIRE)
-#define SET_JOURNAL_DATA(x, y) __atomic_store_n(&(x)->journal_data, (y), __ATOMIC_RELEASE)
-#define SET_JOURNAL_DATA_SIZE(x, y) __atomic_store_n(&(x)->journal_data_size, (y), __ATOMIC_RELEASE)
-
 #define RRDENG_FILE_NUMBER_SCAN_TMPL "%1u-%10u"
 #define RRDENG_FILE_NUMBER_PRINT_TMPL "%1.1u-%10.10u"
 
@@ -238,6 +233,7 @@ enum rrdeng_opcode {
     RRDENG_OPCODE_DATABASE_ROTATE,
     RRDENG_OPCODE_CTX_SHUTDOWN,
     RRDENG_OPCODE_CTX_QUIESCE,
+    RRDENG_OPCODE_CTX_POPULATE_MRG,
 
     RRDENG_OPCODE_MAX
 };
@@ -308,16 +304,6 @@ typedef struct wal {
 WAL *wal_get(struct rrdengine_instance *ctx, unsigned size);
 void wal_release(WAL *wal);
 
-struct rrdengine_worker_config {
-    bool now_deleting_files;
-    bool migration_to_v2_running;
-
-    struct {
-        // non-zero until we commit data to disk (both datafile and journal file)
-        unsigned extents_currently_being_flushed;
-    } atomics;
-};
-
 /*
  * Debug statistics not used by code logic.
  * They only describe operations since DB engine instance load time.
@@ -364,42 +350,81 @@ extern rrdeng_stats_t rrdeng_reserved_file_descriptors;
 extern rrdeng_stats_t global_pg_cache_over_half_dirty_events;
 extern rrdeng_stats_t global_flushing_pressure_page_deletions; /* number of deleted pages */
 
-#define NO_QUIESCE  (0) /* initial state when all operations function normally */
-#define SET_QUIESCE (1) /* set it before shutting down the instance, quiesce long running operations */
-#define QUIESCED    (2) /* is set after all threads have finished running */
-
 struct rrdengine_instance {
-    struct rrdengine_worker_config worker_config;
-    struct completion rrdengine_completion;
-    bool journal_initialization;
-    uint8_t global_compress_alg;
-    struct transaction_commit_log commit_log;
-    struct rrdengine_datafile_list datafiles;
-    RRDHOST *host; /* the legacy host, or NULL for multi-host DB */
-    char dbfiles_path[FILENAME_MAX + 1];
-    char machine_guid[GUID_LEN + 1]; /* the unique ID of the corresponding host, or localhost for multihost DB */
-    uint64_t disk_space;
-    uint64_t max_disk_space;
-    int tier;
-    unsigned last_fileno; /* newest index of datafile and journalfile */
-    unsigned last_flush_fileno;
-    unsigned long metric_API_max_producers;
+    struct {
+        int tier;                                   // the tier of this ctx
+        uint8_t page_type;                          // default page type for this context
 
-    bool create_new_datafile_pair;
-    uint8_t quiesce;   /* set to SET_QUIESCE before shutdown of the engine */
-    uint8_t page_type; /* Default page type for this context */
+        uint64_t max_disk_space;                    // the max disk space this ctx is allowed to use
+        uint8_t global_compress_alg;                // the wanted compression algorithm
 
-    struct completion quiesce_completion;
+        char dbfiles_path[FILENAME_MAX + 1];
+    } config;
 
-    size_t inflight_queries;
+    struct {
+        uv_rwlock_t rwlock;                         // the linked list of datafiles is protected by this lock
+        struct rrdengine_datafile *first;           // oldest - the newest with ->first->prev
+    } datafiles;
+
+    struct {
+        unsigned last_fileno;                       // newest index of datafile and journalfile
+        unsigned last_flush_fileno;                 // newest index of datafile received data
+
+        size_t inflight_queries;                    // the number of queries currently running
+        uint64_t current_disk_space;                // the current disk space size used
+
+        uint64_t transaction_id;                    // the transaction id of the next extent flushing
+
+        bool migration_to_v2_running;
+        bool now_deleting_files;
+        unsigned extents_currently_being_flushed;   // non-zero until we commit data to disk (both datafile and journal file)
+    } atomic;
+
+    struct {
+        bool exit_mode;
+        bool enabled;                               // when set (before shutdown), queries are prohibited
+        struct completion completion;
+    } quiesce;
+
+    struct {
+        struct {
+            size_t size;
+            struct completion *array;
+        } populate_mrg;
+
+        bool create_new_datafile_pair;
+    } loading;
+
     struct rrdengine_statistics stats;
 };
 
-#define ctx_is_available_for_queries(ctx) (__atomic_load_n(&(ctx)->quiesce, __ATOMIC_RELAXED) == NO_QUIESCE)
+#define ctx_current_disk_space_get(ctx) __atomic_load_n(&(ctx)->atomic.current_disk_space, __ATOMIC_RELAXED)
+#define ctx_current_disk_space_increase(ctx, size) __atomic_add_fetch(&(ctx)->atomic.current_disk_space, size, __ATOMIC_RELAXED)
+#define ctx_current_disk_space_decrease(ctx, size) __atomic_sub_fetch(&(ctx)->atomic.current_disk_space, size, __ATOMIC_RELAXED)
 
-void *dbengine_page_alloc(struct rrdengine_instance *ctx, size_t size);
-void dbengine_page_free(void *page);
+#define ctx_last_fileno_get(ctx) __atomic_load_n(&(ctx)->atomic.last_fileno, __ATOMIC_RELAXED)
+#define ctx_last_fileno_increment(ctx) __atomic_add_fetch(&(ctx)->atomic.last_fileno, 1, __ATOMIC_RELAXED)
 
+#define ctx_last_flush_fileno_get(ctx) __atomic_load_n(&(ctx)->atomic.last_flush_fileno, __ATOMIC_RELAXED)
+static inline void ctx_last_flush_fileno_set(struct rrdengine_instance *ctx, unsigned fileno) {
+    unsigned old_fileno = ctx_last_flush_fileno_get(ctx);
+
+    do {
+        if(old_fileno >= fileno)
+            return;
+
+    } while(!__atomic_compare_exchange_n(&ctx->atomic.last_flush_fileno, &old_fileno, fileno, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
+}
+
+#define ctx_is_available_for_queries(ctx) (__atomic_load_n(&(ctx)->quiesce.enabled, __ATOMIC_RELAXED) == false && __atomic_load_n(&(ctx)->quiesce.exit_mode, __ATOMIC_RELAXED) == false)
+
+void *dbengine_page_alloc(size_t size);
+void dbengine_page_free(void *page, size_t size);
+
+void *dbengine_extent_alloc(size_t size);
+void dbengine_extent_free(void *extent, size_t size);
+
+bool rrdeng_ctx_exceeded_disk_quota(struct rrdengine_instance *ctx);
 int init_rrd_files(struct rrdengine_instance *ctx);
 void finalize_rrd_files(struct rrdengine_instance *ctx);
 bool rrdeng_dbengine_spawn(struct rrdengine_instance *ctx);
@@ -445,5 +470,13 @@ typedef struct validated_page_descriptor {
         ((page_length_in_bytes) / (point_size_in_bytes))
 
 VALIDATED_PAGE_DESCRIPTOR validate_extent_page_descr(const struct rrdeng_extent_page_descr *descr, time_t now_s, time_t overwrite_zero_update_every_s, bool have_read_error);
+
+typedef enum {
+    PAGE_IS_IN_THE_PAST   = -1,
+    PAGE_IS_IN_RANGE      =  0,
+    PAGE_IS_IN_THE_FUTURE =  1,
+} TIME_RANGE_COMPARE;
+
+TIME_RANGE_COMPARE is_page_in_time_range(time_t page_first_time_s, time_t page_last_time_s, time_t wanted_start_time_s, time_t wanted_end_time_s);
 
 #endif /* NETDATA_RRDENGINE_H */

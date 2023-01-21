@@ -10,7 +10,7 @@
 
 #define CONNECTED_TO_SIZE 100
 #define CBUFFER_INITIAL_SIZE (16 * 1024)
-#define THREAD_BUFFER_INITIAL_SIZE (CBUFFER_INITIAL_SIZE * 4)
+#define THREAD_BUFFER_INITIAL_SIZE (CBUFFER_INITIAL_SIZE / 2)
 
 // ----------------------------------------------------------------------------
 // obsolete versions - do not use anymore
@@ -131,8 +131,8 @@ struct decompressor_state {
     // Metric transmission: collector threads asynchronously fill the buffer, sender thread uses it.
 
 typedef enum {
-    SENDER_FLAG_OVERFLOW    = (1 << 0), // The buffer has been overflown
-    SENDER_FLAG_COMPRESSION = (1 << 1), // The stream needs to have and has compression
+    SENDER_FLAG_OVERFLOW     = (1 << 0), // The buffer has been overflown
+    SENDER_FLAG_COMPRESSION  = (1 << 1), // The stream needs to have and has compression
 } SENDER_FLAGS;
 
 struct sender_state {
@@ -161,6 +161,8 @@ struct sender_state {
     int rrdpush_sender_pipe[2];                     // collector to sender thread signaling
     int rrdpush_sender_socket;
 
+    uint16_t hops;
+
 #ifdef ENABLE_COMPRESSION
     struct compressor_state *compressor;
 #endif
@@ -187,8 +189,12 @@ struct sender_state {
     struct {
         size_t buffer_used_percentage;          // the current utilization of the sending buffer
         usec_t last_flush_time_ut;              // the last time the sender flushed the sending buffer in USEC
+        time_t last_buffer_recreate_s;          // true when the sender buffer should be re-created
     } atomic;
 };
+
+#define rrdpush_sender_last_buffer_recreate_get(sender) __atomic_load_n(&(sender)->atomic.last_buffer_recreate_s, __ATOMIC_RELAXED)
+#define rrdpush_sender_last_buffer_recreate_set(sender, value) __atomic_store_n(&(sender)->atomic.last_buffer_recreate_s, value, __ATOMIC_RELAXED)
 
 #define rrdpush_sender_replication_buffer_full_set(sender, value) __atomic_store_n(&((sender)->replication.atomic.reached_max), value, __ATOMIC_SEQ_CST)
 #define rrdpush_sender_replication_buffer_full_get(sender) __atomic_load_n(&((sender)->replication.atomic.reached_max), __ATOMIC_SEQ_CST)
@@ -231,6 +237,8 @@ struct receiver_state {
     time_t last_msg_t;
     char read_buffer[PLUGINSD_LINE_MAX + 1];
     int read_len;
+
+    uint16_t hops;
 
     struct {
         bool shutdown;      // signal the streaming parser to exit
@@ -292,7 +300,6 @@ void rrdpush_destinations_free(RRDHOST *host);
 
 BUFFER *sender_start(struct sender_state *s);
 void sender_commit(struct sender_state *s, BUFFER *wb);
-void sender_cancel(struct sender_state *s);
 int rrdpush_init();
 bool rrdpush_receiver_needs_dbengine();
 int configured_as_parent();
@@ -301,6 +308,9 @@ bool rrdset_push_chart_definition_now(RRDSET *st);
 void *rrdpush_sender_thread(void *ptr);
 void rrdpush_send_host_labels(RRDHOST *host);
 void rrdpush_claimed_id(RRDHOST *host);
+
+#define THREAD_TAG_STREAM_RECEIVER "RCVR" // "[host]" is appended
+#define THREAD_TAG_STREAM_SENDER "SNDR" // "[host]" is appended
 
 int rrdpush_receiver_thread_spawn(struct web_client *w, char *url);
 void rrdpush_sender_thread_stop(RRDHOST *host, const char *reason, bool wait);
@@ -331,6 +341,8 @@ int32_t stream_capabilities_to_vn(uint32_t caps);
 
 void receiver_state_free(struct receiver_state *rpt);
 bool stop_streaming_receiver(RRDHOST *host, const char *reason);
+
+void sender_thread_buffer_free(void);
 
 #include "replication.h"
 

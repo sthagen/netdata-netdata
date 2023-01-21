@@ -4,6 +4,10 @@
 #include "buildinfo.h"
 #include "static_threads.h"
 
+#if defined(ENV32BIT)
+#warning COMPILING 32BIT NETDATA
+#endif
+
 bool unittest_running = false;
 int netdata_zero_metrics_enabled;
 int netdata_anonymous_statistics_enabled;
@@ -170,8 +174,8 @@ static void service_to_buffer(BUFFER *wb, SERVICE_TYPE service) {
 }
 
 static bool service_wait_exit(SERVICE_TYPE service, usec_t timeout_ut) {
-    BUFFER *service_list = buffer_create(1024);
-    BUFFER *thread_list = buffer_create(1024);
+    BUFFER *service_list = buffer_create(1024, NULL);
+    BUFFER *thread_list = buffer_create(1024, NULL);
     usec_t started_ut = now_monotonic_usec(), ended_ut;
     size_t running;
     SERVICE_TYPE running_services = 0;
@@ -322,6 +326,14 @@ void netdata_cleanup_and_exit(int ret) {
     snprintfz(agent_crash_file, FILENAME_MAX, "%s/.agent_crash", netdata_configured_varlib_dir);
     snprintfz(agent_incomplete_shutdown_file, FILENAME_MAX, "%s/.agent_incomplete_shutdown", netdata_configured_varlib_dir);
     (void) rename(agent_crash_file, agent_incomplete_shutdown_file);
+
+#ifdef ENABLE_DBENGINE
+    if(dbengine_enabled) {
+        delta_shutdown_time("dbengine exit mode");
+        for (size_t tier = 0; tier < storage_tiers; tier++)
+            rrdeng_exit_mode(multidb_ctx[tier]);
+    }
+#endif
 
     delta_shutdown_time("disable maintenance, new queries, new web requests, new streaming connections and aclk");
 
@@ -585,6 +597,32 @@ int killpid(pid_t pid) {
     }
 
     return ret;
+}
+
+static void set_nofile_limit(struct rlimit *rl) {
+    // get the num files allowed
+    if(getrlimit(RLIMIT_NOFILE, rl) != 0) {
+        error("getrlimit(RLIMIT_NOFILE) failed");
+        return;
+    }
+
+    info("resources control: allowed file descriptors: soft = %zu, max = %zu",
+         (size_t) rl->rlim_cur, (size_t) rl->rlim_max);
+
+    // make the soft/hard limits equal
+    rl->rlim_cur = rl->rlim_max;
+    if (setrlimit(RLIMIT_NOFILE, rl) != 0) {
+        error("setrlimit(RLIMIT_NOFILE, { %zu, %zu }) failed", (size_t)rl->rlim_cur, (size_t)rl->rlim_max);
+    }
+
+    // sanity check to make sure we have enough file descriptors available to open
+    if (getrlimit(RLIMIT_NOFILE, rl) != 0) {
+        error("getrlimit(RLIMIT_NOFILE) failed");
+        return;
+    }
+
+    if (rl->rlim_cur < 1024)
+        error("Number of open file descriptors allowed for this process is too low (RLIMIT_NOFILE=%zu)", (size_t)rl->rlim_cur);
 }
 
 void cancel_main_threads() {
@@ -1696,15 +1734,12 @@ int main(int argc, char **argv) {
         }
     }
 
-#ifdef _SC_OPEN_MAX
     if (close_open_fds == true) {
         // close all open file descriptors, except the standard ones
         // the caller may have left open files (lxc-attach has this issue)
-        for(int fd = (int) (sysconf(_SC_OPEN_MAX) - 1); fd > 2; fd--)
-            if(fd_is_valid(fd))
-                close(fd);
+        for_each_open_fd(OPEN_FD_ACTION_CLOSE, OPEN_FD_EXCLUDE_STDIN | OPEN_FD_EXCLUDE_STDOUT | OPEN_FD_EXCLUDE_STDERR);
     }
-#endif
+
 
     if(!config_loaded) {
         load_netdata_conf(NULL, 0);
@@ -1882,12 +1917,7 @@ int main(int argc, char **argv) {
     }
 #endif /* NETDATA_INTERNAL_CHECKS */
 
-    // get the max file limit
-    if(getrlimit(RLIMIT_NOFILE, &rlimit_nofile) != 0)
-        error("getrlimit(RLIMIT_NOFILE) failed");
-    else
-        info("resources control: allowed file descriptors: soft = %zu, max = %zu", (size_t)rlimit_nofile.rlim_cur, (size_t)rlimit_nofile.rlim_max);
-
+    set_nofile_limit(&rlimit_nofile);
 
     delta_startup_time("become daemon");
 
@@ -1925,6 +1955,7 @@ int main(int argc, char **argv) {
 
     netdata_anonymous_statistics_enabled=-1;
     struct rrdhost_system_info *system_info = callocz(1, sizeof(struct rrdhost_system_info));
+    __atomic_sub_fetch(&netdata_buffers_statistics.rrdhost_allocations_size, sizeof(struct rrdhost_system_info), __ATOMIC_RELAXED);
     get_system_info(system_info);
     system_info->hops = 0;
     get_install_type(&system_info->install_type, &system_info->prebuilt_arch, &system_info->prebuilt_dist);

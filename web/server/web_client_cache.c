@@ -14,10 +14,12 @@ static void web_client_reuse_ssl(struct web_client *w) {
             SSL_SESSION *session = SSL_get_session(w->ssl.conn);
             SSL *old = w->ssl.conn;
             w->ssl.conn = SSL_new(netdata_ssl_srv_ctx);
+            if (session) {
 #if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_111
-            if (SSL_SESSION_is_resumable(session))
+                if (SSL_SESSION_is_resumable(session))
 #endif
-                SSL_set_session(w->ssl.conn, session);
+                    SSL_set_session(w->ssl.conn, session);
+            }
             SSL_free(old);
         }
     }
@@ -63,13 +65,15 @@ static void web_client_free(struct web_client *w) {
     }
 #endif
     freez(w);
+    __atomic_sub_fetch(&netdata_buffers_statistics.buffers_web, sizeof(struct web_client), __ATOMIC_RELAXED);
 }
 
 static struct web_client *web_client_alloc(void) {
     struct web_client *w = callocz(1, sizeof(struct web_client));
-    w->response.data = buffer_create(NETDATA_WEB_RESPONSE_INITIAL_SIZE);
-    w->response.header = buffer_create(NETDATA_WEB_RESPONSE_HEADER_SIZE);
-    w->response.header_output = buffer_create(NETDATA_WEB_RESPONSE_HEADER_SIZE);
+    __atomic_add_fetch(&netdata_buffers_statistics.buffers_web, sizeof(struct web_client), __ATOMIC_RELAXED);
+    w->response.data = buffer_create(NETDATA_WEB_RESPONSE_INITIAL_SIZE, &netdata_buffers_statistics.buffers_web);
+    w->response.header = buffer_create(NETDATA_WEB_RESPONSE_HEADER_SIZE, &netdata_buffers_statistics.buffers_web);
+    w->response.header_output = buffer_create(NETDATA_WEB_RESPONSE_HEADER_SIZE, &netdata_buffers_statistics.buffers_web);
     return w;
 }
 
