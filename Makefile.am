@@ -23,7 +23,6 @@ CLEANFILES = \
 
 EXTRA_DIST = \
     .gitignore \
-    .csslintrc \
     .eslintignore \
     .eslintrc \
     .github/CODEOWNERS \
@@ -736,8 +735,6 @@ libmqttwebsockets_a_SOURCES = \
     mqtt_websockets/c-rbuf/src/ringbuffer.c \
     mqtt_websockets/c-rbuf/include/ringbuffer.h \
     mqtt_websockets/c-rbuf/src/ringbuffer_internal.h \
-    mqtt_websockets/MQTT-C/src/mqtt.c \
-    mqtt_websockets/MQTT-C/include/mqtt.h \
     mqtt_websockets/c_rhash/src/c_rhash.c \
     mqtt_websockets/c_rhash/include/c_rhash.h \
     mqtt_websockets/c_rhash/src/c_rhash_internal.h

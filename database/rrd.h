@@ -314,7 +314,7 @@ typedef struct storage_collect_handle STORAGE_COLLECT_HANDLE;
 struct rrddim_tier {
     STORAGE_POINT virtual_point;
     size_t tier_grouping;
-    time_t next_point_time_s;
+    time_t next_point_end_time_s;
     STORAGE_METRIC_HANDLE *db_metric_handle;        // the metric handle inside the database
     STORAGE_COLLECT_HANDLE *db_collection_handle;   // the data collection handle
     struct storage_engine_collect_ops *collect_ops;
@@ -571,6 +571,8 @@ typedef enum __attribute__ ((__packed__)) rrdset_flags {
     RRDSET_FLAG_RECEIVER_REPLICATION_FINISHED    = (1 << 25), // the receiving side has completed replication
 
     RRDSET_FLAG_UPSTREAM_SEND_VARIABLES          = (1 << 26), // a custom variable has been updated and needs to be exposed to parent
+
+    RRDSET_FLAG_COLLECTION_FINISHED              = (1 << 27), // when set, data collection is not available for this chart
 } RRDSET_FLAGS;
 
 #define rrdset_flag_check(st, flag) (__atomic_load_n(&((st)->flags), __ATOMIC_SEQ_CST) & (flag))
@@ -903,9 +905,7 @@ typedef struct health {
     time_t health_delay_up_to;                     // a timestamp to delay alarms processing up to
     STRING *health_default_exec;                   // the full path of the alarms notifications program
     STRING *health_default_recipient;              // the default recipient for all alarms
-    char *health_log_filename;                     // the alarms event log filename
     size_t health_log_entries_written;             // the number of alarm events written to the alarms event log
-    FILE *health_log_fp;                           // the FILE pointer to the open alarms event log file
     uint32_t health_default_warn_repeat_every;     // the default value for the interval between repeating warning notifications
     uint32_t health_default_crit_repeat_every;     // the default value for the interval between repeating critical notifications
 } HEALTH;
@@ -1310,6 +1310,11 @@ collected_number rrddim_timed_set_by_pointer(RRDSET *st, RRDDIM *rd, struct time
 collected_number rrddim_set_by_pointer(RRDSET *st, RRDDIM *rd, collected_number value);
 collected_number rrddim_set(RRDSET *st, const char *id, collected_number value);
 
+bool rrddim_finalize_collection_and_check_retention(RRDDIM *rd);
+void rrdset_finalize_collection(RRDSET *st, bool dimensions_too);
+void rrdhost_finalize_collection(RRDHOST *host);
+void rrd_finalize_collection_for_all_hosts(void);
+
 long align_entries_to_pagesize(RRD_MEMORY_MODE mode, long entries);
 
 #ifdef NETDATA_LOG_COLLECTION_ERRORS
@@ -1333,7 +1338,8 @@ void rrdset_free(RRDSET *st);
 
 #ifdef NETDATA_RRD_INTERNALS
 
-char *rrdset_cache_dir(RRDHOST *host, const char *id);
+char *rrdhost_cache_dir_for_rrdset_alloc(RRDHOST *host, const char *id);
+const char *rrdset_cache_dir(RRDSET *st);
 
 void rrddim_free(RRDSET *st, RRDDIM *rd);
 
