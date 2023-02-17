@@ -4,7 +4,7 @@ description: >-
     "Netdata's preconfigured dashboard offers many customization options, such as choosing when 
     charts are updated, your preferred theme, and custom text to document processes, and more."
 type: "how-to"
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.md"
 sidebar_label: "Customize the standard dashboard"
 learn_status: "Published"
 learn_topic_type: "Tasks"
@@ -13,7 +13,7 @@ learn_rel_path: "Operations"
 
 # Customize the standard dashboard
 
-While the [Netdata dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.mdx) comes preconfigured with hundreds of charts and
+While the [Netdata dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.md) comes preconfigured with hundreds of charts and
 thousands of metrics, you may want to alter your experience based on a particular use case or preferences.
 
 ## Dashboard settings
@@ -30,7 +30,7 @@ Here are a few popular settings:
 
 ### Change chart legend position
 
-Find this setting under the **Visual** tab. By default, Netdata places the [legend of dimensions](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.mdx#dimension) _below_ charts. 
+Find this setting under the **Visual** tab. By default, Netdata places the [legend of dimensions](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.md#dimension) _below_ charts. 
 Click this toggle to move the legend to the _right_ of charts.
 
 
@@ -91,9 +91,9 @@ dashboards](https://github.com/netdata/netdata/blob/master/web/gui/custom/README
 ### Further reading & related information
 
 - Dashboard
-  - [How the dashboard works](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.mdx)
-  - [Interact with charts](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.mdx)
-  - [Chart dimensions, contexts, and families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.mdx)
-  - [Select timeframes to visualize](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.mdx)
-  - [Import, export, and print a snapshot](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.mdx)
-  - **[Customize the standard dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.mdx)**
+  - [How the dashboard works](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.md)
+  - [Interact with charts](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.md)
+  - [Chart dimensions, contexts, and families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.md)
+  - [Select timeframes to visualize](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.md)
+  - [Import, export, and print a snapshot](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.md)
+  - **[Customize the standard dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.md)**

@@ -5,7 +5,7 @@ description: >-
     across multiple nodes, or centralize all your metrics data into a single 
     time-series database (TSDB)."
 type: "explanation"
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/how-streaming-works.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/how-streaming-works.md"
 sidebar_label: "How metrics streaming works"
 learn_status: "Published"
 learn_topic_type: "Concepts"
@@ -86,14 +86,14 @@ Each child dashboard is also available directly at the following URL pattern:
 ## What's next?
 
 Now that you understand the fundamentals of streaming metrics between nodes, go ahead and [enable
-streaming](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.mdx) using a simple `parent-child` relationship. For all
-the details, see the [streaming reference](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/reference-streaming.mdx) doc.
+streaming](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.md) using a simple `parent-child` relationship. For all
+the details, see the [streaming reference](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/reference-streaming.md) doc.
 
 Take your streaming setup even further by [exporting metrics](https://github.com/netdata/netdata/blob/master/docs/export/external-databases.md) to an external TSDB.
 
 ### Related information & further reading
 
 - Streaming
-  - **[How Netdata streams metrics](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/how-streaming-works.mdx)**
-  - [Enable streaming between nodes](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.mdx)
-  - [Streaming reference](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/reference-streaming.mdx)
+  - **[How Netdata streams metrics](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/how-streaming-works.md)**
+  - [Enable streaming between nodes](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.md)
+  - [Streaming reference](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/reference-streaming.md)

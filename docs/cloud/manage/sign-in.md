@@ -1,7 +1,7 @@
 <!--
 title: "Sign in with email, Google, or GitHub"
 description: "Learn how signing in to Cloud works via one of our three authentication methods, plus some tips if you're having trouble signing in."
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/manage/sign-in.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/manage/sign-in.md"
 sidebar_label: "Sign in with email, Google, or GitHub"
 learn_status: "Published"
 learn_topic_type: "Tasks"
@@ -35,7 +35,7 @@ If you don't have a Netdata Cloud account yet you won't need to worry about it. 
 After your account is created and you sign in to Netdata, you first are asked to agree to Netdata Cloud's [Privacy
 Policy](https://www.netdata.cloud/privacy/) and [Terms of Use](https://www.netdata.cloud/terms/). Once you agree with these you are directed
 through the Netdata Cloud onboarding process, which is explained in the [Netdata Cloud
-quickstart](https://github.com/netdata/netdata/blob/master/docs/cloud/get-started.mdx).
+quickstart](https://github.com/netdata/netdata/blob/master/packaging/installer/README.md).
 
 ### Troubleshooting
 
@@ -85,4 +85,4 @@ It is not currently possible to link an account created with `user@example.com` 
 ## What's next? 
 
 If you haven't already onboarded to Netdata Cloud and connected your first nodes, visit 
-the [get started guide](https://github.com/netdata/netdata/blob/master/docs/cloud/get-started.mdx).
+the [Get Started section of our documentation](https://github.com/netdata/netdata/blob/master/packaging/installer/README.md).

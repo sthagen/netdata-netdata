@@ -2,11 +2,11 @@
 title: "Alerts smartboard"
 description: ""
 type: "reference"
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/smartboard.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/smartboard.md"
 sidebar_label: "Alerts smartboard"
 learn_status: "Published"
 learn_topic_type: "Tasks"
-learn_rel_path: "Operations/Alerts"
+learn_rel_path: "Integrations/Notify/Cloud alert notifications"
 -->
 
 The Alerts view gives you a high level of availability and performance information for every node you're

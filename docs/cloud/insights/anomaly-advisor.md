@@ -1,7 +1,7 @@
 <!--
 title: "Anomaly Advisor"
 description: "Quickly find anomalous metrics anywhere in your infrastructure."
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/insights/anomaly-advisor.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/insights/anomaly-advisor.md"
 sidebar_label: "Anomaly Advisor"
 learn_status: "Published"
 learn_topic_type: "Tasks"

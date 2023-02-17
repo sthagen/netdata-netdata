@@ -4,11 +4,11 @@ description: >-
     "Track the health of your infrastructure in one place by taking advantage of the powerful health monitoring
     watchdog running on every node."
 type: "how-to"
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/view-active-alerts.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/view-active-alerts.md"
 sidebar_label: "View active alerts"
 learn_status: "Published"
 learn_topic_type: "Tasks"
-learn_rel_path: "Operations/Alerts"
+learn_rel_path: "Integrations/Notify/Cloud alert notifications"
 -->
 
 Netdata Cloud receives information about active alerts on individual nodes in your infrastructure and updates the
@@ -26,7 +26,7 @@ ensure Netdata Cloud always delivers the most relevant alerts about the well-bei
 
 ## View all active alerts
 
-The [Alerts Smartboard](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/smartboard.mdx)
+The [Alerts Smartboard](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/smartboard.md)
 provides a high-level interface for viewing the number of critical or warning alerts and where they are in your
 infrastructure.
 
@@ -37,7 +37,7 @@ the [Nodes view](https://github.com/netdata/netdata/blob/master/docs/cloud/visua
 Smartboard.
 
 From here, filter active alerts using the **critical** or **warning** boxes, or hover over a box in
-the [nodes map](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/smartboard.mdx#nodes-map)
+the [nodes map](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/smartboard.md#nodes-map)
 to see a
 popup node-specific alert information.
 
@@ -50,7 +50,7 @@ moment your node triggered this alert.
 ![An alert in context with charts and dimensions](https://user-images.githubusercontent.com/1153921/119039593-4a0cf580-b969-11eb-840c-4ecb123df9f5.png)
 
 You can
-then [select this area](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.mdx#select)
+then [select this area](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.md#select)
 with `Alt/⌘ + mouse selection` to highlight the alerted timeframe while you explore other charts for root cause
 analysis.
 
@@ -62,9 +62,9 @@ dashboard to only those charts most likely to be connected to the alert.
 ## What's next?
 
 Learn more about the features of the Smartboard in
-its [reference](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/smartboard.mdx)
+its [reference](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/smartboard.md)
 doc. To stay notified of active alerts,
-enable [centralized alert notifications](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/notifications.mdx)
+enable [centralized alert notifications](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/notifications.md)
 from Netdata Cloud.
 
 If you're through with setting up alerts, it might be time

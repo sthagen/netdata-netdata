@@ -811,20 +811,6 @@ void dbengine_init(char *hostname) {
     bool parallel_initialization = (storage_tiers <= (size_t)get_netdata_cpus()) ? true : false;
     parallel_initialization = config_get_boolean(CONFIG_SECTION_DB, "dbengine parallel initialization", parallel_initialization);
 
-    default_rrdeng_page_fetch_timeout = (int) config_get_number(CONFIG_SECTION_DB, "dbengine page fetch timeout secs", PAGE_CACHE_FETCH_WAIT_TIMEOUT);
-    if (default_rrdeng_page_fetch_timeout < 1) {
-        info("'dbengine page fetch timeout secs' cannot be %d, using 1", default_rrdeng_page_fetch_timeout);
-        default_rrdeng_page_fetch_timeout = 1;
-        config_set_number(CONFIG_SECTION_DB, "dbengine page fetch timeout secs", default_rrdeng_page_fetch_timeout);
-    }
-
-    default_rrdeng_page_fetch_retries = (int) config_get_number(CONFIG_SECTION_DB, "dbengine page fetch retries", MAX_PAGE_CACHE_FETCH_RETRIES);
-    if (default_rrdeng_page_fetch_retries < 1) {
-        info("\"dbengine page fetch retries\" found in netdata.conf cannot be %d, using 1", default_rrdeng_page_fetch_retries);
-        default_rrdeng_page_fetch_retries = 1;
-        config_set_number(CONFIG_SECTION_DB, "dbengine page fetch retries", default_rrdeng_page_fetch_retries);
-    }
-
     struct dbengine_initialization tiers_init[RRD_STORAGE_TIERS] = {};
 
     size_t created_tiers = 0;
@@ -1071,7 +1057,7 @@ static void rrdhost_streaming_sender_structures_init(RRDHOST *host)
 
     host->sender->host = host;
     host->sender->buffer = cbuffer_new(CBUFFER_INITIAL_SIZE, 1024 * 1024, &netdata_buffers_statistics.cbuffers_streaming);
-    host->sender->capabilities = STREAM_OUR_CAPABILITIES;
+    host->sender->capabilities = stream_our_capabilities();
 
     host->sender->rrdpush_sender_pipe[PIPE_READ] = -1;
     host->sender->rrdpush_sender_pipe[PIPE_WRITE] = -1;

@@ -2,7 +2,7 @@
 title: "Streaming reference"
 description: "Each node running Netdata can stream the metrics it collects, in real time, to another node. See all of the available settings in this reference document."
 type: "reference"
-custom_edit_url: "https://github.com/netdata/netdata/edit/master/docs/metrics-storage-management/reference-streaming.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/edit/master/docs/metrics-storage-management/reference-streaming.md"
 sidebar_label: "Streaming reference"
 learn_status: "Published"
 learn_topic_type: "References"
@@ -12,10 +12,10 @@ learn_rel_path: "References/Configuration"
 # Streaming reference
 
 Each node running Netdata can stream the metrics it collects, in real time, to another node. To learn more, read about
-[how streaming works](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/how-streaming-works.mdx).
+[how streaming works](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/how-streaming-works.md).
 
 For a quickstart guide for enabling a simple `parent-child` streaming relationship, see our [stream metrics between
-nodes](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.mdx) doc. All other configuration options and scenarios are
+nodes](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.md) doc. All other configuration options and scenarios are
 covered in the sections below.
 
 ## Configuration

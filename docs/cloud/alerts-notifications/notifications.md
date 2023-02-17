@@ -1,13 +1,10 @@
 <!--
-title: "Alert notifications"
-description: >-
-    "Configure Netdata Cloud to send notifications to your team whenever any node on your infrastructure
-    triggers a pre-configured or custom alert threshold."
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/notifications.mdx"
-sidebar_label: "Alert notifications"
+title: "Cloud alert notifications"
+description: "Configure Netdata Cloud to send notifications to your team whenever any node on your infrastructure triggers an alert threshold."
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/notifications.md"
+sidebar_label: "Cloud alert notifications"
 learn_status: "Published"
-learn_topic_type: "Tasks"
-learn_rel_path: "Operations/Alerts"
+learn_rel_path: "Integrations/Notify/Cloud alert notifications"
 -->
 
 import Callout from '@site/src/components/Callout'
@@ -17,11 +14,11 @@ unreachable state. By enabling notifications, you ensure no alert, on any node i
 you or your team.
 
 Having this information centralized helps you:
-* Have a clear view of the health across your infrastructure, [seeing all a alerts in one place](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/view-active-alerts.mdx)
+* Have a clear view of the health across your infrastructure, [seeing all a alerts in one place](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/view-active-alerts.md)
 * Easily [setup your alert notification process](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/manage-notification-methods.md): 
 methods to use and where to use them, filtering rules, etc.
-* Quickly troubleshoot using [Metric Correlations](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/metrics-correlations.md)
-or [Anomaly Advisor](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/anomaly-advisor.mdx)
+* Quickly troubleshoot using [Metric Correlations](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/metric-correlations.md)
+or [Anomaly Advisor](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/anomaly-advisor.md)
 
 If a node is getting disconnected often or has many alerts, we protect you and your team from alert fatigue by sending
 you a flood protection notification. Getting one of these notifications is a good signal of health or performance issues
@@ -136,20 +133,20 @@ Netdata Cloud's alarm notifications feature leverages the alarms configuration o
 you'd like to tweak any of these alarms, or even add new ones based on your needs, read our [health
 quickstart](https://github.com/netdata/netdata/blob/master/docs/monitor/configure-alarms.md).
 
-You can also [view active alarms](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/view-active-alerts.mdx) in Netdata Cloud for an instant
+You can also [view active alarms](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/view-active-alerts.md) in Netdata Cloud for an instant
 visualization of the health of your infrastructure.
 
 ### Related Topics
 
 #### **Related Concepts**
 - [Rooms](https://github.com/netdata/netdata/blob/master/docs/cloud/war-rooms.md)
-- [Metric Correlations](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/metrics-correlations.md)
-- [Anomaly Advisor](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/anomaly-advisor.mdx)
+- [Metric Correlations](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/metric-correlations.md)
+- [Anomaly Advisor](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/anomaly-advisor.md)
 
 #### Related Tasks
-- [View Active alarms](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/view-active-alerts.mdx)
+- [View Active alarms](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/view-active-alerts.md)
 - [Manage notification methods](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/manage-notification-methods.md)
 - [Add webhook notification configuration](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/add-webhook-notification-configuration.md)
-- [Add Discord notification configuration](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/add-discord-notification-configuration.md)
+- [Add Discord notification configuration](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/add-discord-notification.md)
 - [Add Slack notification configuration](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/add-slack-notification-configuration.md)
 - [Add PagerDuty notification configuration](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/add-pagerduty-notification-configuration.md)

@@ -76,7 +76,7 @@ Depending on the plan associated to your space you will have different roles ava
 | **Observers**<p>This role is for read-only access with restricted access to explicit War Rooms and only the Nodes that appear in those War Rooms.</p>💡 Ideal for restricting your customer's access to their own dedicated rooms.<p></p> | - | - | :heavy_check_mark: |
 | **Billing**<p>This role is for users that need to manage billing options and see invoices, with no further access to the system.</p> | - | - | :heavy_check_mark: |
 
-For more details check the documentation under [Role-Based Access model](https://github.com/netdata/netdata/blob/master/docs/cloud/manage/role-based-access-model.md).
+For more details check the documentation under [Role-Based Access model](https://github.com/netdata/netdata/blob/master/docs/cloud/manage/role-based-access.md).
 
 ##### Events feed
 
@@ -97,15 +97,15 @@ The plan on your space will determine what type of notifications methods will be
 * **Pro** - Email, Discord and webhook
 * **Business** - Unlimited, this includes Slack, PagerDuty, etc.
 
-For mode details check the documentation under [Alert Notifications](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/notifications.mdx).
+For mode details check the documentation under [Alert Notifications](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/notifications.md).
 
 ### Related Topics
 
 #### **Related Concepts**
 - [Spaces](https://github.com/netdata/netdata/blob/master/docs/cloud/spaces.md)
-- [Alert Notifications](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/notifications.mdx)
-- [Events feed](https://github.com/netdata/netdata/blob/master/docs/cloud/events-feed.md)
-- [Role-Based Access model](https://github.com/netdata/netdata/blob/master/docs/cloud/manage/role-based-access-model.md)
+- [Alert Notifications](https://github.com/netdata/netdata/blob/master/docs/cloud/alerts-notifications/notifications.md)
+- [Events feed](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/events-feed.md)
+- [Role-Based Access model](https://github.com/netdata/netdata/blob/master/docs/cloud/manage/role-based-access.md)
 
 
 #### Related Tasks

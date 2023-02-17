@@ -2,7 +2,7 @@
 title: "Interact with charts"
 description: "Learn how to pan, zoom, select, and customize Netdata's preconfigured charts to help you troubleshooting with real-time, per-second metrics data."
 type: "how-to"
-custom_edit_url: "https://github.com/netdata/netdata/edit/master/docs/dashboard/interact-charts.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/edit/master/docs/dashboard/interact-charts.md"
 sidebar_label: "Interact with charts"
 learn_status: "Published"
 learn_topic_type: "Tasks"
@@ -181,11 +181,11 @@ We already have [configurable host labels](https://github.com/netdata/netdata/bl
 ## What's next?
 
 We recommend you read up on the differences between [chart dimensions, contexts, and
-families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.mdx) to complete your understanding of how Netdata organizes its
+families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.md) to complete your understanding of how Netdata organizes its
 dashboards. Another valuable way to interact with charts is to use the [timeframe
-selector](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.mdx), which helps you visualize specific moments of historical metrics.
+selector](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.md), which helps you visualize specific moments of historical metrics.
 
-If you feel comfortable with the [dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.mdx) and interacting with charts, we
+If you feel comfortable with the [dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.md) and interacting with charts, we
 recommend moving on to learning about [configuration](https://github.com/netdata/netdata/blob/master/docs/configure/nodes.md). While Netdata doesn't _require_ a
 complicated setup process or a query language to create charts, there are a lot of ways to tweak the experience to match
 your needs.
@@ -193,9 +193,9 @@ your needs.
 ### Further reading & related information
 
 - Dashboard
-  - [How the dashboard works](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.mdx)
+  - [How the dashboard works](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.md)
   - [Netdata Cloud · Interact with new charts](https://github.com/netdata/netdata/blob/master/docs/cloud/visualize/interact-new-charts.md)
-  - [Chart dimensions, contexts, and families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.mdx)
-  - [Select timeframes to visualize](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.mdx)
-  - [Import, export, and print a snapshot](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.mdx)
-  - [Customize the standard dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.mdx)
+  - [Chart dimensions, contexts, and families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.md)
+  - [Select timeframes to visualize](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.md)
+  - [Import, export, and print a snapshot](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.md)
+  - [Customize the standard dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.md)

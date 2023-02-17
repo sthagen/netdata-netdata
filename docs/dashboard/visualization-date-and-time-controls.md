@@ -2,7 +2,7 @@
 title: "Visualization date and time controls"
 description: "Netdata's dashboard features powerful date visualization controls that include a time control (play, pause, force play), a timezone selector and a rich date and timeframe selector, with useful defaults and rich customization, to help you narrow your focus when troubleshooting issues or anomalies."
 type: "how-to"
-custom_edit_url: "https://github.com/netdata/netdata/edit/master/docs/dashboard/visualization-date-and-time-controls.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/edit/master/docs/dashboard/visualization-date-and-time-controls.md"
 sidebar_label: "Visualization date and time controls"
 learn_status: "Published"
 learn_topic_type: "Concepts"
@@ -15,7 +15,7 @@ learn_rel_path: "Concepts"
 
 ### Pick timeframes to visualize
 
-While [panning through time and zooming in/out](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.mdx) from charts it is helpful when
+While [panning through time and zooming in/out](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.md) from charts it is helpful when
 you're looking a recent history, or want to do granular troubleshooting, what if you want to see metrics from 6 hours
 ago? Or 6 days?
 
@@ -109,17 +109,17 @@ depth of historical metrics.
 ## What's next?
 
 One useful next step after selecting a timeframe is [exporting the
-metrics](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.mdx) into a snapshot file, which can then be shared and imported
+metrics](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.md) into a snapshot file, which can then be shared and imported
 into any other Netdata dashboard.
 
-There are also many ways to [customize](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.mdx) the standard dashboard experience, from changing
+There are also many ways to [customize](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.md) the standard dashboard experience, from changing
 the theme to editing the text that accompanies every section of charts.
 
 ## Further reading & related information
 
 - Dashboard
-  - [How the dashboard works](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.mdx)
-  - [Interact with charts](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.mdx)
-  - [Chart dimensions, contexts, and families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.mdx)
-  - [Import, export, and print a snapshot](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.mdx)
-  - [Customize the standard dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.mdx)
+  - [How the dashboard works](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.md)
+  - [Interact with charts](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.md)
+  - [Chart dimensions, contexts, and families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.md)
+  - [Import, export, and print a snapshot](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.md)
+  - [Customize the standard dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.md)

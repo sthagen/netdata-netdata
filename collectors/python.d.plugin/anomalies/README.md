@@ -5,13 +5,12 @@ custom_edit_url: "https://github.com/netdata/netdata/edit/master/collectors/pyth
 sidebar_url: "Anomalies"
 sidebar_label: "anomalies"
 learn_status: "Published"
-learn_topic_type: "References"
-learn_rel_path: "References/Collectors references/Misc"
+learn_rel_path: "Integrations/Monitor/Anything"
 -->
 
 # Anomaly detection with Netdata
 
-**Note**: Check out the [Netdata Anomaly Advisor](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/anomaly-advisor.mdx) for a more native anomaly detection experience within Netdata.
+**Note**: Check out the [Netdata Anomaly Advisor](https://github.com/netdata/netdata/blob/master/docs/cloud/insights/anomaly-advisor.md) for a more native anomaly detection experience within Netdata.
 
 This collector uses the Python [PyOD](https://pyod.readthedocs.io/en/latest/index.html) library to perform unsupervised [anomaly detection](https://en.wikipedia.org/wiki/Anomaly_detection) on your Netdata charts and/or dimensions.
 

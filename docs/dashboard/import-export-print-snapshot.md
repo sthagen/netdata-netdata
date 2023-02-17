@@ -5,7 +5,7 @@ description: >-
     they've already happened, and are interoperable with any other node 
     running Netdata."
 type: "how-to"
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.md"
 sidebar_label: "Import, export, and print a snapshot"
 learn_status: "Published"
 learn_topic_type: "Tasks"
@@ -19,7 +19,7 @@ node running Netdata. Or, you can create a print-ready version of your dashboard
 paper.
 
 Snapshots can be incredibly useful for diagnosing anomalies after they've already happened. Let's say Netdata triggered a warning alarm while you were asleep. In the morning, you can [select the
-timeframe](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.mdx) when the alarm triggered, export a snapshot, and send it to a
+timeframe](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.md) when the alarm triggered, export a snapshot, and send it to a
 
 colleague for further analysis.
 
@@ -76,15 +76,15 @@ Netdata opens a browser print dialog for you to save to PDF or print.
 ## What's next?
 
 Now that you understand snapshots, now is a good time to delve deeper into some of the dashboard's lesser-known
-features, such as [customization](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.mdx) or [building new, custom
+features, such as [customization](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.md) or [building new, custom
 dashboards](https://github.com/netdata/netdata/blob/master/web/gui/custom/README.md).
 
 ### Further reading & related information
 
 - Dashboard
-  - [How the dashboard works](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.mdx)
-  - [Interact with charts](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.mdx)
-  - [Chart dimensions, contexts, and families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.mdx)
-  - [Select timeframes to visualize](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.mdx)
-  - **[Import, export, and print a snapshot](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.mdx)**
-  - [Customize the standard dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.mdx)
+  - [How the dashboard works](https://github.com/netdata/netdata/blob/master/docs/dashboard/how-dashboard-works.md)
+  - [Interact with charts](https://github.com/netdata/netdata/blob/master/docs/dashboard/interact-charts.md)
+  - [Chart dimensions, contexts, and families](https://github.com/netdata/netdata/blob/master/docs/dashboard/dimensions-contexts-families.md)
+  - [Select timeframes to visualize](https://github.com/netdata/netdata/blob/master/docs/dashboard/visualization-date-and-time-controls.md)
+  - **[Import, export, and print a snapshot](https://github.com/netdata/netdata/blob/master/docs/dashboard/import-export-print-snapshot.md)**
+  - [Customize the standard dashboard](https://github.com/netdata/netdata/blob/master/docs/dashboard/customize.md)

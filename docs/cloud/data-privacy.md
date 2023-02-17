@@ -1,7 +1,7 @@
 <!--
 title: "Data privacy in the Netdata Cloud"
 description: "Keeping your data safe and secure is our priority.Netdata never stores your personal information in the Netdata Cloud."
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/data-privacy.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/cloud/data-privacy.md"
 sidebar_label: "Data privacy in the Netdata Cloud"
 learn_status: "Published"
 learn_topic_type: "Concepts"

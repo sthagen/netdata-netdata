@@ -5,7 +5,7 @@ description: >-
     into a second database, but also view dashboards and trigger alarm notifications 
     for multiple nodes in parallel."
 type: "how-to"
-custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.mdx"
+custom_edit_url: "https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.md"
 sidebar_label: "Enable streaming between nodes"
 learn_status: "Published"
 learn_topic_type: "Tasks"
@@ -142,7 +142,7 @@ Now that you have a basic streaming setup with replication, you may want to twea
 child database, disable the child dashboard, or enable SSL on the streaming connection between the parent and child.
 
 See the [streaming reference
-doc](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/reference-streaming.mdx#examples) for details about
+doc](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/reference-streaming.md#examples) for details about
 other possible configurations.
 
 When using Netdata's default TSDB (`dbengine`), the parent node maintains separate, parallel databases for itself and
@@ -153,6 +153,6 @@ details.
 ### Related information & further reading
 
 - Streaming
-  - [How Netdata streams metrics](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/how-streaming-works.mdx)
-  - **[Enable streaming between nodes](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.mdx)**
-  - [Streaming reference](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/reference-streaming.mdx)
+  - [How Netdata streams metrics](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/how-streaming-works.md)
+  - **[Enable streaming between nodes](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/enable-streaming.md)**
+  - [Streaming reference](https://github.com/netdata/netdata/blob/master/docs/metrics-storage-management/reference-streaming.md)
