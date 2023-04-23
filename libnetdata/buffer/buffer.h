@@ -152,6 +152,35 @@ static inline void _buffer_json_depth_pop(BUFFER *wb) {
     wb->json.depth--;
 }
 
+static inline void buffer_fast_charcat(BUFFER *wb, const char c) {
+
+    buffer_need_bytes(wb, 2);
+    *(&wb->buffer[wb->len]) = c;
+    wb->len += 1;
+    wb->buffer[wb->len] = '\0';
+
+    buffer_overflow_check(wb);
+}
+
+static inline void buffer_fast_rawcat(BUFFER *wb, const char *txt, size_t len) {
+    if(unlikely(!txt || !*txt || !len)) return;
+
+    buffer_need_bytes(wb, len + 1);
+
+    const char *t = txt;
+    const char *e = &txt[len];
+
+    char *d = &wb->buffer[wb->len];
+
+    while(t != e)
+        *d++ = *t++;
+
+    wb->len += len;
+    wb->buffer[wb->len] = '\0';
+
+    buffer_overflow_check(wb);
+}
+
 static inline void buffer_fast_strcat(BUFFER *wb, const char *txt, size_t len) {
     if(unlikely(!txt || !*txt || !len)) return;
 
@@ -188,6 +217,28 @@ static inline void buffer_strcat(BUFFER *wb, const char *txt) {
         char *s = &wb->buffer[wb->len];
         char *d = s;
         const char *e = &wb->buffer[wb->size];
+
+        while(*t && d < e)
+            *d++ = *t++;
+
+        wb->len += d - s;
+    }
+
+    buffer_need_bytes(wb, 1);
+    wb->buffer[wb->len] = '\0';
+
+    buffer_overflow_check(wb);
+}
+
+static inline void buffer_strncat(BUFFER *wb, const char *txt, size_t len) {
+    if(unlikely(!txt || !*txt)) return;
+
+    const char *t = txt;
+    while(*t) {
+        buffer_need_bytes(wb, len);
+        char *s = &wb->buffer[wb->len];
+        char *d = s;
+        const char *e = &wb->buffer[wb->len + len];
 
         while(*t && d < e)
             *d++ = *t++;

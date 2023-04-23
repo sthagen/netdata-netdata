@@ -20,7 +20,7 @@ These charts provide a lot of useful information, so that you can:
 - Get the chart status and possible errors. On top, reload functionality
 
 These charts are available on Netdata Cloud's 
-[Overview tab](https://github.com/netdata/netdata/blob/master/docs/cloud/visualize/overview.md), Single Node view and
+[Overview tab](https://github.com/netdata/netdata/blob/master/docs/cloud/visualize/overview.md), Single Node tab and
 on your [Custom Dashboards](https://github.com/netdata/netdata/blob/master/docs/cloud/visualize/dashboards.md).
 
 Some of the features listed below are also available on the simpler charts that are available on each agent's user interface.
@@ -29,7 +29,7 @@ Some of the features listed below are also available on the simpler charts that 
 
 Have a look at the can see the overall look and feel of the charts for both with a composite chart from
 the [Overview tab](https://github.com/netdata/netdata/blob/master/docs/cloud/visualize/overview.md) and a simple chart
-from the single node view:
+from the Single Node tab:
 
 <img width="678" alt="image" src="https://user-images.githubusercontent.com/43294513/220913360-f3f2ac06-b715-4e99-a933-f3bcb776636f.png"/>
 
@@ -185,14 +185,10 @@ following:
 * Trimmed Mean `*`
 * Percentile `**`
 
-:::info
-
-- `*` For **Trimmed Median and Mean** you can choose the percentage of data tha you want to focus on: 1%, 2%, 3%, 5%,
-  10%, 15%, 20% and 25%.
-- `**` For **Percentile** you can specify the percentile you want to focus on: 25th, 50th, 75th, 80th, 90th, 95th, 97th,
-  98th and 99th.
-
-:::
+> ### Info
+>
+> - `*` For **Trimmed Median and Mean** you can choose the percentage of data tha you want to focus on: 1%, 2%, 3%, 5%, 10%, 15%, 20% and 25%.
+> - `**` For **Percentile** you can specify the percentile you want to focus on: 25th, 50th, 75th, 80th, 90th, 95th, 97th, 98th and 99th.
 
 For more details on each, you can refer to our Agent's HTTP API details
 on [Data Queries - Data Grouping](https://github.com/netdata/netdata/blob/master/web/api/queries/README.md#data-grouping).
