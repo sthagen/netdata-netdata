@@ -78,6 +78,26 @@ static inline void rrdhost_init() {
     }
 }
 
+RRDHOST_ACQUIRED *rrdhost_find_and_acquire(const char *machine_guid) {
+    debug(D_RRD_CALLS, "rrdhost_find_and_acquire() host %s", machine_guid);
+
+    return (RRDHOST_ACQUIRED *)dictionary_get_and_acquire_item(rrdhost_root_index, machine_guid);
+}
+
+RRDHOST *rrdhost_acquired_to_rrdhost(RRDHOST_ACQUIRED *rha) {
+    if(unlikely(!rha))
+        return NULL;
+
+    return (RRDHOST *) dictionary_acquired_item_value((const DICTIONARY_ITEM *)rha);
+}
+
+void rrdhost_acquired_release(RRDHOST_ACQUIRED *rha) {
+    if(unlikely(!rha))
+        return;
+
+    dictionary_acquired_item_release(rrdhost_root_index, (const DICTIONARY_ITEM *)rha);
+}
+
 // ----------------------------------------------------------------------------
 // RRDHOST index by UUID
 
@@ -693,6 +713,10 @@ RRDHOST *rrdhost_find_or_create(
 
     RRDHOST *host = rrdhost_find_by_guid(guid);
     if (unlikely(host && host->rrd_memory_mode != mode && rrdhost_flag_check(host, RRDHOST_FLAG_ARCHIVED))) {
+
+        if (likely(!archived && rrdhost_flag_check(host, RRDHOST_FLAG_PENDING_CONTEXT_LOAD)))
+            return host;
+
         /* If a legacy memory mode instantiates all dbengine state must be discarded to avoid inconsistencies */
         error("Archived host '%s' has memory mode '%s', but the wanted one is '%s'. Discarding archived state.",
               rrdhost_hostname(host), rrd_memory_mode_name(host->rrd_memory_mode), rrd_memory_mode_name(mode));
