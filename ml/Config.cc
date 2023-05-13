@@ -28,7 +28,7 @@ void ml_config_load(ml_config_t *cfg) {
     unsigned max_train_samples = config_get_number(config_section_ml, "maximum num samples to train", 4 * 3600);
     unsigned min_train_samples = config_get_number(config_section_ml, "minimum num samples to train", 1 * 900);
     unsigned train_every = config_get_number(config_section_ml, "train every", 1 * 3600);
-    unsigned num_models_to_use = config_get_number(config_section_ml, "number of models per dimension", 1);
+    unsigned num_models_to_use = config_get_number(config_section_ml, "number of models per dimension", 2);
 
     unsigned diff_n = config_get_number(config_section_ml, "num samples to diff", 1);
     unsigned smooth_n = config_get_number(config_section_ml, "num samples to smooth", 3);
@@ -45,6 +45,9 @@ void ml_config_load(ml_config_t *cfg) {
 
     size_t num_training_threads = config_get_number(config_section_ml, "num training threads", 4);
     size_t flush_models_batch_size = config_get_number(config_section_ml, "flush models batch size", 128);
+
+    size_t suppression_window = config_get_number(config_section_ml, "dimension anomaly rate suppression window", 900);
+    size_t suppression_threshold = config_get_number(config_section_ml, "dimension anomaly rate suppression threshold", suppression_window / 2);
 
     bool enable_statistics_charts = config_get_boolean(config_section_ml, "enable statistics charts", true);
 
@@ -72,7 +75,10 @@ void ml_config_load(ml_config_t *cfg) {
     num_training_threads = clamp<size_t>(num_training_threads, 1, 128);
     flush_models_batch_size = clamp<size_t>(flush_models_batch_size, 8, 512);
 
-    /*
+    suppression_window = clamp<size_t>(suppression_window, 1, max_train_samples);
+    suppression_threshold = clamp<size_t>(suppression_threshold, 1, suppression_window);
+
+     /*
      * Validate
      */
 
@@ -120,6 +126,9 @@ void ml_config_load(ml_config_t *cfg) {
 
     cfg->num_training_threads = num_training_threads;
     cfg->flush_models_batch_size = flush_models_batch_size;
+
+    cfg->suppression_window = suppression_window;
+    cfg->suppression_threshold = suppression_threshold;
 
     cfg->enable_statistics_charts = enable_statistics_charts;
 }

@@ -130,12 +130,6 @@ AC_ARG_WITH(
     [with_libcap="detect"]
 )
 AC_ARG_WITH(
-    [zlib],
-    [AS_HELP_STRING([--without-zlib], [build without zlib @<:@default enabled@:>@])],
-    ,
-    [with_zlib="yes"]
-)
-AC_ARG_WITH(
     [math],
     [AS_HELP_STRING([--without-math], [build without math @<:@default enabled@:>@])],
     ,
@@ -212,6 +206,12 @@ AC_ARG_ENABLE(
     [AS_HELP_STRING([--enable-aclk-ssl-debug], [Enables possibility for SSL key logging @<:@default no@:>@])],
     [aclk_ssl_debug="yes"],
     [aclk_ssl_debug="no"]
+)
+AC_ARG_ENABLE(
+    [httpd],
+    [AS_HELP_STRING([--disable-httpd], [Disable webserver (h2o based) @<:@default autodetect@:>@])],
+    ,
+    [enable_httpd="detect"]
 )
 
 # -----------------------------------------------------------------------------
@@ -475,19 +475,7 @@ PKG_CHECK_MODULES(
     [have_zlib=yes],
     [have_zlib=no]
 )
-test "${with_zlib}" = "yes" -a "${have_zlib}" != "yes" && AC_MSG_ERROR([zlib required but not found. Try installing 'zlib1g-dev' or 'zlib-devel'.])
-
-AC_MSG_CHECKING([if zlib should be used])
-if test "${with_zlib}" != "no" -a "${have_zlib}" = "yes"; then
-    with_zlib="yes"
-    AC_DEFINE([NETDATA_WITH_ZLIB], [1], [zlib usability])
-    OPTIONAL_ZLIB_CFLAGS="${ZLIB_CFLAGS}"
-    OPTIONAL_ZLIB_LIBS="${ZLIB_LIBS}"
-else
-    with_zlib="no"
-fi
-AC_MSG_RESULT([${with_zlib}])
-
+test "${have_zlib}" != "yes" && AC_MSG_ERROR([zlib required but not found. Try installing 'zlib1g-dev' or 'zlib-devel'.])
 
 # -----------------------------------------------------------------------------
 # libuuid
@@ -798,6 +786,38 @@ else
 fi
 AC_MSG_RESULT([${with_libcap}])
 AM_CONDITIONAL([ENABLE_CAPABILITY], [test "${with_libcap}" = "yes"])
+
+# -----------------------------------------------------------------------------
+# HTTPD and h2o related
+
+can_build_httpd="no"
+if test "${enable_httpd}" != "no"; then
+    can_build_httpd="yes"
+    AC_MSG_CHECKING([can build HTTPD])
+    if test -z "${UV_LIBS}"; then
+        can_build_httpd="no"
+    fi
+    if test -n "${SSL_LIBS}"; then
+        OPTIONAL_SSL_CFLAGS="${SSL_CFLAGS}"
+        OPTIONAL_SSL_LIBS="${SSL_LIBS}"
+    else
+        can_build_httpd="no"
+    fi
+    if test "${with_zlib}" != "yes"; then
+        can_build_httpd="no"
+    fi
+    AC_MSG_RESULT([${can_build_httpd}])
+
+    if test "${can_build_httpd}" = "no" -a "${enable_httpd}" = "yes"; then
+        AC_MSG_ERROR([HTTPD was requested but it cannot be built])
+    fi
+
+    if test "${can_build_httpd}" = "yes"; then
+        AC_DEFINE([ENABLE_HTTPD], [1], [HTTPD (h2o based web server)])
+        HTTPD_CFLAGS="-I\$(abs_top_srcdir)/httpd/h2o/include -I\$(abs_top_srcdir)/httpd/h2o/deps/picotls/include -I\$(abs_top_srcdir)/httpd/h2o/deps/quicly/include -DH2O_USE_LIBUV=0"
+    fi
+fi
+AM_CONDITIONAL([ENABLE_HTTPD], [test "${can_build_httpd}" = "yes"])
 
 # -----------------------------------------------------------------------------
 # ACLK
@@ -1685,11 +1705,11 @@ AC_SUBST([netdata_user])
 AC_SUBST([libsysdir])
 
 CFLAGS="${originalCFLAGS} ${OPTIONAL_LTO_CFLAGS} ${OPTIONAL_PROTOBUF_CFLAGS} ${OPTIONAL_MATH_CFLAGS} ${OPTIONAL_NFACCT_CFLAGS} \
-    ${OPTIONAL_ZLIB_CFLAGS} ${OPTIONAL_UUID_CFLAGS} \
+    ${ZLIB_CFLAGS} ${OPTIONAL_UUID_CFLAGS} \
     ${OPTIONAL_LIBCAP_CFLAGS} ${OPTIONAL_IPMIMONITORING_CFLAGS} ${OPTIONAL_CUPS_CFLAGS} ${OPTIONAL_XENSTAT_FLAGS} \
     ${OPTIONAL_KINESIS_CFLAGS} ${OPTIONAL_PUBSUB_CFLAGS} ${OPTIONAL_PROMETHEUS_REMOTE_WRITE_CFLAGS} \
     ${OPTIONAL_MONGOC_CFLAGS} ${LWS_CFLAGS} ${OPTIONAL_JSONC_STATIC_CFLAGS} ${OPTIONAL_YAML_STATIC_CFLAGS} ${OPTIONAL_BPF_CFLAGS} ${JUDY_CFLAGS} \
-    ${OPTIONAL_ACLK_CFLAGS} ${OPTIONAL_ML_CFLAGS} ${OPTIONAL_OS_DEP_CFLAGS}"
+    ${OPTIONAL_ACLK_CFLAGS} ${OPTIONAL_ML_CFLAGS} ${OPTIONAL_OS_DEP_CFLAGS} ${HTTPD_CFLAGS}"
 
 CXXFLAGS="${CFLAGS} ${OPTIONAL_KINESIS_CXXFLAGS} ${CPP_STD_FLAG}"
 
@@ -1714,8 +1734,8 @@ AC_SUBST([OPTIONAL_JSONC_LIBS])
 AC_SUBST([OPTIONAL_YAML_LIBS])
 AC_SUBST([OPTIONAL_NFACCT_CFLAGS])
 AC_SUBST([OPTIONAL_NFACCT_LIBS])
-AC_SUBST([OPTIONAL_ZLIB_CFLAGS])
-AC_SUBST([OPTIONAL_ZLIB_LIBS])
+AC_SUBST([ZLIB_CFLAGS])
+AC_SUBST([ZLIB_LIBS])
 AC_SUBST([OPTIONAL_UUID_CFLAGS])
 AC_SUBST([OPTIONAL_UUID_LIBS])
 AC_SUBST([OPTIONAL_BPF_CFLAGS])
@@ -1896,4 +1916,3 @@ AC_CONFIG_FILES([
 AC_OUTPUT
 
 test "${with_math}" != "yes" && AC_MSG_WARN([You are building without math. math allows accurate calculations. It should be enabled.]) || :
-test "${with_zlib}" != "yes" && AC_MSG_WARN([You are building without zlib. zlib allows netdata to transfer a lot less data with web clients. It should be enabled.]) || :

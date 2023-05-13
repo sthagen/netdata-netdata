@@ -5,33 +5,7 @@
 
 #include "libnetdata/libnetdata.h"
 
-#ifdef NETDATA_WITH_ZLIB
 extern int web_enable_gzip, web_gzip_level, web_gzip_strategy;
-#endif /* NETDATA_WITH_ZLIB */
-
-// HTTP_CODES 2XX Success
-#define HTTP_RESP_OK 200
-
-// HTTP_CODES 3XX Redirections
-#define HTTP_RESP_MOVED_PERM 301
-#define HTTP_RESP_REDIR_TEMP 307
-#define HTTP_RESP_REDIR_PERM 308
-
-// HTTP_CODES 4XX Client Errors
-#define HTTP_RESP_BAD_REQUEST 400
-#define HTTP_RESP_UNAUTHORIZED 401
-#define HTTP_RESP_FORBIDDEN 403
-#define HTTP_RESP_NOT_FOUND 404
-#define HTTP_RESP_CONFLICT 409
-#define HTTP_RESP_PRECOND_FAIL 412
-#define HTTP_RESP_CONTENT_TOO_LONG 413
-
-// HTTP_CODES 5XX Server Errors
-#define HTTP_RESP_INTERNAL_SERVER_ERROR 500
-#define HTTP_RESP_BACKEND_FETCH_FAILED 503
-#define HTTP_RESP_SERVICE_UNAVAILABLE 503
-#define HTTP_RESP_GATEWAY_TIMEOUT 504
-#define HTTP_RESP_BACKEND_RESPONSE_INVALID 591
 
 #define HTTP_REQ_MAX_HEADER_FETCH_TRIES 100
 
@@ -145,13 +119,11 @@ struct response {
 
     bool zoutput; // if set to 1, web_client_send() will send compressed data
 
-#ifdef NETDATA_WITH_ZLIB
     bool zinitialized;
     z_stream zstream;                                    // zlib stream for sending compressed output to client
     size_t zsent;                                        // the compressed bytes we have sent to the client
     size_t zhave;                                        // the compressed bytes that we have received from zlib
     Bytef zbuffer[NETDATA_WEB_RESPONSE_ZLIB_CHUNK_SIZE]; // temporary buffer for storing compressed output
-#endif /* NETDATA_WITH_ZLIB */
 };
 
 struct web_client;
