@@ -67,20 +67,37 @@ static void load_stream_conf() {
     freez(filename);
 }
 
-STREAM_CAPABILITIES stream_our_capabilities() {
-    return  STREAM_CAP_V1               |
-            STREAM_CAP_V2               |
-            STREAM_CAP_VN               |
-            STREAM_CAP_VCAPS            |
-            STREAM_CAP_HLABELS          |
-            STREAM_CAP_CLAIM            |
-            STREAM_CAP_CLABELS          |
-            STREAM_CAP_FUNCTIONS        |
-            STREAM_CAP_REPLICATION      |
-            STREAM_CAP_BINARY           |
-            STREAM_CAP_INTERPOLATED     |
-            STREAM_HAS_COMPRESSION      |
+STREAM_CAPABILITIES stream_our_capabilities(RRDHOST *host, bool sender) {
+
+    // we can have DATA_WITH_ML when INTERPOLATED is available
+    bool ml_capability = true;
+
+    if(host && sender) {
+        // we have DATA_WITH_ML capability
+        // we should remove the DATA_WITH_ML capability if our database does not have anomaly info
+        // this can happen under these conditions: 1. we don't run ML, and 2. we don't receive ML
+        netdata_mutex_lock(&host->receiver_lock);
+
+        if(!ml_host_running(host) && !stream_has_capability(host->receiver, STREAM_CAP_DATA_WITH_ML))
+            ml_capability = false;
+
+        netdata_mutex_unlock(&host->receiver_lock);
+    }
+
+    return  STREAM_CAP_V1 |
+            STREAM_CAP_V2 |
+            STREAM_CAP_VN |
+            STREAM_CAP_VCAPS |
+            STREAM_CAP_HLABELS |
+            STREAM_CAP_CLAIM |
+            STREAM_CAP_CLABELS |
+            STREAM_CAP_FUNCTIONS |
+            STREAM_CAP_REPLICATION |
+            STREAM_CAP_BINARY |
+            STREAM_CAP_INTERPOLATED |
+            STREAM_HAS_COMPRESSION |
             (ieee754_doubles ? STREAM_CAP_IEEE754 : 0) |
+            (ml_capability ? STREAM_CAP_DATA_WITH_ML : 0) |
             0;
 }
 
@@ -247,7 +264,7 @@ static inline bool rrdpush_send_chart_definition(BUFFER *wb, RRDSET *st) {
     // send the chart
     buffer_sprintf(
             wb
-            , "CHART \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" %ld %d \"%s %s %s %s\" \"%s\" \"%s\"\n"
+            , "CHART \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" \"%s\" %d %d \"%s %s %s %s\" \"%s\" \"%s\"\n"
             , rrdset_id(st)
             , name
             , rrdset_title(st)
@@ -274,7 +291,7 @@ static inline bool rrdpush_send_chart_definition(BUFFER *wb, RRDSET *st) {
     rrddim_foreach_read(rd, st) {
         buffer_sprintf(
                 wb
-                , "DIMENSION \"%s\" \"%s\" \"%s\" " COLLECTED_NUMBER_FORMAT " " COLLECTED_NUMBER_FORMAT " \"%s %s %s\"\n"
+                , "DIMENSION \"%s\" \"%s\" \"%s\" %d %d \"%s %s %s\"\n"
                 , rrddim_id(rd)
                 , rrddim_name(rd)
                 , rrd_algorithm_name(rd->algorithm)
@@ -284,7 +301,7 @@ static inline bool rrdpush_send_chart_definition(BUFFER *wb, RRDSET *st) {
                 , rrddim_option_check(rd, RRDDIM_OPTION_HIDDEN)?"hidden":""
                 , rrddim_option_check(rd, RRDDIM_OPTION_DONT_DETECT_RESETS_OR_OVERFLOWS)?"noreset":""
         );
-        rd->exposed = 1;
+        rrddim_set_exposed(rd);
     }
     rrddim_foreach_done(rd);
 
@@ -338,10 +355,10 @@ static void rrdpush_send_chart_metrics(BUFFER *wb, RRDSET *st, struct sender_sta
 
     RRDDIM *rd;
     rrddim_foreach_read(rd, st) {
-        if(unlikely(!rd->updated))
+        if(unlikely(!rrddim_check_updated(rd)))
             continue;
 
-        if(likely(rd->exposed)) {
+        if(likely(rrddim_check_exposed(rd))) {
             buffer_fast_strcat(wb, "SET \"", 5);
             buffer_fast_strcat(wb, rrddim_id(rd), string_strlen(rd->id));
             buffer_fast_strcat(wb, "\" = ", 4);
@@ -504,6 +521,7 @@ static int send_labels_callback(const char *name, const char *value, RRDLABEL_SR
     buffer_sprintf(wb, "LABEL \"%s\" = %d \"%s\"\n", name, ls, value);
     return 1;
 }
+
 void rrdpush_send_host_labels(RRDHOST *host) {
     if(unlikely(!rrdhost_can_send_definitions_to_parent(host)
                  || !stream_has_capability(host->sender, STREAM_CAP_HLABELS)))
@@ -519,8 +537,23 @@ void rrdpush_send_host_labels(RRDHOST *host) {
     sender_thread_buffer_free();
 }
 
-void rrdpush_claimed_id(RRDHOST *host)
-{
+void rrdpush_send_global_functions(RRDHOST *host) {
+    if(!stream_has_capability(host->sender, STREAM_CAP_FUNCTIONS))
+        return;
+
+    if(unlikely(!rrdhost_can_send_definitions_to_parent(host)))
+        return;
+
+    BUFFER *wb = sender_start(host->sender);
+
+    rrd_functions_expose_global_rrdpush(host, wb);
+
+    sender_commit(host->sender, wb, STREAM_TRAFFIC_TYPE_METADATA);
+
+    sender_thread_buffer_free();
+}
+
+void rrdpush_send_claimed_id(RRDHOST *host) {
     if(!stream_has_capability(host->sender, STREAM_CAP_CLAIM))
         return;
 
@@ -565,6 +598,7 @@ int connect_to_one_of_destinations(
             *reconnects_counter += 1;
 
         d->last_attempt = now;
+        d->attempts++;
         sock = connect_to_this(string2str(d->destination), default_port, timeout);
 
         if (sock != -1) {
@@ -823,7 +857,7 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *decoded_query_stri
             rpt->tags = strdupz(value);
 
         else if(!strcmp(name, "ver") && (rpt->capabilities & STREAM_CAP_INVALID))
-            rpt->capabilities = convert_stream_version_to_capabilities(strtoul(value, NULL, 0));
+            rpt->capabilities = convert_stream_version_to_capabilities(strtoul(value, NULL, 0), NULL, false);
 
         else {
             // An old Netdata child does not have a compatible streaming protocol, map to something sane.
@@ -846,7 +880,7 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *decoded_query_stri
                 name = "NETDATA_HOST_OS_DETECTION";
 
             else if(!strcmp(name, "NETDATA_PROTOCOL_VERSION") && (rpt->capabilities & STREAM_CAP_INVALID))
-                rpt->capabilities = convert_stream_version_to_capabilities(1);
+                rpt->capabilities = convert_stream_version_to_capabilities(1, NULL, false);
 
             if (unlikely(rrdhost_set_system_info_variable(rpt->system_info, name, value))) {
                 info("STREAM '%s' [receive from [%s]:%s]: "
@@ -860,7 +894,7 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *decoded_query_stri
 
     if (rpt->capabilities & STREAM_CAP_INVALID)
         // no version is supplied, assume version 0;
-        rpt->capabilities = convert_stream_version_to_capabilities(0);
+        rpt->capabilities = convert_stream_version_to_capabilities(0, NULL, false);
 
     // find the program name and version
     if(w->user_agent && w->user_agent[0]) {
@@ -1058,13 +1092,13 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *decoded_query_stri
         static time_t last_stream_accepted_t = 0;
 
         time_t now = now_realtime_sec();
-        netdata_spinlock_lock(&spinlock);
+        spinlock_lock(&spinlock);
 
         if(unlikely(last_stream_accepted_t == 0))
             last_stream_accepted_t = now;
 
         if(now - last_stream_accepted_t < web_client_streaming_rate_t) {
-            netdata_spinlock_unlock(&spinlock);
+            spinlock_unlock(&spinlock);
 
             char msg[100 + 1];
             snprintfz(msg, 100,
@@ -1081,7 +1115,7 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *decoded_query_stri
         }
 
         last_stream_accepted_t = now;
-        netdata_spinlock_unlock(&spinlock);
+        spinlock_unlock(&spinlock);
     }
 
     /*
@@ -1177,20 +1211,20 @@ int rrdpush_receiver_thread_spawn(struct web_client *w, char *decoded_query_stri
 }
 
 void rrdpush_reset_destinations_postpone_time(RRDHOST *host) {
-    struct rrdpush_destinations *d;
-    for (d = host->destinations; d; d = d->next)
-        d->postpone_reconnection_until = 0;
+    uint32_t wait = (host->sender) ? host->sender->reconnect_delay : 5;
+    time_t now = now_realtime_sec();
+    for (struct rrdpush_destinations *d = host->destinations; d; d = d->next)
+        d->postpone_reconnection_until = now + wait;
 }
 
 static struct {
     STREAM_HANDSHAKE err;
     const char *str;
 } handshake_errors[] = {
-    { STREAM_HANDSHAKE_OK_V5, "OK_V5" },
-    { STREAM_HANDSHAKE_OK_V4, "OK_V4" },
-    { STREAM_HANDSHAKE_OK_V3, "OK_V3" },
-    { STREAM_HANDSHAKE_OK_V2, "OK_V2" },
-    { STREAM_HANDSHAKE_OK_V1, "OK_V1" },
+    { STREAM_HANDSHAKE_OK_V3, "CONNECTED" },
+    { STREAM_HANDSHAKE_OK_V2, "CONNECTED" },
+    { STREAM_HANDSHAKE_OK_V1, "CONNECTED" },
+    { STREAM_HANDSHAKE_NEVER, "NOT_TRIED_YET" },
     { STREAM_HANDSHAKE_ERROR_BAD_HANDSHAKE, "BAD HANDSHAKE" },
     { STREAM_HANDSHAKE_ERROR_LOCALHOST, "LOCALHOST" },
     { STREAM_HANDSHAKE_ERROR_ALREADY_CONNECTED, "ALREADY CONNECTED" },
@@ -1207,12 +1241,16 @@ static struct {
 };
 
 const char *stream_handshake_error_to_string(STREAM_HANDSHAKE handshake_error) {
+    if(handshake_error >= STREAM_HANDSHAKE_OK_V1)
+        // handshake_error is the whole version / capabilities number
+        return "CONNECTED";
+
     for(size_t i = 0; handshake_errors[i].str ; i++) {
         if(handshake_error == handshake_errors[i].err)
             return handshake_errors[i].str;
     }
 
-    return "";
+    return "UNKNOWN";
 }
 
 static struct {
@@ -1232,6 +1270,7 @@ static struct {
     { STREAM_CAP_BINARY, "BINARY" },
     { STREAM_CAP_INTERPOLATED, "INTERPOLATED" },
     { STREAM_CAP_IEEE754, "IEEE754" },
+    { STREAM_CAP_DATA_WITH_ML, "ML" },
     { 0 , NULL },
 };
 
@@ -1245,7 +1284,10 @@ static void stream_capabilities_to_string(BUFFER *wb, STREAM_CAPABILITIES caps) 
 }
 
 void stream_capabilities_to_json_array(BUFFER *wb, STREAM_CAPABILITIES caps, const char *key) {
-    buffer_json_member_add_array(wb, key);
+    if(key)
+        buffer_json_member_add_array(wb, key);
+    else
+        buffer_json_add_array_item_array(wb);
 
     for(size_t i = 0; capability_names[i].str ; i++) {
         if(caps & capability_names[i].cap)
@@ -1275,7 +1317,7 @@ void log_sender_capabilities(struct sender_state *s) {
     buffer_free(wb);
 }
 
-STREAM_CAPABILITIES convert_stream_version_to_capabilities(int32_t version) {
+STREAM_CAPABILITIES convert_stream_version_to_capabilities(int32_t version, RRDHOST *host, bool sender) {
     STREAM_CAPABILITIES caps = 0;
 
     if(version <= 1) caps = STREAM_CAP_V1;
@@ -1294,7 +1336,13 @@ STREAM_CAPABILITIES convert_stream_version_to_capabilities(int32_t version) {
     if(caps & STREAM_CAP_V2)
         caps &= ~(STREAM_CAP_V1);
 
-    return caps & stream_our_capabilities();
+    STREAM_CAPABILITIES common_caps = caps & stream_our_capabilities(host, sender);
+
+    if(!(common_caps & STREAM_CAP_INTERPOLATED))
+        // DATA WITH ML requires INTERPOLATED
+        common_caps &= ~STREAM_CAP_DATA_WITH_ML;
+
+    return common_caps;
 }
 
 int32_t stream_capabilities_to_vn(uint32_t caps) {

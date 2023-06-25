@@ -15,10 +15,10 @@ SOCKET_PEERS socket_peers(int sock_fd) {
     SOCKET_PEERS peers;
 
     if(sock_fd < 0) {
-        strncpyz(peers.peer.ip, "unknown", sizeof(peers.peer.ip) - 1);
+        strncpyz(peers.peer.ip, "not connected", sizeof(peers.peer.ip) - 1);
         peers.peer.port = 0;
 
-        strncpyz(peers.local.ip, "unknown", sizeof(peers.local.ip) - 1);
+        strncpyz(peers.local.ip, "not connected", sizeof(peers.local.ip) - 1);
         peers.local.port = 0;
 
         return peers;
@@ -1052,19 +1052,22 @@ ssize_t recv_timeout(int sockfd, void *buf, size_t len, int flags, int timeout) 
             return -1;
         }
 
-        if(!retval)
+        if(!retval) {
             // timeout
             return 0;
+        }
 
         if(fd.revents & POLLIN)
             break;
     }
 
 #ifdef ENABLE_HTTPS
-    if (SSL_connection(ssl))
+    if (SSL_connection(ssl)) {
         return netdata_ssl_read(ssl, buf, len);
+    }
 #endif
 
+    internal_error(true, "%s(): calling recv()", __FUNCTION__ );
     return recv(sockfd, buf, len, flags);
 }
 

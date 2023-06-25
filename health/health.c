@@ -349,7 +349,7 @@ static void health_reload_host(RRDHOST *host) {
     rrdset_foreach_done(st);
 
 #ifdef ENABLE_ACLK
-    if (netdata_cloud_setting) {
+    if (netdata_cloud_enabled) {
         struct aclk_sync_host_config *wc = (struct aclk_sync_host_config *)host->aclk_sync_host_config;
         if (likely(wc)) {
             wc->alert_queue_removed = SEND_REMOVED_AFTER_HEALTH_LOOPS;
@@ -639,7 +639,7 @@ static inline void health_alarm_log_process(RRDHOST *host) {
             ||
            ((ae->new_status == RRDCALC_STATUS_REMOVED) &&
            (ae->flags & HEALTH_ENTRY_FLAG_SAVED) &&
-           (ae->when + 3600 < now_realtime_sec())))
+           (ae->when + 86400 < now_realtime_sec())))
             {
 
             if(host->health_log.alarms == ae) {
@@ -794,7 +794,6 @@ static void initialize_health(RRDHOST *host)
 
     // TODO: This needs to go to the metadata thread
     // Health should wait before accessing the table (needs to be created by the metadata thread)
-    sql_create_health_log_table(host);
     sql_health_alarm_log_load(host);
 
     // ------------------------------------------------------------------------
@@ -905,7 +904,7 @@ static int update_disabled_silenced(RRDHOST *host, RRDCALC *rc) {
 
 static void sql_health_postpone_queue_removed(RRDHOST *host __maybe_unused) {
 #ifdef ENABLE_ACLK
-    if (netdata_cloud_setting) {
+    if (netdata_cloud_enabled) {
         struct aclk_sync_host_config *wc = (struct aclk_sync_host_config *)host->aclk_sync_host_config;
         if (unlikely(!wc)) {
             return;
@@ -1129,9 +1128,10 @@ void *health_main(void *ptr) {
                             rc->last_status_change = now;
                             rc->last_updated = now;
                             rc->value = NAN;
+                            rc->ae = ae;
 
 #ifdef ENABLE_ACLK
-                            if (netdata_cloud_setting)
+                            if (netdata_cloud_enabled)
                                 sql_queue_alarm_to_aclk(host, ae, 1);
 #endif
                         }
@@ -1397,6 +1397,7 @@ void *health_main(void *ptr) {
                         rc->last_status_change = now;
                         rc->old_status = rc->status;
                         rc->status = status;
+                        rc->ae = ae;
                     }
 
                     rc->last_updated = now;
@@ -1474,6 +1475,7 @@ void *health_main(void *ptr) {
                             ae->flags |= HEALTH_ENTRY_RUN_ONCE;
                         }
                         rc->run_flags |= RRDCALC_FLAG_RUN_ONCE;
+                        rc->ae = ae;
                         health_process_notifications(host, ae);
                         debug(D_HEALTH, "Notification sent for the repeating alarm %u.", ae->alarm_id);
                         health_alarm_wait_for_execution(ae);
@@ -1503,7 +1505,7 @@ void *health_main(void *ptr) {
                 break;
             }
 #ifdef ENABLE_ACLK
-            if (netdata_cloud_setting) {
+            if (netdata_cloud_enabled) {
                 struct aclk_sync_host_config *wc = (struct aclk_sync_host_config *)host->aclk_sync_host_config;
                 if (unlikely(!wc)) {
                     continue;
