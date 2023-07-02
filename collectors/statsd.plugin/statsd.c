@@ -1456,7 +1456,7 @@ static int statsd_readfile(const char *filename, STATSD_APP *app, STATSD_APP_CHA
             else if (!strcmp(name, "dimension")) {
                 // metric [name [type [multiplier [divisor]]]]
                 char *words[10] = { NULL };
-                size_t num_words = pluginsd_split_words(value, words, 10);
+                size_t num_words = quoted_strings_splitter_pluginsd(value, words, 10);
 
                 int pattern = 0;
                 size_t i = 0;
@@ -2189,13 +2189,13 @@ static inline RRDDIM *statsd_add_dim_to_app_chart(STATSD_APP *app, STATSD_APP_CH
 
         dim->rd = rrddim_add(chart->st, metric, dim->name, dim->multiplier, dim->divisor, dim->algorithm);
         if(dim->flags != RRDDIM_FLAG_NONE) dim->rd->flags |= dim->flags;
-        if(dim->options != RRDDIM_OPTION_NONE) dim->rd->options |= dim->options;
+        if(dim->options != RRDDIM_OPTION_NONE) dim->rd->collector.options |= dim->options;
         return dim->rd;
     }
 
     dim->rd = rrddim_add(chart->st, dim->metric, dim->name, dim->multiplier, dim->divisor, dim->algorithm);
     if(dim->flags != RRDDIM_FLAG_NONE) dim->rd->flags |= dim->flags;
-    if(dim->options != RRDDIM_OPTION_NONE) dim->rd->options |= dim->options;
+    if(dim->options != RRDDIM_OPTION_NONE) dim->rd->collector.options |= dim->options;
     return dim->rd;
 }
 

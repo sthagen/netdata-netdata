@@ -128,7 +128,7 @@ static int http_api_v2(struct aclk_query_thread *query_thr, aclk_query_t query) 
         ACLK_STATS_UNLOCK;
     }
 
-    w->response.code = web_client_api_request_with_node_selection(localhost, w, path);
+    w->response.code = (short)web_client_api_request_with_node_selection(localhost, w, path);
     web_client_timeout_checkpoint_response_ready(w, &t);
 
     if(buffer_strlen(w->response.data) > ACLK_MAX_WEB_RESPONSE_SIZE) {
@@ -357,7 +357,7 @@ void *aclk_query_main_thread(void *ptr)
 #define TASK_LEN_MAX 22
 void aclk_query_threads_start(struct aclk_query_threads *query_threads, mqtt_wss_client client)
 {
-    info("Starting %d query threads.", query_threads->count);
+    netdata_log_info("Starting %d query threads.", query_threads->count);
 
     char thread_name[TASK_LEN_MAX];
     query_threads->thread_list = callocz(query_threads->count, sizeof(struct aclk_query_thread));

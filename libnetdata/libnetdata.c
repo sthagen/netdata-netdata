@@ -1043,7 +1043,7 @@ void netdata_fix_chart_id(char *s) {
 }
 
 static int memory_file_open(const char *filename, size_t size) {
-    // info("memory_file_open('%s', %zu", filename, size);
+    // netdata_log_info("memory_file_open('%s', %zu", filename, size);
 
     int fd = open(filename, O_RDWR | O_CREAT | O_NOATIME, 0664);
     if (fd != -1) {
@@ -1127,7 +1127,7 @@ inline int madvise_mergeable(void *mem __maybe_unused, size_t len __maybe_unused
 
 void *netdata_mmap(const char *filename, size_t size, int flags, int ksm, bool read_only, int *open_fd)
 {
-    // info("netdata_mmap('%s', %zu", filename, size);
+    // netdata_log_info("netdata_mmap('%s', %zu", filename, size);
 
     // MAP_SHARED is used in memory mode map
     // MAP_PRIVATE is used in memory mode ram and save
@@ -1177,9 +1177,9 @@ void *netdata_mmap(const char *filename, size_t size, int flags, int ksm, bool r
         if(fd != -1 && fd_for_mmap == -1) {
             if (lseek(fd, 0, SEEK_SET) == 0) {
                 if (read(fd, mem, size) != (ssize_t) size)
-                    info("Cannot read from file '%s'", filename);
+                    netdata_log_info("Cannot read from file '%s'", filename);
             }
-            else info("Cannot seek to beginning of file '%s'.", filename);
+            else netdata_log_info("Cannot seek to beginning of file '%s'.", filename);
         }
 
         // madvise_sequential(mem, size);
@@ -1321,14 +1321,14 @@ int recursively_delete_dir(const char *path, const char *reason) {
             continue;
         }
 
-        info("Deleting %s file '%s'", reason?reason:"", fullpath);
+        netdata_log_info("Deleting %s file '%s'", reason?reason:"", fullpath);
         if(unlikely(unlink(fullpath) == -1))
             error("Cannot delete %s file '%s'", reason?reason:"", fullpath);
         else
             ret++;
     }
 
-    info("Deleting empty directory '%s'", path);
+    netdata_log_info("Deleting empty directory '%s'", path);
     if(unlikely(rmdir(path) == -1))
         error("Cannot delete empty directory '%s'", path);
     else
@@ -1399,7 +1399,7 @@ int verify_netdata_host_prefix() {
         goto failed;
 
     if(netdata_configured_host_prefix && *netdata_configured_host_prefix)
-        info("Using host prefix directory '%s'", netdata_configured_host_prefix);
+        netdata_log_info("Using host prefix directory '%s'", netdata_configured_host_prefix);
 
     return 0;
 
@@ -1684,7 +1684,7 @@ char *find_and_replace(const char *src, const char *find, const char *replace, c
     return value;
 }
 
-inline int pluginsd_space(char c) {
+inline int pluginsd_isspace(char c) {
     switch(c) {
         case ' ':
         case '\t':
@@ -1698,8 +1698,7 @@ inline int pluginsd_space(char c) {
     }
 }
 
-inline int config_isspace(char c)
-{
+inline int config_isspace(char c) {
     switch (c) {
         case ' ':
         case '\t':
@@ -1713,100 +1712,23 @@ inline int config_isspace(char c)
     }
 }
 
-// split a text into words, respecting quotes
-inline size_t quoted_strings_splitter(char *str, char **words, size_t max_words, int (*custom_isspace)(char))
-{
-    char *s = str, quote = 0;
-    size_t i = 0;
+inline int group_by_label_isspace(char c) {
+    if(c == ',' || c == '|')
+        return 1;
 
-    // skip all white space
-    while (unlikely(custom_isspace(*s)))
-        s++;
-
-    if(unlikely(!*s)) {
-        words[i] = NULL;
-        return 0;
-    }
-
-    // check for quote
-    if (unlikely(*s == '\'' || *s == '"')) {
-        quote = *s; // remember the quote
-        s++;        // skip the quote
-    }
-
-    // store the first word
-    words[i++] = s;
-
-    // while we have something
-    while (likely(*s)) {
-        // if it is an escape
-        if (unlikely(*s == '\\' && s[1])) {
-            s += 2;
-            continue;
-        }
-
-        // if it is a quote
-        else if (unlikely(*s == quote)) {
-            quote = 0;
-            *s = ' ';
-            continue;
-        }
-
-        // if it is a space
-        else if (unlikely(quote == 0 && custom_isspace(*s))) {
-            // terminate the word
-            *s++ = '\0';
-
-            // skip all white space
-            while (likely(custom_isspace(*s)))
-                s++;
-
-            // check for a quote
-            if (unlikely(*s == '\'' || *s == '"')) {
-                quote = *s; // remember the quote
-                s++;        // skip the quote
-            }
-
-            // if we reached the end, stop
-            if (unlikely(!*s))
-                break;
-
-            // store the next word
-            if (likely(i < max_words))
-                words[i++] = s;
-            else
-                break;
-        }
-
-        // anything else
-        else
-            s++;
-    }
-
-    if (i < max_words)
-        words[i] = NULL;
-
-    return i;
+    return 0;
 }
 
-inline size_t pluginsd_split_words(char *str, char **words, size_t max_words)
-{
-    return quoted_strings_splitter(str, words, max_words, pluginsd_space);
-}
+bool isspace_map_pluginsd[256] = {};
+bool isspace_map_config[256] = {};
+bool isspace_map_group_by_label[256] = {};
 
-bool bitmap256_get_bit(BITMAP256 *ptr, uint8_t idx) {
-    if (unlikely(!ptr))
-        return false;
-    return (ptr->data[idx / 64] & (1ULL << (idx % 64)));
-}
-
-void bitmap256_set_bit(BITMAP256 *ptr, uint8_t idx, bool value) {
-    if (unlikely(!ptr))
-        return;
-    if (likely(value))
-        ptr->data[idx / 64] |= (1ULL << (idx % 64));
-    else
-        ptr->data[idx / 64] &= ~(1ULL << (idx % 64));
+__attribute__((constructor)) void initialize_is_space_arrays(void) {
+    for(int c = 0; c < 256 ; c++) {
+        isspace_map_pluginsd[c] = pluginsd_isspace((char) c);
+        isspace_map_config[c] = config_isspace((char) c);
+        isspace_map_group_by_label[c] = group_by_label_isspace((char) c);
+    }
 }
 
 bool run_command_and_copy_output_to_stdout(const char *command, int max_line_length) {
@@ -1999,7 +1921,7 @@ void timing_action(TIMING_ACTION action, TIMING_STEP step) {
                 );
             }
 
-            info("TIMINGS REPORT:\n%sTIMINGS REPORT:                        total # %10zu, t %11.2f ms",
+            netdata_log_info("TIMINGS REPORT:\n%sTIMINGS REPORT:                        total # %10zu, t %11.2f ms",
                  buffer_tostring(wb), total_reqs, (double)total_usec / USEC_PER_MS);
 
             memcpy(timings2, timings3, sizeof(timings2));

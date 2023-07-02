@@ -521,7 +521,7 @@ int is_legacy = 1;
 
     // ------------------------------------------------------------------------
 
-    info("Host '%s' (at registry as '%s') with guid '%s' initialized"
+    netdata_log_info("Host '%s' (at registry as '%s') with guid '%s' initialized"
                  ", os '%s'"
                  ", timezone '%s'"
                  ", tags '%s'"
@@ -612,21 +612,21 @@ static void rrdhost_update(RRDHOST *host
     host->registry_hostname = string_strdupz((registry_hostname && *registry_hostname)?registry_hostname:hostname);
 
     if(strcmp(rrdhost_hostname(host), hostname) != 0) {
-        info("Host '%s' has been renamed to '%s'. If this is not intentional it may mean multiple hosts are using the same machine_guid.", rrdhost_hostname(host), hostname);
+        netdata_log_info("Host '%s' has been renamed to '%s'. If this is not intentional it may mean multiple hosts are using the same machine_guid.", rrdhost_hostname(host), hostname);
         rrdhost_init_hostname(host, hostname, true);
     } else {
         rrdhost_index_add_hostname(host);
     }
 
     if(strcmp(rrdhost_program_name(host), program_name) != 0) {
-        info("Host '%s' switched program name from '%s' to '%s'", rrdhost_hostname(host), rrdhost_program_name(host), program_name);
+        netdata_log_info("Host '%s' switched program name from '%s' to '%s'", rrdhost_hostname(host), rrdhost_program_name(host), program_name);
         STRING *t = host->program_name;
         host->program_name = string_strdupz(program_name);
         string_freez(t);
     }
 
     if(strcmp(rrdhost_program_version(host), program_version) != 0) {
-        info("Host '%s' switched program version from '%s' to '%s'", rrdhost_hostname(host), rrdhost_program_version(host), program_version);
+        netdata_log_info("Host '%s' switched program version from '%s' to '%s'", rrdhost_hostname(host), rrdhost_program_version(host), program_version);
         STRING *t = host->program_version;
         host->program_version = string_strdupz(program_version);
         string_freez(t);
@@ -685,7 +685,7 @@ static void rrdhost_update(RRDHOST *host
         ml_host_new(host);
         
         rrdhost_load_rrdcontext_data(host);
-        info("Host %s is not in archived mode anymore", rrdhost_hostname(host));
+        netdata_log_info("Host %s is not in archived mode anymore", rrdhost_hostname(host));
     }
 
     spinlock_unlock(&host->rrdhost_update_lock);
@@ -973,7 +973,7 @@ int rrd_init(char *hostname, struct rrdhost_system_info *system_info, bool unitt
             set_late_global_environment(system_info);
             fatal("Failed to initialize SQLite");
         }
-        info("Skipping SQLITE metadata initialization since memory mode is not dbengine");
+        netdata_log_info("Skipping SQLITE metadata initialization since memory mode is not dbengine");
     }
 
     if (unlikely(sql_init_context_database(system_info ? 0 : 1))) {
@@ -988,11 +988,11 @@ int rrd_init(char *hostname, struct rrdhost_system_info *system_info, bool unitt
         rrdpush_init();
 
         if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE || rrdpush_receiver_needs_dbengine()) {
-            info("DBENGINE: Initializing ...");
+            netdata_log_info("DBENGINE: Initializing ...");
             dbengine_init(hostname);
         }
         else {
-            info("DBENGINE: Not initializing ...");
+            netdata_log_info("DBENGINE: Not initializing ...");
             storage_tiers = 1;
         }
 
@@ -1118,15 +1118,13 @@ static void rrdhost_streaming_sender_structures_init(RRDHOST *host)
     host->sender->rrdpush_sender_socket  = -1;
 
 #ifdef ENABLE_COMPRESSION
-    if(default_compression_enabled) {
+    if(default_compression_enabled)
         host->sender->flags |= SENDER_FLAG_COMPRESSION;
-        host->sender->compressor = create_compressor();
-    }
     else
         host->sender->flags &= ~SENDER_FLAG_COMPRESSION;
 #endif
 
-    netdata_mutex_init(&host->sender->mutex);
+    spinlock_init(&host->sender->spinlock);
     replication_init_sender(host->sender);
 }
 
@@ -1137,11 +1135,10 @@ static void rrdhost_streaming_sender_structures_free(RRDHOST *host)
     if (unlikely(!host->sender))
         return;
 
-    rrdpush_sender_thread_stop(host, "HOST CLEANUP", true); // stop a possibly running thread
+    rrdpush_sender_thread_stop(host, STREAM_HANDSHAKE_DISCONNECT_HOST_CLEANUP, true); // stop a possibly running thread
     cbuffer_free(host->sender->buffer);
 #ifdef ENABLE_COMPRESSION
-    if (host->sender->compressor)
-        host->sender->compressor->destroy(&host->sender->compressor);
+    rrdpush_compressor_destroy(&host->sender->compressor);
 #endif
     replication_cleanup_sender(host->sender);
 
@@ -1156,7 +1153,7 @@ void rrdhost_free___while_having_rrd_wrlock(RRDHOST *host, bool force) {
     if(!host) return;
 
     if (netdata_exit || force) {
-        info("RRD: 'host:%s' freeing memory...", rrdhost_hostname(host));
+        netdata_log_info("RRD: 'host:%s' freeing memory...", rrdhost_hostname(host));
 
         // ------------------------------------------------------------------------
         // first remove it from the indexes, so that it will not be discoverable
@@ -1174,7 +1171,7 @@ void rrdhost_free___while_having_rrd_wrlock(RRDHOST *host, bool force) {
     rrdhost_streaming_sender_structures_free(host);
 
     if (netdata_exit || force)
-        stop_streaming_receiver(host, "HOST CLEANUP");
+        stop_streaming_receiver(host, STREAM_HANDSHAKE_DISCONNECT_HOST_CLEANUP);
 
 
     // ------------------------------------------------------------------------
@@ -1216,7 +1213,7 @@ void rrdhost_free___while_having_rrd_wrlock(RRDHOST *host, bool force) {
 #endif
 
     if (!netdata_exit && !force) {
-        info("RRD: 'host:%s' is now in archive mode...", rrdhost_hostname(host));
+        netdata_log_info("RRD: 'host:%s' is now in archive mode...", rrdhost_hostname(host));
         rrdhost_flag_set(host, RRDHOST_FLAG_ARCHIVED | RRDHOST_FLAG_ORPHAN);
         return;
     }
@@ -1286,7 +1283,7 @@ void rrd_finalize_collection_for_all_hosts(void) {
 void rrdhost_save_charts(RRDHOST *host) {
     if(!host) return;
 
-    info("RRD: 'host:%s' saving / closing database...", rrdhost_hostname(host));
+    netdata_log_info("RRD: 'host:%s' saving / closing database...", rrdhost_hostname(host));
 
     RRDSET *st;
 
@@ -1473,7 +1470,7 @@ void reload_host_labels(void) {
 }
 
 void rrdhost_finalize_collection(RRDHOST *host) {
-    info("RRD: 'host:%s' stopping data collection...", rrdhost_hostname(host));
+    netdata_log_info("RRD: 'host:%s' stopping data collection...", rrdhost_hostname(host));
 
     RRDSET *st;
     rrdset_foreach_read(st, host)
@@ -1487,7 +1484,7 @@ void rrdhost_finalize_collection(RRDHOST *host) {
 void rrdhost_delete_charts(RRDHOST *host) {
     if(!host) return;
 
-    info("RRD: 'host:%s' deleting disk files...", rrdhost_hostname(host));
+    netdata_log_info("RRD: 'host:%s' deleting disk files...", rrdhost_hostname(host));
 
     RRDSET *st;
 
@@ -1509,7 +1506,7 @@ void rrdhost_delete_charts(RRDHOST *host) {
 void rrdhost_cleanup_charts(RRDHOST *host) {
     if(!host) return;
 
-    info("RRD: 'host:%s' cleaning up disk files...", rrdhost_hostname(host));
+    netdata_log_info("RRD: 'host:%s' cleaning up disk files...", rrdhost_hostname(host));
 
     RRDSET *st;
     uint32_t rrdhost_delete_obsolete_charts = rrdhost_option_check(host, RRDHOST_OPTION_DELETE_OBSOLETE_CHARTS);
@@ -1536,7 +1533,7 @@ void rrdhost_cleanup_charts(RRDHOST *host) {
 // RRDHOST - save all hosts to disk
 
 void rrdhost_save_all(void) {
-    info("RRD: saving databases [%zu hosts(s)]...", rrdhost_hosts_available());
+    netdata_log_info("RRD: saving databases [%zu hosts(s)]...", rrdhost_hosts_available());
 
     rrd_rdlock();
 
@@ -1551,7 +1548,7 @@ void rrdhost_save_all(void) {
 // RRDHOST - save or delete all hosts from disk
 
 void rrdhost_cleanup_all(void) {
-    info("RRD: cleaning up database [%zu hosts(s)]...", rrdhost_hosts_available());
+    netdata_log_info("RRD: cleaning up database [%zu hosts(s)]...", rrdhost_hosts_available());
 
     rrd_rdlock();
 
@@ -1761,7 +1758,7 @@ void rrdhost_status(RRDHOST *host, time_t now, RRDHOST_STATUS *s) {
     // --- ingest ---
 
     s->ingest.since = MAX(host->child_connect_time, host->child_disconnected_time);
-    s->ingest.reason = (online) ? "" : host->rrdpush_last_receiver_exit_reason;
+    s->ingest.reason = (online) ? STREAM_HANDSHAKE_NEVER : host->rrdpush_last_receiver_exit_reason;
 
     netdata_mutex_lock(&host->receiver_lock);
     s->ingest.hops = (host->system_info ? host->system_info->hops : (host == localhost) ? 0 : 1);
@@ -1819,9 +1816,6 @@ void rrdhost_status(RRDHOST *host, time_t now, RRDHOST_STATUS *s) {
     if(!s->ingest.since)
         s->ingest.since = netdata_start_time;
 
-    if(!s->ingest.reason)
-        s->ingest.reason = "";
-
     if(s->ingest.status == RRDHOST_INGEST_STATUS_ONLINE)
         s->db.liveness = RRDHOST_DB_LIVENESS_LIVE;
     else
@@ -1834,7 +1828,7 @@ void rrdhost_status(RRDHOST *host, time_t now, RRDHOST_STATUS *s) {
         s->stream.hops = s->ingest.hops + 1;
     }
     else {
-        netdata_mutex_lock(&host->sender->mutex);
+        sender_lock(host->sender);
 
         s->stream.since = host->sender->last_state_since_t;
         s->stream.peers = socket_peers(host->sender->rrdpush_sender_socket);
@@ -1847,7 +1841,7 @@ void rrdhost_status(RRDHOST *host, time_t now, RRDHOST_STATUS *s) {
 
         if (rrdhost_flag_check(host, RRDHOST_FLAG_RRDPUSH_SENDER_CONNECTED)) {
             s->stream.hops = host->sender->hops;
-            s->stream.reason = "";
+            s->stream.reason = STREAM_HANDSHAKE_NEVER;
             s->stream.capabilities = host->sender->capabilities;
 
             s->stream.replication.completion = rrdhost_sender_replication_completion_unsafe(host, now, &s->stream.replication.instances);
@@ -1859,7 +1853,7 @@ void rrdhost_status(RRDHOST *host, time_t now, RRDHOST_STATUS *s) {
                 s->stream.status = RRDHOST_STREAM_STATUS_ONLINE;
 
 #ifdef ENABLE_COMPRESSION
-            s->stream.compression = (stream_has_capability(host->sender, STREAM_CAP_COMPRESSION) && host->sender->compressor);
+            s->stream.compression = (stream_has_capability(host->sender, STREAM_CAP_COMPRESSION) && host->sender->compressor.initialized);
 #endif
         }
         else {
@@ -1868,16 +1862,13 @@ void rrdhost_status(RRDHOST *host, time_t now, RRDHOST_STATUS *s) {
             s->stream.reason = host->sender->exit.reason;
         }
 
-        netdata_mutex_unlock(&host->sender->mutex);
+        sender_unlock(host->sender);
     }
 
     s->stream.id = host->rrdpush_sender_connection_counter;
 
     if(!s->stream.since)
         s->stream.since = netdata_start_time;
-
-    if(!s->stream.reason)
-        s->stream.reason = "";
 
     // --- ml ---
 
