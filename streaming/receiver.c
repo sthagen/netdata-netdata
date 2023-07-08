@@ -28,7 +28,7 @@ void receiver_state_free(struct receiver_state *rpt) {
         close(rpt->fd);
     }
 
-#ifdef ENABLE_COMPRESSION
+#ifdef ENABLE_RRDPUSH_COMPRESSION
     rrdpush_decompressor_destroy(&rpt->decompressor);
 #endif
 
@@ -77,15 +77,15 @@ static inline int read_stream(struct receiver_state *r, char* buffer, size_t siz
     } while(bytes_read < 0 && errno == EINTR && tries--);
 
     if((bytes_read == 0 || bytes_read == -1) && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS)) {
-        error("STREAM: %s(): timeout while waiting for data on socket!", __FUNCTION__);
+        netdata_log_error("STREAM: %s(): timeout while waiting for data on socket!", __FUNCTION__);
         bytes_read = -3;
     }
     else if (bytes_read == 0) {
-        error("STREAM: %s(): EOF while reading data from socket!", __FUNCTION__);
+        netdata_log_error("STREAM: %s(): EOF while reading data from socket!", __FUNCTION__);
         bytes_read = -1;
     }
     else if (bytes_read < 0) {
-        error("STREAM: %s() failed to read from socket!", __FUNCTION__);
+        netdata_log_error("STREAM: %s() failed to read from socket!", __FUNCTION__);
         bytes_read = -2;
     }
 
@@ -111,7 +111,7 @@ static inline bool receiver_read_uncompressed(struct receiver_state *r) {
     return true;
 }
 
-#ifdef ENABLE_COMPRESSION
+#ifdef ENABLE_RRDPUSH_COMPRESSION
 static inline bool receiver_read_compressed(struct receiver_state *r) {
 
     internal_fatal(r->reader.read_buffer[r->reader.read_len] != '\0',
@@ -170,7 +170,7 @@ static inline bool receiver_read_compressed(struct receiver_state *r) {
     }
 
     if(unlikely(compressed_message_size > COMPRESSION_MAX_MSG_SIZE)) {
-        error("received a compressed message of %zu bytes, which is bigger than the max compressed message size supported of %zu. Ignoring message.",
+        netdata_log_error("received a compressed message of %zu bytes, which is bigger than the max compressed message size supported of %zu. Ignoring message.",
               compressed_message_size, (size_t)COMPRESSION_MAX_MSG_SIZE);
         return false;
     }
@@ -217,11 +217,11 @@ static inline bool receiver_read_compressed(struct receiver_state *r) {
 
     return true;
 }
-#else // !ENABLE_COMPRESSION
+#else // !ENABLE_RRDPUSH_COMPRESSION
 static inline bool receiver_read_compressed(struct receiver_state *r) {
     return receiver_read_uncompressed(r);
 }
-#endif // ENABLE_COMPRESSION
+#endif // ENABLE_RRDPUSH_COMPRESSION
 
 /* Produce a full line if one exists, statefully return where we start next time.
  * When we hit the end of the buffer with a partial line move it to the beginning for the next fill.
@@ -259,7 +259,7 @@ inline char *buffered_reader_next_line(struct buffered_reader *reader, char *dst
 
     // if the destination is full, oops!
     if(ds == de) {
-        error("STREAM: received line exceeds %d bytes. Truncating it.", PLUGINSD_LINE_MAX);
+        netdata_log_error("STREAM: received line exceeds %d bytes. Truncating it.", PLUGINSD_LINE_MAX);
         *ds = '\0';
         reader->pos = ss - reader->read_buffer;
         return dst;
@@ -331,7 +331,7 @@ static size_t streaming_parser(struct receiver_state *rpt, struct plugind *cd, i
 
     bool compressed_connection = false;
 
-#ifdef ENABLE_COMPRESSION
+#ifdef ENABLE_RRDPUSH_COMPRESSION
     if(stream_has_capability(rpt, STREAM_CAP_COMPRESSION)) {
         compressed_connection = true;
         rrdpush_decompressor_reset(&rpt->decompressor);
@@ -498,7 +498,7 @@ bool stop_streaming_receiver(RRDHOST *host, STREAM_HANDSHAKE reason) {
     }
 
     if(host->receiver)
-        error("STREAM '%s' [receive from [%s]:%s]: "
+        netdata_log_error("STREAM '%s' [receive from [%s]:%s]: "
               "thread %d takes too long to stop, giving up..."
         , rrdhost_hostname(host)
         , host->receiver->client_ip, host->receiver->client_port
@@ -573,7 +573,7 @@ static void rrdpush_receive(struct receiver_state *rpt)
     rpt->config.mode = rrd_memory_mode_id(appconfig_get(&stream_config, rpt->machine_guid, "memory mode", rrd_memory_mode_name(rpt->config.mode)));
 
     if (unlikely(rpt->config.mode == RRD_MEMORY_MODE_DBENGINE && !dbengine_enabled)) {
-        error("STREAM '%s' [receive from %s:%s]: "
+        netdata_log_error("STREAM '%s' [receive from %s:%s]: "
               "dbengine is not enabled, falling back to default."
               , rpt->hostname
               , rpt->client_ip, rpt->client_port
@@ -609,11 +609,11 @@ static void rrdpush_receive(struct receiver_state *rpt)
     rpt->config.rrdpush_replication_step = appconfig_get_number(&stream_config, rpt->key, "seconds per replication step", rpt->config.rrdpush_replication_step);
     rpt->config.rrdpush_replication_step = appconfig_get_number(&stream_config, rpt->machine_guid, "seconds per replication step", rpt->config.rrdpush_replication_step);
 
-#ifdef  ENABLE_COMPRESSION
-    rpt->config.rrdpush_compression = default_compression_enabled;
+#ifdef  ENABLE_RRDPUSH_COMPRESSION
+    rpt->config.rrdpush_compression = default_rrdpush_compression_enabled;
     rpt->config.rrdpush_compression = appconfig_get_boolean(&stream_config, rpt->key, "enable compression", rpt->config.rrdpush_compression);
     rpt->config.rrdpush_compression = appconfig_get_boolean(&stream_config, rpt->machine_guid, "enable compression", rpt->config.rrdpush_compression);
-#endif  //ENABLE_COMPRESSION
+#endif  // ENABLE_RRDPUSH_COMPRESSION
 
     (void)appconfig_set_default(&stream_config, rpt->machine_guid, "host tags", (rpt->tags)?rpt->tags:"");
 
@@ -707,12 +707,12 @@ static void rrdpush_receive(struct receiver_state *rpt)
     snprintfz(cd.fullfilename, FILENAME_MAX,     "%s:%s", rpt->client_ip, rpt->client_port);
     snprintfz(cd.cmd,          PLUGINSD_CMD_MAX, "%s:%s", rpt->client_ip, rpt->client_port);
 
-#ifdef ENABLE_COMPRESSION
+#ifdef ENABLE_RRDPUSH_COMPRESSION
     if (stream_has_capability(rpt, STREAM_CAP_COMPRESSION)) {
         if (!rpt->config.rrdpush_compression)
             rpt->capabilities &= ~STREAM_CAP_COMPRESSION;
     }
-#endif
+#endif // ENABLE_RRDPUSH_COMPRESSION
 
     {
         // netdata_log_info("STREAM %s [receive from [%s]:%s]: initializing communication...", rrdhost_hostname(rpt->host), rpt->client_ip, rpt->client_port);
@@ -751,7 +751,7 @@ static void rrdpush_receive(struct receiver_state *rpt)
     {
         // remove the non-blocking flag from the socket
         if(sock_delnonblock(rpt->fd) < 0)
-            error("STREAM '%s' [receive from [%s]:%s]: "
+            netdata_log_error("STREAM '%s' [receive from [%s]:%s]: "
                   "cannot remove the non-blocking flag from socket %d"
                   , rrdhost_hostname(rpt->host)
                   , rpt->client_ip, rpt->client_port
@@ -761,7 +761,7 @@ static void rrdpush_receive(struct receiver_state *rpt)
         timeout.tv_sec = 600;
         timeout.tv_usec = 0;
         if (unlikely(setsockopt(rpt->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout) != 0))
-            error("STREAM '%s' [receive from [%s]:%s]: "
+            netdata_log_error("STREAM '%s' [receive from [%s]:%s]: "
                   "cannot set timeout for socket %d"
                   , rrdhost_hostname(rpt->host)
                   , rpt->client_ip, rpt->client_port

@@ -657,7 +657,7 @@ void set_late_global_environment(struct rrdhost_system_info *system_info)
 #else
     analytics_set_data(
         &analytics_data.netdata_host_cloud_enabled,
-        appconfig_get_boolean(&cloud_config, CONFIG_SECTION_GLOBAL, "enabled", CONFIG_BOOLEAN_YES) ? "true" : "false");
+        appconfig_get_boolean_ondemand(&cloud_config, CONFIG_SECTION_GLOBAL, "enabled", netdata_cloud_enabled) ? "true" : "false");
 #endif
 
 #ifdef ENABLE_DBENGINE
@@ -1035,11 +1035,11 @@ void send_statistics(const char *action, const char *action_result, const char *
         char *s = fgets(buffer, 4, fp_child_output);
         int exit_code = netdata_pclose(fp_child_input, fp_child_output, command_pid);
         if (exit_code)
-            error("Execution of anonymous statistics script returned %d.", exit_code);
+            netdata_log_error("Execution of anonymous statistics script returned %d.", exit_code);
         if (s && strncmp(buffer, "200", 3))
-            error("Execution of anonymous statistics script returned http code %s.", buffer);
+            netdata_log_error("Execution of anonymous statistics script returned http code %s.", buffer);
     } else {
-        error("Failed to run anonymous statistics script %s.", as_script);
+        netdata_log_error("Failed to run anonymous statistics script %s.", as_script);
     }
     freez(command_to_run);
 }

@@ -186,7 +186,7 @@ ebpf_module_t ebpf_modules[] = {
       .apps_routine = NULL, .maps = NULL, .pid_map_size = ND_EBPF_DEFAULT_PID_SIZE, .names = NULL, .cfg = &mdflush_config,
       .config_file = NETDATA_DIRECTORY_MDFLUSH_CONFIG_FILE,
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4 | NETDATA_V5_14,
-      .load = EBPF_LOAD_LEGACY, .targets = NULL, .probe_links = NULL, .objects = NULL,
+      .load = EBPF_LOAD_LEGACY, .targets = mdflush_targets, .probe_links = NULL, .objects = NULL,
       .thread = NULL, .maps_per_core = CONFIG_BOOLEAN_YES},
     { .thread_name = NULL, .enabled = 0, .start_routine = NULL, .update_every = EBPF_DEFAULT_UPDATE_EVERY,
       .global_charts = 0, .apps_charts = NETDATA_EBPF_APPS_FLAG_NO, .apps_level = NETDATA_APPS_NOT_SET,
@@ -378,7 +378,13 @@ ebpf_filesystem_partitions_t localfs[] =
       .enabled = CONFIG_BOOLEAN_YES,
       .addresses = {.function = NULL, .addr = 0},
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4,
-      .fs_maps = NULL},
+      .fs_maps = NULL,
+      .fs_obj = NULL,
+      .functions = {  "ext4_file_read_iter",
+                      "ext4_file_write_iter",
+                      "ext4_file_open",
+                      "ext4_sync_file",
+                      NULL }},
      {.filesystem = "xfs",
       .optional_filesystem = NULL,
       .family = "xfs",
@@ -388,7 +394,13 @@ ebpf_filesystem_partitions_t localfs[] =
       .enabled = CONFIG_BOOLEAN_YES,
       .addresses = {.function = NULL, .addr = 0},
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4,
-      .fs_maps = NULL},
+      .fs_maps = NULL,
+      .fs_obj = NULL,
+      .functions = {  "xfs_file_read_iter",
+                      "xfs_file_write_iter",
+                      "xfs_file_open",
+                      "xfs_file_fsync",
+                      NULL }},
      {.filesystem = "nfs",
       .optional_filesystem = "nfs4",
       .family = "nfs",
@@ -398,7 +410,13 @@ ebpf_filesystem_partitions_t localfs[] =
       .enabled = CONFIG_BOOLEAN_YES,
       .addresses = {.function = NULL, .addr = 0},
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4,
-      .fs_maps = NULL},
+      .fs_maps = NULL,
+      .fs_obj = NULL,
+      .functions = {  "nfs_file_read",
+                      "nfs_file_write",
+                      "nfs_open",
+                      "nfs_getattr",
+                      NULL }}, // // "nfs4_file_open" - not present on all kernels
      {.filesystem = "zfs",
       .optional_filesystem = NULL,
       .family = "zfs",
@@ -408,7 +426,13 @@ ebpf_filesystem_partitions_t localfs[] =
       .enabled = CONFIG_BOOLEAN_YES,
       .addresses = {.function = NULL, .addr = 0},
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4,
-      .fs_maps = NULL},
+      .fs_maps = NULL,
+      .fs_obj = NULL,
+      .functions = {  "zpl_iter_read",
+                      "zpl_iter_write",
+                      "zpl_open",
+                      "zpl_fsync",
+                      NULL }},
      {.filesystem = "btrfs",
       .optional_filesystem = NULL,
       .family = "btrfs",
@@ -418,7 +442,13 @@ ebpf_filesystem_partitions_t localfs[] =
       .enabled = CONFIG_BOOLEAN_YES,
       .addresses = {.function = "btrfs_file_operations", .addr = 0},
       .kernels =  NETDATA_V3_10 | NETDATA_V4_14 | NETDATA_V4_16 | NETDATA_V4_18 | NETDATA_V5_4 | NETDATA_V5_10,
-      .fs_maps = NULL},
+      .fs_maps = NULL,
+      .fs_obj = NULL,
+      .functions = {  "btrfs_file_read_iter",
+                      "btrfs_file_write_iter",
+                      "btrfs_file_open",
+                      "btrfs_sync_file",
+                      NULL }},
      {.filesystem = NULL,
       .optional_filesystem = NULL,
       .family = NULL,
@@ -427,7 +457,7 @@ ebpf_filesystem_partitions_t localfs[] =
       .flags = NETDATA_FILESYSTEM_FLAG_NO_PARTITION,
       .enabled = CONFIG_BOOLEAN_YES,
       .addresses = {.function = NULL, .addr = 0},
-      .kernels = 0, .fs_maps = NULL}};
+      .kernels = 0, .fs_maps = NULL, .fs_obj = NULL}};
 
 ebpf_sync_syscalls_t local_syscalls[] = {
     {.syscall = NETDATA_SYSCALLS_SYNC, .enabled = CONFIG_BOOLEAN_YES, .objects = NULL, .probe_links = NULL,
@@ -493,7 +523,10 @@ ebpf_plugin_stats_t plugin_statistics = {.core = 0, .legacy = 0, .running = 0, .
 struct btf *default_btf = NULL;
 struct cachestat_bpf *cachestat_bpf_obj = NULL;
 struct dc_bpf *dc_bpf_obj = NULL;
+struct disk_bpf *disk_bpf_obj = NULL;
 struct fd_bpf *fd_bpf_obj = NULL;
+struct hardirq_bpf *hardirq_bpf_obj = NULL;
+struct mdflush_bpf *mdflush_bpf_obj = NULL;
 struct mount_bpf *mount_bpf_obj = NULL;
 struct shm_bpf *shm_bpf_obj = NULL;
 struct socket_bpf *socket_bpf_obj = NULL;
@@ -524,7 +557,7 @@ ARAL *ebpf_allocate_pid_aral(char *name, size_t size)
 {
     static size_t max_elements = NETDATA_EBPF_ALLOC_MAX_PID;
     if (max_elements < NETDATA_EBPF_ALLOC_MIN_ELEMENTS) {
-        error("Number of elements given is too small, adjusting it for %d", NETDATA_EBPF_ALLOC_MIN_ELEMENTS);
+        netdata_log_error("Number of elements given is too small, adjusting it for %d", NETDATA_EBPF_ALLOC_MIN_ELEMENTS);
         max_elements = NETDATA_EBPF_ALLOC_MIN_ELEMENTS;
     }
 
@@ -560,7 +593,7 @@ static inline void ebpf_check_before2go()
     }
 
     if (i) {
-        error("eBPF cannot unload all threads on time, but it will go away");
+        netdata_log_error("eBPF cannot unload all threads on time, but it will go away");
     }
 }
 
@@ -581,10 +614,10 @@ static void ebpf_exit()
     char filename[FILENAME_MAX + 1];
     ebpf_pid_file(filename, FILENAME_MAX);
     if (unlink(filename))
-        error("Cannot remove PID file %s", filename);
+        netdata_log_error("Cannot remove PID file %s", filename);
 
 #ifdef NETDATA_INTERNAL_CHECKS
-    error("Good bye world! I was PID %d", main_thread_id);
+    netdata_log_error("Good bye world! I was PID %d", main_thread_id);
 #endif
     fprintf(stdout, "EXIT\n");
     fflush(stdout);
@@ -637,7 +670,7 @@ static void ebpf_unload_unique_maps()
 
         if (ebpf_modules[i].enabled != NETDATA_THREAD_EBPF_STOPPED) {
             if (ebpf_modules[i].enabled != NETDATA_THREAD_EBPF_NOT_RUNNING)
-                error("Cannot unload maps for thread %s, because it is not stopped.", ebpf_modules[i].thread_name);
+                netdata_log_error("Cannot unload maps for thread %s, because it is not stopped.", ebpf_modules[i].thread_name);
 
             continue;
         }
@@ -1572,7 +1605,7 @@ static void read_local_addresses()
 {
     struct ifaddrs *ifaddr, *ifa;
     if (getifaddrs(&ifaddr) == -1) {
-        error("Cannot get the local IP addresses, it is no possible to do separation between inbound and outbound connections");
+        netdata_log_error("Cannot get the local IP addresses, it is no possible to do separation between inbound and outbound connections");
         return;
     }
 
@@ -1681,7 +1714,7 @@ static inline void how_to_load(char *ptr)
     else if (!strcasecmp(ptr, EBPF_CFG_LOAD_MODE_DEFAULT))
         ebpf_set_thread_mode(MODE_ENTRY);
     else
-        error("the option %s for \"ebpf load mode\" is not a valid option.", ptr);
+        netdata_log_error("the option %s for \"ebpf load mode\" is not a valid option.", ptr);
 }
 
 /**
@@ -2018,7 +2051,7 @@ void set_global_variables()
     ebpf_nprocs = (int)sysconf(_SC_NPROCESSORS_ONLN);
     if (ebpf_nprocs < 0) {
         ebpf_nprocs = NETDATA_MAX_PROCESSOR;
-        error("Cannot identify number of process, using default value %d", ebpf_nprocs);
+        netdata_log_error("Cannot identify number of process, using default value %d", ebpf_nprocs);
     }
 
     isrh = get_redhat_release();
@@ -2047,12 +2080,12 @@ static inline void ebpf_load_thread_config()
 int ebpf_check_conditions()
 {
     if (!has_condition_to_run(running_on_kernel)) {
-        error("The current collector cannot run on this kernel.");
+        netdata_log_error("The current collector cannot run on this kernel.");
         return -1;
     }
 
     if (!am_i_running_as_root()) {
-        error(
+        netdata_log_error(
             "ebpf.plugin should either run as root (now running with uid %u, euid %u) or have special capabilities..",
             (unsigned int)getuid(), (unsigned int)geteuid());
         return -1;
@@ -2072,7 +2105,7 @@ int ebpf_adjust_memory_limit()
 {
     struct rlimit r = { RLIM_INFINITY, RLIM_INFINITY };
     if (setrlimit(RLIMIT_MEMLOCK, &r)) {
-        error("Setrlimit(RLIMIT_MEMLOCK)");
+        netdata_log_error("Setrlimit(RLIMIT_MEMLOCK)");
         return -1;
     }
 
@@ -2365,7 +2398,7 @@ unittest:
              ebpf_user_config_dir, ebpf_stock_config_dir);
         if (ebpf_read_apps_groups_conf(
                 &apps_groups_default_target, &apps_groups_root_target, ebpf_stock_config_dir, "groups")) {
-            error("Cannot read process groups '%s/apps_groups.conf'. There are no internal defaults. Failing.",
+            netdata_log_error("Cannot read process groups '%s/apps_groups.conf'. There are no internal defaults. Failing.",
                   ebpf_stock_config_dir);
             ebpf_exit();
         }
@@ -2412,7 +2445,7 @@ static char *ebpf_get_process_name(pid_t pid)
 
     procfile *ff = procfile_open(filename, " \t", PROCFILE_FLAG_DEFAULT);
     if(unlikely(!ff)) {
-        error("Cannot open %s", filename);
+        netdata_log_error("Cannot open %s", filename);
         return name;
     }
 

@@ -57,9 +57,10 @@ static struct {
 } contexts_v2_options[] = {
           {"minify"           , 0    , CONTEXT_V2_OPTION_MINIFY}
         , {"debug"            , 0    , CONTEXT_V2_OPTION_DEBUG}
-        , {"config"           , 0    , CONTEXT_V2_OPTION_ALERT_CONFIGURATIONS}
-        , {"transitions"      , 0    , CONTEXT_V2_OPTION_ALERT_TRANSITIONS}
-        , {"instances"        , 0    , CONTEXT_V2_OPTION_ALERT_INSTANCES}
+        , {"config"           , 0    , CONTEXT_V2_OPTION_ALERTS_WITH_CONFIGURATIONS}
+        , {"instances"        , 0    , CONTEXT_V2_OPTION_ALERTS_WITH_INSTANCES}
+        , {"values"           , 0    , CONTEXT_V2_OPTION_ALERTS_WITH_VALUES}
+        , {"summary"          , 0    , CONTEXT_V2_OPTION_ALERTS_WITH_SUMMARY}
         , {NULL               , 0    , 0}
 };
 
@@ -160,11 +161,11 @@ char *get_mgmt_api_key(void) {
     if(fd != -1) {
         char buf[GUID_LEN + 1];
         if(read(fd, buf, GUID_LEN) != GUID_LEN)
-            error("Failed to read management API key from '%s'", api_key_filename);
+            netdata_log_error("Failed to read management API key from '%s'", api_key_filename);
         else {
             buf[GUID_LEN] = '\0';
             if(regenerate_guid(buf, guid) == -1) {
-                error("Failed to validate management API key '%s' from '%s'.",
+                netdata_log_error("Failed to validate management API key '%s' from '%s'.",
                       buf, api_key_filename);
 
                 guid[0] = '\0';
@@ -184,12 +185,12 @@ char *get_mgmt_api_key(void) {
         // save it
         fd = open(api_key_filename, O_WRONLY|O_CREAT|O_TRUNC, 444);
         if(fd == -1) {
-            error("Cannot create unique management API key file '%s'. Please adjust config parameter 'netdata management api key file' to a proper path and file.", api_key_filename);
+            netdata_log_error("Cannot create unique management API key file '%s'. Please adjust config parameter 'netdata management api key file' to a proper path and file.", api_key_filename);
             goto temp_key;
         }
 
         if(write(fd, guid, GUID_LEN) != GUID_LEN) {
-            error("Cannot write the unique management API key file '%s'. Please adjust config parameter 'netdata management api key file' to a proper path and file with enough space left.", api_key_filename);
+            netdata_log_error("Cannot write the unique management API key file '%s'. Please adjust config parameter 'netdata management api key file' to a proper path and file with enough space left.", api_key_filename);
             close(fd);
             goto temp_key;
         }
@@ -972,7 +973,7 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
             else if(vhash == hash_search && !strcmp(value, "search")) action = 'S';
             else if(vhash == hash_switch && !strcmp(value, "switch")) action = 'W';
 #ifdef NETDATA_INTERNAL_CHECKS
-            else error("unknown registry action '%s'", value);
+            else netdata_log_error("unknown registry action '%s'", value);
 #endif /* NETDATA_INTERNAL_CHECKS */
         }
 /*
@@ -1002,7 +1003,7 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
                 to_person_guid = value;
         }
 #ifdef NETDATA_INTERNAL_CHECKS
-        else error("unused registry URL parameter '%s' with value '%s'", name, value);
+        else netdata_log_error("unused registry URL parameter '%s' with value '%s'", name, value);
 #endif /* NETDATA_INTERNAL_CHECKS */
     }
 
@@ -1027,7 +1028,7 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
     switch(action) {
         case 'A':
             if(unlikely(!machine_guid || !machine_url || !url_name)) {
-                error("Invalid registry request - access requires these parameters: machine ('%s'), url ('%s'), name ('%s')", machine_guid ? machine_guid : "UNSET", machine_url ? machine_url : "UNSET", url_name ? url_name : "UNSET");
+                netdata_log_error("Invalid registry request - access requires these parameters: machine ('%s'), url ('%s'), name ('%s')", machine_guid ? machine_guid : "UNSET", machine_url ? machine_url : "UNSET", url_name ? url_name : "UNSET");
                 buffer_flush(w->response.data);
                 buffer_strcat(w->response.data, "Invalid registry Access request.");
                 return HTTP_RESP_BAD_REQUEST;
@@ -1038,7 +1039,7 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
 
         case 'D':
             if(unlikely(!machine_guid || !machine_url || !delete_url)) {
-                error("Invalid registry request - delete requires these parameters: machine ('%s'), url ('%s'), delete_url ('%s')", machine_guid?machine_guid:"UNSET", machine_url?machine_url:"UNSET", delete_url?delete_url:"UNSET");
+                netdata_log_error("Invalid registry request - delete requires these parameters: machine ('%s'), url ('%s'), delete_url ('%s')", machine_guid?machine_guid:"UNSET", machine_url?machine_url:"UNSET", delete_url?delete_url:"UNSET");
                 buffer_flush(w->response.data);
                 buffer_strcat(w->response.data, "Invalid registry Delete request.");
                 return HTTP_RESP_BAD_REQUEST;
@@ -1049,7 +1050,7 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
 
         case 'S':
             if(unlikely(!machine_guid || !machine_url || !search_machine_guid)) {
-                error("Invalid registry request - search requires these parameters: machine ('%s'), url ('%s'), for ('%s')", machine_guid?machine_guid:"UNSET", machine_url?machine_url:"UNSET", search_machine_guid?search_machine_guid:"UNSET");
+                netdata_log_error("Invalid registry request - search requires these parameters: machine ('%s'), url ('%s'), for ('%s')", machine_guid?machine_guid:"UNSET", machine_url?machine_url:"UNSET", search_machine_guid?search_machine_guid:"UNSET");
                 buffer_flush(w->response.data);
                 buffer_strcat(w->response.data, "Invalid registry Search request.");
                 return HTTP_RESP_BAD_REQUEST;
@@ -1060,7 +1061,7 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
 
         case 'W':
             if(unlikely(!machine_guid || !machine_url || !to_person_guid)) {
-                error("Invalid registry request - switching identity requires these parameters: machine ('%s'), url ('%s'), to ('%s')", machine_guid?machine_guid:"UNSET", machine_url?machine_url:"UNSET", to_person_guid?to_person_guid:"UNSET");
+                netdata_log_error("Invalid registry request - switching identity requires these parameters: machine ('%s'), url ('%s'), to ('%s')", machine_guid?machine_guid:"UNSET", machine_url?machine_url:"UNSET", to_person_guid?to_person_guid:"UNSET");
                 buffer_flush(w->response.data);
                 buffer_strcat(w->response.data, "Invalid registry Switch request.");
                 return HTTP_RESP_BAD_REQUEST;
@@ -1235,12 +1236,7 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     host_functions2json(host, wb);
     host_collectors(host, wb);
 
-#ifdef DISABLE_CLOUD
-    buffer_json_member_add_boolean(wb, "cloud-enabled", false);
-#else
-    buffer_json_member_add_boolean(wb, "cloud-enabled",
-                   appconfig_get_boolean(&cloud_config, CONFIG_SECTION_GLOBAL, "enabled", true));
-#endif
+    buffer_json_member_add_boolean(wb, "cloud-enabled", netdata_cloud_enabled);
 
 #ifdef ENABLE_ACLK
     buffer_json_member_add_boolean(wb, "cloud-available", true);
@@ -1266,12 +1262,12 @@ inline int web_client_api_request_v1_info_fill_buffer(RRDHOST *host, BUFFER *wb)
     buffer_json_member_add_boolean(wb, "web-enabled", web_server_mode != WEB_SERVER_MODE_NONE);
     buffer_json_member_add_boolean(wb, "stream-enabled", default_rrdpush_enabled);
 
-#ifdef  ENABLE_COMPRESSION
+#ifdef  ENABLE_RRDPUSH_COMPRESSION
     buffer_json_member_add_boolean(wb, "stream-compression",
                                    host->sender && stream_has_capability(host->sender, STREAM_CAP_COMPRESSION));
-#else
+#else // ! ENABLE_RRDPUSH_COMPRESSION
     buffer_json_member_add_boolean(wb, "stream-compression", false);
-#endif  //ENABLE_COMPRESSION
+#endif  // ENABLE_RRDPUSH_COMPRESSION
 
 #ifdef ENABLE_HTTPS
     buffer_json_member_add_boolean(wb, "https-enabled", true);
