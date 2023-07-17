@@ -414,7 +414,7 @@ inline int web_client_api_request_v1_alarm_count(RRDHOST *host, struct web_clien
         if(!name || !*name) continue;
         if(!value || !*value) continue;
 
-        debug(D_WEB_CLIENT, "%llu: API v1 alarm_count query param '%s' with value '%s'", w->id, name, value);
+        netdata_log_debug(D_WEB_CLIENT, "%llu: API v1 alarm_count query param '%s' with value '%s'", w->id, name, value);
 
         char* p = value;
         if(!strcmp(name, "status")) {
@@ -654,7 +654,7 @@ inline int web_client_api_request_v1_chart(RRDHOST *host, struct web_client *w, 
 
 // returns the HTTP code
 static inline int web_client_api_request_v1_data(RRDHOST *host, struct web_client *w, char *url) {
-    debug(D_WEB_CLIENT, "%llu: API v1 data with URL '%s'", w->id, url);
+    netdata_log_debug(D_WEB_CLIENT, "%llu: API v1 data with URL '%s'", w->id, url);
 
     int ret = HTTP_RESP_BAD_REQUEST;
     BUFFER *dimensions = NULL;
@@ -693,7 +693,7 @@ static inline int web_client_api_request_v1_data(RRDHOST *host, struct web_clien
         if(!name || !*name) continue;
         if(!value || !*value) continue;
 
-        debug(D_WEB_CLIENT, "%llu: API v1 data query param '%s' with value '%s'", w->id, name, value);
+        netdata_log_debug(D_WEB_CLIENT, "%llu: API v1 data query param '%s' with value '%s'", w->id, name, value);
 
         // name and value are now the parameters
         // they are not null and not empty
@@ -839,14 +839,14 @@ static inline int web_client_api_request_v1_data(RRDHOST *host, struct web_clien
 
     if(outFileName && *outFileName) {
         buffer_sprintf(w->response.header, "Content-Disposition: attachment; filename=\"%s\"\r\n", outFileName);
-        debug(D_WEB_CLIENT, "%llu: generating outfilename header: '%s'", w->id, outFileName);
+        netdata_log_debug(D_WEB_CLIENT, "%llu: generating outfilename header: '%s'", w->id, outFileName);
     }
 
     if(format == DATASOURCE_DATATABLE_JSONP) {
         if(responseHandler == NULL)
             responseHandler = "google.visualization.Query.setResponse";
 
-        debug(D_WEB_CLIENT_ACCESS, "%llu: GOOGLE JSON/JSONP: version = '%s', reqId = '%s', sig = '%s', out = '%s', responseHandler = '%s', outFileName = '%s'",
+        netdata_log_debug(D_WEB_CLIENT_ACCESS, "%llu: GOOGLE JSON/JSONP: version = '%s', reqId = '%s', sig = '%s', out = '%s', responseHandler = '%s', outFileName = '%s'",
                 w->id, google_version, google_reqId, google_sig, google_out, responseHandler, outFileName
         );
 
@@ -900,7 +900,7 @@ cleanup:
 // /api/v1/registry?action=delete&machine=${machine_guid}&name=${hostname}&url=${url}&delete_url=${delete_url}
 //
 // Search for the URLs of a machine:
-// /api/v1/registry?action=search&machine=${machine_guid}&name=${hostname}&url=${url}&for=${machine_guid}
+// /api/v1/registry?action=search&for=${machine_guid}
 //
 // Impersonate:
 // /api/v1/registry?action=switch&machine=${machine_guid}&name=${hostname}&url=${url}&to=${new_person_guid}
@@ -927,16 +927,17 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
 */
     }
 
-    char person_guid[GUID_LEN + 1] = "";
-
-    debug(D_WEB_CLIENT, "%llu: API v1 registry with URL '%s'", w->id, url);
+    netdata_log_debug(D_WEB_CLIENT, "%llu: API v1 registry with URL '%s'", w->id, url);
 
     // TODO
     // The browser may send multiple cookies with our id
 
+    char person_guid[UUID_STR_LEN] = "";
     char *cookie = strstr(w->response.data->buffer, NETDATA_REGISTRY_COOKIE_NAME "=");
     if(cookie)
-        strncpyz(person_guid, &cookie[sizeof(NETDATA_REGISTRY_COOKIE_NAME)], 36);
+        strncpyz(person_guid, &cookie[sizeof(NETDATA_REGISTRY_COOKIE_NAME)], UUID_STR_LEN - 1);
+    else if(!extract_bearer_token_from_request(w, person_guid, sizeof(person_guid)))
+        person_guid[0] = '\0';
 
     char action = '\0';
     char *machine_guid = NULL,
@@ -960,7 +961,7 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
         if (!name || !*name) continue;
         if (!value || !*value) continue;
 
-        debug(D_WEB_CLIENT, "%llu: API v1 registry query param '%s' with value '%s'", w->id, name, value);
+        netdata_log_debug(D_WEB_CLIENT, "%llu: API v1 registry query param '%s' with value '%s'", w->id, name, value);
 
         uint32_t hash = simple_hash(name);
 
@@ -1025,6 +1026,8 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
             return web_client_permission_denied(w);
     }
 
+    buffer_no_cacheable(w->response.data);
+
     switch(action) {
         case 'A':
             if(unlikely(!machine_guid || !machine_url || !url_name)) {
@@ -1049,15 +1052,15 @@ inline int web_client_api_request_v1_registry(RRDHOST *host, struct web_client *
             return registry_request_delete_json(host, w, person_guid, machine_guid, machine_url, delete_url, now_realtime_sec());
 
         case 'S':
-            if(unlikely(!machine_guid || !machine_url || !search_machine_guid)) {
-                netdata_log_error("Invalid registry request - search requires these parameters: machine ('%s'), url ('%s'), for ('%s')", machine_guid?machine_guid:"UNSET", machine_url?machine_url:"UNSET", search_machine_guid?search_machine_guid:"UNSET");
+            if(unlikely(!search_machine_guid)) {
+                netdata_log_error("Invalid registry request - search requires these parameters: for ('%s')", search_machine_guid?search_machine_guid:"UNSET");
                 buffer_flush(w->response.data);
                 buffer_strcat(w->response.data, "Invalid registry Search request.");
                 return HTTP_RESP_BAD_REQUEST;
             }
 
             web_client_enable_tracking_required(w);
-            return registry_request_search_json(host, w, person_guid, machine_guid, machine_url, search_machine_guid, now_realtime_sec());
+            return registry_request_search_json(host, w, person_guid, search_machine_guid);
 
         case 'W':
             if(unlikely(!machine_guid || !machine_url || !to_person_guid)) {
@@ -1516,12 +1519,6 @@ int web_client_api_request_v1_dbengine_stats(RRDHOST *host __maybe_unused, struc
 }
 #endif
 
-#ifdef NETDATA_DEV_MODE
-#define ACL_DEV_OPEN_ACCESS WEB_CLIENT_ACL_DASHBOARD
-#else
-#define ACL_DEV_OPEN_ACCESS 0
-#endif
-
 static struct web_api_command api_commands_v1[] = {
         { "info",            0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v1_info                       },
         { "data",            0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v1_data                       },
@@ -1531,7 +1528,7 @@ static struct web_api_command api_commands_v1[] = {
         { "contexts",        0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v1_contexts                   },
 
         // registry checks the ACL by itself, so we allow everything
-        { "registry",        0, WEB_CLIENT_ACL_NOCHECK,                         web_client_api_request_v1_registry                   },
+        { "registry",        0, WEB_CLIENT_ACL_NOCHECK,               web_client_api_request_v1_registry                   },
 
         // badges can be fetched with both dashboard and badge permissions
         { "badge.svg",       0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC | WEB_CLIENT_ACL_BADGE, web_client_api_request_v1_badge },
@@ -1545,21 +1542,21 @@ static struct web_api_command api_commands_v1[] = {
 
 #if defined(ENABLE_ML)
         { "ml_info",         0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v1_ml_info            },
-        { "ml_models",       0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_ml_models          },
+        // { "ml_models",       0, WEB_CLIENT_ACL_DASHBOARD, web_client_api_request_v1_ml_models          },
 #endif
 
-        { "manage/health",       0, WEB_CLIENT_ACL_MGMT | WEB_CLIENT_ACL_ACLK,      web_client_api_request_v1_mgmt_health           },
+        {"manage/health",        0, WEB_CLIENT_ACL_MGMT | WEB_CLIENT_ACL_ACLK_WEBRTC_DASHBOARD_WITH_BEARER, web_client_api_request_v1_mgmt_health },
         { "aclk",                0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v1_aclk_state            },
         { "metric_correlations", 0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v1_metric_correlations   },
         { "weights",             0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v1_weights               },
 
-        { "function",            0, WEB_CLIENT_ACL_ACLK | ACL_DEV_OPEN_ACCESS, web_client_api_request_v1_function },
-        { "functions",            0, WEB_CLIENT_ACL_ACLK | ACL_DEV_OPEN_ACCESS, web_client_api_request_v1_functions },
+        {"function",             0, WEB_CLIENT_ACL_ACLK_WEBRTC_DASHBOARD_WITH_BEARER | ACL_DEV_OPEN_ACCESS, web_client_api_request_v1_function },
+        {"functions",            0, WEB_CLIENT_ACL_ACLK_WEBRTC_DASHBOARD_WITH_BEARER | ACL_DEV_OPEN_ACCESS, web_client_api_request_v1_functions },
 
         { "dbengine_stats",      0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v1_dbengine_stats },
 
         // terminator
-        { NULL,              0, WEB_CLIENT_ACL_NONE,      NULL },
+        { NULL,                  0, WEB_CLIENT_ACL_NONE,      NULL },
 };
 
 inline int web_client_api_request_v1(RRDHOST *host, struct web_client *w, char *url_path_endpoint) {

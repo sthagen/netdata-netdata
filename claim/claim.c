@@ -257,8 +257,10 @@ bool netdata_random_session_id_generate(void) {
         if (write(fd, guid, UUID_STR_LEN - 1) != UUID_STR_LEN - 1) {
             netdata_log_error("Cannot write the random session id file '%s'.", filename);
             ret = false;
-        } else
-            (void) write(fd, "\n", 1);
+        } else {
+            ssize_t bytes = write(fd, "\n", 1);
+            UNUSED(bytes);
+        }
         close(fd);
     }
 
@@ -458,6 +460,7 @@ int api_v2_claim(struct web_client *w, char *url) {
     if(can_be_claimed)
         buffer_json_member_add_string(wb, "key_filename", netdata_random_session_id_get_filename());
 
+    buffer_json_agents_v2(wb, NULL, now_s, false, false);
     buffer_json_finalize(wb);
 
     return HTTP_RESP_OK;

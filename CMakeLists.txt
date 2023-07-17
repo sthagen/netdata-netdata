@@ -624,6 +624,8 @@ set(EBPF_PROCESS_PLUGIN_FILES
         collectors/ebpf.plugin/ebpf_cgroup.h
         collectors/ebpf.plugin/ebpf_unittest.c
         collectors/ebpf.plugin/ebpf_unittest.h
+        collectors/ebpf.plugin/ebpf_functions.c
+        collectors/ebpf.plugin/ebpf_functions.h
         )
 
 set(PROC_PLUGIN_FILES
@@ -700,8 +702,6 @@ set(REGISTRY_PLUGIN_FILES
         registry/registry_machine.h
         registry/registry_person.c
         registry/registry_person.h
-        registry/registry_url.c
-        registry/registry_url.h
         )
 
 set(STATSD_PLUGIN_FILES
