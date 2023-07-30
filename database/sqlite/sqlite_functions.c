@@ -34,8 +34,6 @@ const char *database_config[] = {
     "repeat text, host_labels text, p_db_lookup_dimensions text, p_db_lookup_method text, p_db_lookup_options int, "
     "p_db_lookup_after int, p_db_lookup_before int, p_update_every int, source text, chart_labels text);",
 
-    "CREATE INDEX IF NOT EXISTS alert_hash_index ON alert_hash (hash_id);",
-
     "CREATE TABLE IF NOT EXISTS host_info(host_id blob, system_key text NOT NULL, system_value text NOT NULL, "
     "date_created INT, PRIMARY KEY(host_id, system_key));",
 
@@ -75,6 +73,7 @@ const char *database_cleanup[] = {
     "DROP INDEX IF EXISTS ind_d1;",
     "DROP INDEX IF EXISTS ind_c1;",
     "DROP INDEX IF EXISTS ind_c2;",
+    "DROP INDEX IF EXISTS alert_hash_index;",
     NULL
 };
 
@@ -593,15 +592,20 @@ static inline void set_host_node_id(RRDHOST *host, uuid_t *node_id)
 
     if (unlikely(!node_id)) {
         freez(host->node_id);
-        host->node_id = NULL;
+        __atomic_store_n(&host->node_id, NULL, __ATOMIC_RELAXED);
         return;
     }
 
     struct aclk_sync_host_config *wc = host->aclk_sync_host_config;
 
-    if (unlikely(!host->node_id))
-        host->node_id = mallocz(sizeof(*host->node_id));
-    uuid_copy(*(host->node_id), *node_id);
+    if (unlikely(!host->node_id)) {
+        uuid_t *t = mallocz(sizeof(*host->node_id));
+        uuid_copy(*t, *node_id);
+        __atomic_store_n(&host->node_id, t, __ATOMIC_RELAXED);
+    }
+    else {
+        uuid_copy(*(host->node_id), *node_id);
+    }
 
     if (unlikely(!wc))
         sql_create_aclk_table(host, &host->host_uuid, node_id);
@@ -617,8 +621,16 @@ int update_node_id(uuid_t *host_id, uuid_t *node_id)
     RRDHOST *host = NULL;
     int rc = 2;
 
+    char host_guid[GUID_LEN + 1];
+    uuid_unparse_lower(*host_id, host_guid);
+    rrd_wrlock();
+    host = rrdhost_find_by_guid(host_guid);
+    if (likely(host))
+        set_host_node_id(host, node_id);
+    rrd_unlock();
+
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return 1;
     }
@@ -646,14 +658,6 @@ int update_node_id(uuid_t *host_id, uuid_t *node_id)
         error_report("Failed to store node instance information, rc = %d", rc);
     rc = sqlite3_changes(db_meta);
 
-    char host_guid[GUID_LEN + 1];
-    uuid_unparse_lower(*host_id, host_guid);
-    rrd_wrlock();
-    host = rrdhost_find_by_guid(host_guid);
-    if (likely(host))
-        set_host_node_id(host, node_id);
-    rrd_unlock();
-
 failed:
     if (unlikely(sqlite3_finalize(res) != SQLITE_OK))
         error_report("Failed to finalize the prepared statement when storing node instance information");
@@ -669,7 +673,7 @@ int get_host_id(uuid_t *node_id, uuid_t *host_id)
     int rc;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return 1;
     }
@@ -707,7 +711,7 @@ int get_node_id(uuid_t *host_id, uuid_t *node_id)
     int rc;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return 1;
     }
@@ -744,7 +748,7 @@ void invalidate_node_instances(uuid_t *host_id, uuid_t *claim_id)
     int rc;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return;
     }
@@ -790,7 +794,7 @@ struct node_instance_list *get_node_list(void)
     int rc;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return NULL;
     }
@@ -828,10 +832,10 @@ struct node_instance_list *get_node_list(void)
             }
             uuid_copy(node_list[row].host_id, *host_id);
             node_list[row].queryable = 1;
-            node_list[row].live = (host && (host == localhost || host->receiver
+            node_list[row].live = (host && (host == rrdb.localhost || host->receiver
                                             || !(rrdhost_flag_check(host, RRDHOST_FLAG_ORPHAN)))) ? 1 : 0;
             node_list[row].hops = (host && host->system_info) ? host->system_info->hops :
-                                  uuid_memcmp(host_id, &localhost->host_uuid) ? 1 : 0;
+                                  uuid_memcmp(host_id, &rrdb.localhost->host_uuid) ? 1 : 0;
             node_list[row].hostname =
                 sqlite3_column_bytes(res, 2) ? strdupz((char *)sqlite3_column_text(res, 2)) : NULL;
         }
@@ -856,7 +860,7 @@ void sql_load_node_id(RRDHOST *host)
     int rc;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return;
     }

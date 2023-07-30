@@ -73,6 +73,10 @@ static int ssl_init()
 #else
     accept_ctx.ssl_ctx = SSL_CTX_new(TLS_server_method());
 #endif
+    if (!accept_ctx.ssl_ctx) {
+        netdata_log_error("Could not allocate a new SSL_CTX");
+        return -1;
+    }
 
     SSL_CTX_set_options(accept_ctx.ssl_ctx, SSL_OP_NO_SSLv2);
 
@@ -231,7 +235,7 @@ static inline int _netdata_uberhandler(h2o_req_t *req, RRDHOST **host)
 static int netdata_uberhandler(h2o_handler_t *self, h2o_req_t *req)
 {
     UNUSED(self);
-    RRDHOST *host = localhost;
+    RRDHOST *host = rrdb.localhost;
 
     int ret = _netdata_uberhandler(req, &host);
 
@@ -245,7 +249,7 @@ static int netdata_uberhandler(h2o_handler_t *self, h2o_req_t *req)
                    ", response: %d",
                    PRINTF_H2O_IOVEC(&req->method),
                    PRINTF_H2O_IOVEC(&req->input.path),
-                   host == localhost ? "localhost" : host_uuid_str,
+                   host == rrdb.localhost ? "localhost" : host_uuid_str,
                    req->res.status);
     } else {
         netdata_log_access("HTTPD %d"

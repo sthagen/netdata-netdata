@@ -409,6 +409,7 @@ typedef struct query_target {
     struct {
         SPINLOCK spinlock;
         bool used;                              // when true, this query is currently being used
+        bool relative;                          // when true, this query uses relative timestamps
         size_t queries;                         // how many query we have done so far with this QUERY_TARGET - not related to database queries
         struct query_target *prev;
         struct query_target *next;
@@ -577,7 +578,7 @@ static inline const char *query_metric_name(QUERY_TARGET *qt, QUERY_METRIC *qm) 
     return rrdmetric_acquired_name(qd->rma);
 }
 
-struct storage_engine *query_metric_storage_engine(QUERY_TARGET *qt, QUERY_METRIC *qm, size_t tier);
+STORAGE_ENGINE_ID query_metric_storage_engine(QUERY_TARGET *qt, QUERY_METRIC *qm, size_t tier);
 
 STRING *query_instance_id_fqdn(QUERY_INSTANCE *qi, size_t version);
 STRING *query_instance_name_fqdn(QUERY_INSTANCE *qi, size_t version);

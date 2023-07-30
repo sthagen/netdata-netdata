@@ -494,7 +494,7 @@ int do_proc_stat(int update_every, usec_t dt) {
         do_processes              = config_get_boolean("plugin:proc:/proc/stat", "processes running", CONFIG_BOOLEAN_YES);
 
         // give sane defaults based on the number of processors
-        if(unlikely(get_system_cpus() > 50)) {
+        if(unlikely(get_system_cpus() > 128)) {
             // the system has too many processors
             keep_per_core_fds_open = CONFIG_BOOLEAN_NO;
             do_core_throttle_count = CONFIG_BOOLEAN_NO;
@@ -719,7 +719,7 @@ int do_proc_stat(int update_every, usec_t dt) {
                     }
 
                     if(unlikely(core == 0 && cpus_var == NULL))
-                        cpus_var = rrdvar_custom_host_variable_add_and_acquire(localhost, "active_processors");
+                        cpus_var = rrdvar_custom_host_variable_add_and_acquire(rrdb.localhost, "active_processors");
                 }
 
                 rrddim_set_by_pointer(cpu_chart->st, cpu_chart->rd_user, user);
@@ -1064,7 +1064,7 @@ int do_proc_stat(int update_every, usec_t dt) {
     }
 
     if(cpus_var)
-        rrdvar_custom_host_variable_set(localhost, cpus_var, cores_found);
+        rrdvar_custom_host_variable_set(rrdb.localhost, cpus_var, cores_found);
 
     return 0;
 }

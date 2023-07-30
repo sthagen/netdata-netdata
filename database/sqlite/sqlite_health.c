@@ -16,7 +16,7 @@ void sql_health_alarm_log_update(RRDHOST *host, ALARM_ENTRY *ae) {
     int rc;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("HEALTH [%s]: Database has not been initialized", rrdhost_hostname(host));
         return;
     }
@@ -98,7 +98,7 @@ void sql_health_alarm_log_insert(RRDHOST *host, ALARM_ENTRY *ae) {
     uint64_t health_log_id = 0;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("HEALTH [%s]: Database has not been initialized", rrdhost_hostname(host));
         return;
     }
@@ -368,7 +368,7 @@ void sql_health_alarm_log_count(RRDHOST *host) {
     int rc;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return;
     }
@@ -407,7 +407,7 @@ void sql_health_alarm_log_cleanup_not_claimed(RRDHOST *host) {
     char command[MAX_HEALTH_SQL_SIZE + 1];
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return;
     }
@@ -468,7 +468,7 @@ void sql_health_alarm_log_cleanup_claimed(RRDHOST *host) {
     char command[MAX_HEALTH_SQL_SIZE + 1];
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("Database has not been initialized");
         return;
     }
@@ -692,7 +692,10 @@ failed:
         error_report("HEALTH [N/A]: Failed to finalize the prepared statement for injecting removed event.");
 }
 
-#define SQL_SELECT_MAX_UNIQUE_ID "SELECT MAX(hld.unique_id) from health_log_detail hld, health_log hl where hl.host_id = @host_id; and hl.health_log_id = hld.health_log_id"
+#define SQL_SELECT_MAX_UNIQUE_ID                                                                                       \
+    "SELECT MAX(hld.unique_id) FROM health_log_detail hld, health_log hl "                                             \
+    "WHERE hl.host_id = @host_id AND hl.health_log_id = hld.health_log_id"
+
 uint32_t sql_get_max_unique_id (RRDHOST *host)
 {
     int rc;
@@ -784,7 +787,7 @@ void sql_health_alarm_log_load(RRDHOST *host) {
     host->health.health_log_entries_written = 0;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id == STORAGE_ENGINE_DBENGINE)
             error_report("HEALTH [%s]: Database has not been initialized", rrdhost_hostname(host));
         return;
     }
@@ -1012,7 +1015,7 @@ int sql_store_alert_config_hash(uuid_t *hash_id, struct alert_config *cfg)
     int rc, param = 0;
 
     if (unlikely(!db_meta)) {
-        if (default_rrd_memory_mode != RRD_MEMORY_MODE_DBENGINE)
+        if (default_storage_engine_id != STORAGE_ENGINE_DBENGINE)
             return 0;
         error_report("Database has not been initialized");
         return 1;
@@ -1215,7 +1218,7 @@ bind_fail:
   if cloud is disabled or openssl is not available (which will prevent cloud connectivity)
   skip hash calculations
 */
-#if !defined DISABLE_CLOUD && defined ENABLE_HTTPS
+#if defined ENABLE_HTTPS
 #define DIGEST_ALERT_CONFIG_VAL(v) ((v) ? EVP_DigestUpdate(evpctx, (string2str(v)), string_strlen((v))) : EVP_DigestUpdate(evpctx, "", 1))
 #endif
 int alert_hash_and_store_config(
@@ -1223,7 +1226,7 @@ int alert_hash_and_store_config(
     struct alert_config *cfg,
     int store_hash)
 {
-#if !defined DISABLE_CLOUD && defined ENABLE_HTTPS
+#if defined ENABLE_HTTPS
     EVP_MD_CTX *evpctx;
     unsigned char hash_value[EVP_MAX_MD_SIZE];
     unsigned int hash_len;
@@ -1697,6 +1700,135 @@ uint32_t sql_get_alarm_id(RRDHOST *host, STRING *chart, STRING *name, uint32_t *
          error_report("Failed to finalize the statement while getting an alarm id.");
 
      if (alarm_id) {
+         rc = sqlite3_prepare_v2(db_meta, SQL_GET_EVENT_ID, -1, &res, 0);
+         if (rc != SQLITE_OK) {
+             error_report("Failed to prepare statement when trying to get an event id");
+             return alarm_id;
+         }
+
+         rc = sqlite3_bind_int64(res, 1, (sqlite3_int64) health_log_id);
+         if (unlikely(rc != SQLITE_OK)) {
+             error_report("Failed to bind host_id parameter for SQL_GET_EVENT_ID.");
+             sqlite3_finalize(res);
+             return alarm_id;
+         }
+
+         rc = sqlite3_bind_int64(res, 2, (sqlite3_int64) alarm_id);
+         if (unlikely(rc != SQLITE_OK)) {
+             error_report("Failed to bind char parameter for SQL_GET_EVENT_ID.");
+             sqlite3_finalize(res);
+             return alarm_id;
+         }
+
+         while (sqlite3_step_monitored(res) == SQLITE_ROW) {
+             *next_event_id = (uint32_t) sqlite3_column_int64(res, 0);
+         }
+
+         rc = sqlite3_finalize(res);
+         if (unlikely(rc != SQLITE_OK))
+             error_report("Failed to finalize the statement while getting an alarm id.");
+     }
+
+     return alarm_id;
+}
+
+#define SQL_UPDATE_ALARM_ID_WITH_CONFIG_HASH "update health_log set config_hash_id = @config_hash_id where host_id = @host_id and alarm_id = @alarm_id and health_log_id = @health_log_id"
+void sql_update_alarm_with_config_hash(RRDHOST *host, uint32_t alarm_id, uint64_t health_log_id, uuid_t *config_hash_id)
+{
+    int rc = 0;
+    sqlite3_stmt *res = NULL;
+
+    rc = sqlite3_prepare_v2(db_meta, SQL_UPDATE_ALARM_ID_WITH_CONFIG_HASH, -1, &res, 0);
+    if (rc != SQLITE_OK) {
+        error_report("Failed to prepare statement when trying to update an alarm id with a config hash.");
+        return;
+    }
+
+    rc = sqlite3_bind_blob(res, 1, config_hash_id, sizeof(*config_hash_id), SQLITE_STATIC);
+    if (unlikely(rc != SQLITE_OK)) {
+        error_report("Failed to bind config_hash_id parameter for SQL_UPDATE_ALARM_ID_WITH_CONFIG_HASH.");
+        sqlite3_finalize(res);
+        return;
+    }
+
+    rc = sqlite3_bind_blob(res, 2, &host->host_uuid, sizeof(host->host_uuid), SQLITE_STATIC);
+    if (unlikely(rc != SQLITE_OK)) {
+        error_report("Failed to bind host_id parameter for SQL_UPDATE_ALARM_ID_WITH_CONFIG_HASH.");
+        sqlite3_finalize(res);
+        return;
+    }
+
+    rc = sqlite3_bind_int64(res, 3, (sqlite3_int64) alarm_id);
+    if (unlikely(rc != SQLITE_OK)) {
+        error_report("Failed to bind alarm_id parameter for SQL_GET_ALARM_ID.");
+        sqlite3_finalize(res);
+        return;
+    }
+
+    rc = sqlite3_bind_int64(res, 4, (sqlite3_int64) health_log_id);
+    if (unlikely(rc != SQLITE_OK)) {
+        error_report("Failed to bind alarm_id parameter for SQL_GET_ALARM_ID.");
+        sqlite3_finalize(res);
+        return;
+    }
+
+    rc = execute_insert(res);
+    if (unlikely(rc != SQLITE_DONE)) {
+        error_report("Failed to execute SQL_UPDATE_ALARM_ID_WITH_CONFIG_HASH, rc = %d", rc);
+        rc = sqlite3_finalize(res);
+        if (unlikely(rc != SQLITE_OK))
+            error_report("Failed to reset statement to update health log detail table with config hash ids, rc = %d", rc);
+        return;
+    }
+}
+
+#define SQL_GET_ALARM_ID_CHECK_ZERO_HASH "select alarm_id, health_log_id from health_log where host_id = @host_id and chart = @chart and name = @name and (config_hash_id is null or config_hash_id = zeroblob(16))"
+uint32_t sql_get_alarm_id_check_zero_hash(RRDHOST *host, STRING *chart, STRING *name, uint32_t *next_event_id, uuid_t *config_hash_id)
+{
+    int rc = 0;
+    sqlite3_stmt *res = NULL;
+    uint32_t alarm_id = 0;
+    uint64_t health_log_id = 0;
+
+    rc = sqlite3_prepare_v2(db_meta, SQL_GET_ALARM_ID_CHECK_ZERO_HASH, -1, &res, 0);
+    if (rc != SQLITE_OK) {
+        error_report("Failed to prepare statement when trying to get an alarm id with zero hash");
+        return alarm_id;
+    }
+
+    rc = sqlite3_bind_blob(res, 1, &host->host_uuid, sizeof(host->host_uuid), SQLITE_STATIC);
+    if (unlikely(rc != SQLITE_OK)) {
+        error_report("Failed to bind host_id parameter for SQL_GET_ALARM_ID_CHECK_ZERO_HASH.");
+        sqlite3_finalize(res);
+        return alarm_id;
+    }
+
+    rc = sqlite3_bind_string_or_null(res, chart, 2);
+    if (unlikely(rc != SQLITE_OK)) {
+        error_report("Failed to bind char parameter for SQL_GET_ALARM_ID_CHECK_ZERO_HASH.");
+        sqlite3_finalize(res);
+        return alarm_id;
+    }
+
+    rc = sqlite3_bind_string_or_null(res, name, 3);
+    if (unlikely(rc != SQLITE_OK)) {
+        error_report("Failed to bind name parameter for SQL_GET_ALARM_ID_CHECK_ZERO_HASH.");
+        sqlite3_finalize(res);
+        return alarm_id;
+    }
+
+    while (sqlite3_step_monitored(res) == SQLITE_ROW) {
+        alarm_id = (uint32_t) sqlite3_column_int64(res, 0);
+        health_log_id = (uint64_t) sqlite3_column_int64(res, 1);
+    }
+
+     rc = sqlite3_finalize(res);
+     if (unlikely(rc != SQLITE_OK))
+         error_report("Failed to finalize the statement while getting an alarm id.");
+
+     if (alarm_id) {
+         sql_update_alarm_with_config_hash(host, alarm_id, health_log_id, config_hash_id);
+
          rc = sqlite3_prepare_v2(db_meta, SQL_GET_EVENT_ID, -1, &res, 0);
          if (rc != SQLITE_OK) {
              error_report("Failed to prepare statement when trying to get an event id");

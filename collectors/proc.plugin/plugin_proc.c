@@ -33,7 +33,8 @@ static struct proc_module {
     {.name = "/proc/meminfo",                .dim = "meminfo",      .func = do_proc_meminfo},
     {.name = "/sys/kernel/mm/ksm",           .dim = "ksm",          .func = do_sys_kernel_mm_ksm},
     {.name = "/sys/block/zram",              .dim = "zram",         .func = do_sys_block_zram},
-    {.name = "/sys/devices/system/edac/mc",  .dim = "ecc",          .func = do_proc_sys_devices_system_edac_mc},
+    {.name = "/sys/devices/system/edac/mc",  .dim = "edac",         .func = do_proc_sys_devices_system_edac_mc},
+    {.name = "/sys/devices/pci/aer",         .dim = "pci_aer",      .func = do_proc_sys_devices_pci_aer},
     {.name = "/sys/devices/system/node",     .dim = "numa",         .func = do_proc_sys_devices_system_node},
     {.name = "/proc/pagetypeinfo",           .dim = "pagetypeinfo", .func = do_proc_pagetypeinfo},
 
@@ -160,7 +161,7 @@ void *proc_main(void *ptr)
         worker_register_job_name(i, proc_modules[i].dim);
     }
 
-    usec_t step = localhost->rrd_update_every * USEC_PER_SEC;
+    usec_t step = rrdb.localhost->update_every * USEC_PER_SEC;
     heartbeat_t hb;
     heartbeat_init(&hb);
 
@@ -184,7 +185,7 @@ void *proc_main(void *ptr)
             netdata_log_debug(D_PROCNETDEV_LOOP, "PROC calling %s.", pm->name);
 
             worker_is_busy(i);
-            pm->enabled = !pm->func(localhost->rrd_update_every, hb_dt);
+            pm->enabled = !pm->func(rrdb.localhost->update_every, hb_dt);
         }
     }
 

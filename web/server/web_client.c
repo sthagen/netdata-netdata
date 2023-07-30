@@ -683,12 +683,6 @@ void buffer_data_options2string(BUFFER *wb, uint32_t options) {
 }
 
 static inline int check_host_and_call(RRDHOST *host, struct web_client *w, char *url, int (*func)(RRDHOST *, struct web_client *, char *)) {
-    //if(unlikely(host->rrd_memory_mode == RRD_MEMORY_MODE_NONE)) {
-    //    buffer_flush(w->response.data);
-    //    buffer_strcat(w->response.data, "This host does not maintain a database");
-    //    return HTTP_RESP_BAD_REQUEST;
-    //}
-
     return func(host, w, url);
 }
 
@@ -1280,12 +1274,9 @@ void web_client_build_http_header(struct web_client *w) {
         w->response.data->date = now_realtime_sec();
 
     // set a proper expiration date, if not already set
-    if(unlikely(!w->response.data->expires)) {
-        if(w->response.data->options & WB_CONTENT_NO_CACHEABLE)
-            w->response.data->expires = w->response.data->date + localhost->rrd_update_every;
-        else
-            w->response.data->expires = w->response.data->date + 86400;
-    }
+    if(unlikely(!w->response.data->expires))
+        w->response.data->expires = w->response.data->date +
+                ((w->response.data->options & WB_CONTENT_NO_CACHEABLE) ? 0 : 86400);
 
     // prepare the HTTP response header
     netdata_log_debug(D_WEB_CLIENT, "%llu: Generating HTTP header with response %d.", w->id, w->response.code);
@@ -1467,7 +1458,7 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
         hash_localhost = simple_hash("localhost");
     }
 
-    if(host != localhost) {
+    if(host != rrdb.localhost) {
         buffer_flush(w->response.data);
         buffer_strcat(w->response.data, "Nesting of hosts is not allowed.");
         return HTTP_RESP_BAD_REQUEST;
@@ -1478,7 +1469,7 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
         netdata_log_debug(D_WEB_CLIENT, "%llu: Searching for host with name '%s'.", w->id, tok);
 
         if(nodeid) {
-            host = find_host_by_node_id(tok);
+            host = rrdhost_find_by_node_id(tok);
             if(!host) {
                 host = rrdhost_find_by_hostname(tok);
                 if (!host)
@@ -1490,7 +1481,7 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
             if(!host) {
                 host = rrdhost_find_by_guid(tok);
                 if (!host)
-                    host = find_host_by_node_id(tok);
+                    host = rrdhost_find_by_node_id(tok);
             }
         }
 
@@ -1669,8 +1660,8 @@ static inline int web_client_process_url(RRDHOST *host, struct web_client *w, ch
                 netdata_log_debug(D_WEB_CLIENT, "%llu: Searching for RRD data with name '%s'.", w->id, tok);
 
                 // do we have such a data set?
-                RRDSET *st = rrdset_find_byname(host, tok);
-                if(!st) st = rrdset_find(host, tok);
+                RRDSET *st = rrdset_find_by_name(host, tok);
+                if(!st) st = rrdset_find_by_id(host, tok);
                 if(!st) {
                     w->response.data->content_type = CT_TEXT_HTML;
                     buffer_strcat(w->response.data, "Chart is not found: ");
@@ -1793,7 +1784,7 @@ void web_client_process_request(struct web_client *w) {
                         }
                     }
 
-                    w->response.code = (short)web_client_process_url(localhost, w, path);
+                    w->response.code = (short)web_client_process_url(rrdb.localhost, w, path);
                     break;
             }
             break;

@@ -52,7 +52,7 @@ static cmd_status_t cmd_dumpconfig(char *args, char **message);
 static command_info_t command_info_array[] = {
         {"help", cmd_help_execute, CMD_TYPE_HIGH_PRIORITY},                  // show help menu
         {"reload-health", cmd_reload_health_execute, CMD_TYPE_ORTHOGONAL},   // reload health configuration
-        {"save-database", cmd_save_database_execute, CMD_TYPE_ORTHOGONAL},   // save database for memory mode save
+        {"save-database", cmd_save_database_execute, CMD_TYPE_ORTHOGONAL},   // save database for storage engine SAVE
         {"reopen-logs", cmd_reopen_logs_execute, CMD_TYPE_ORTHOGONAL},       // Close and reopen log files
         {"shutdown-agent", cmd_exit_execute, CMD_TYPE_EXCLUSIVE},            // exit cleanly
         {"fatal-agent", cmd_fatal_execute, CMD_TYPE_HIGH_PRIORITY},          // exit with fatal error
@@ -218,10 +218,10 @@ static cmd_status_t cmd_reload_labels_execute(char *args, char **message)
 {
     (void)args;
     netdata_log_info("COMMAND: reloading host labels.");
-    reload_host_labels();
+    localhost_load_labels();
 
     BUFFER *wb = buffer_create(10, NULL);
-    rrdlabels_log_to_buffer(localhost->rrdlabels, wb);
+    rrdlabels_log_to_buffer(rrdb.localhost->rrdlabels, wb);
     (*message)=strdupz(buffer_tostring(wb));
     buffer_free(wb);
 
@@ -407,7 +407,7 @@ static void pipe_write_cb(uv_write_t* req, int status)
     uv_close((uv_handle_t *)client, pipe_close_cb);
     --clients;
     buffer_free(client->data);
-    netdata_log_info("Command Clients = %u\n", clients);
+    // netdata_log_info("Command Clients = %u", clients);
 }
 
 static inline void add_char_to_command_reply(BUFFER *reply_string, unsigned *reply_string_size, char character)
@@ -557,7 +557,7 @@ static void pipe_read_cb(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf
     if (nread < 0 && UV_EOF != nread) {
         uv_close((uv_handle_t *)client, pipe_close_cb);
         --clients;
-        netdata_log_info("Command Clients = %u\n", clients);
+        // netdata_log_info("Command Clients = %u", clients);
     }
 }
 
@@ -593,7 +593,7 @@ static void connection_cb(uv_stream_t *server, int status)
     }
 
     ++clients;
-    netdata_log_info("Command Clients = %u\n", clients);
+    // netdata_log_info("Command Clients = %u", clients);
     /* Start parsing a new command */
     cmd_ctx->command_string_size = 0;
     cmd_ctx->command_string[0] = '\0';
@@ -603,7 +603,7 @@ static void connection_cb(uv_stream_t *server, int status)
         netdata_log_error("uv_read_start(): %s", uv_strerror(ret));
         uv_close((uv_handle_t *)client, pipe_close_cb);
         --clients;
-        netdata_log_info("Command Clients = %u\n", clients);
+        // netdata_log_info("Command Clients = %u", clients);
         return;
     }
 }

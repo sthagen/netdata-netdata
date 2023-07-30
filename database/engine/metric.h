@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #ifndef DBENGINE_METRIC_H
 #define DBENGINE_METRIC_H
 
@@ -9,7 +11,7 @@ typedef struct metric METRIC;
 typedef struct mrg MRG;
 
 typedef struct mrg_entry {
-    uuid_t uuid;
+    uuid_t *uuid;
     Word_t section;
     time_t first_time_s;
     time_t last_time_s;
