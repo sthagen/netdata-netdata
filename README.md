@@ -98,43 +98,40 @@ It scales nicely from just a single server to thousands of servers, even in comp
 
 ## What's New and Coming?
 
-> **Spoiler!**<br/>
-> Netdata Integrations Marketplace is coming...
-
 <details><summary>Click to see our immediate development plans and a summary view of the last 12 months' releases...</summary>
 &nbsp;<br/>
 
-| What | Description | When | Status |
-|:----:|:-----------:|:----:|:------:|
-|WebRTC|Browser to Agent communication via WebRTC.|later|POC|
-|Advanced Troubleshooting|Expanded view of dashboard charts integrating Metrics Correlations, Anomaly Advisor, and many more.|later|interrupted|
-|Easy Custom<br/>Dashboards|Drag and drop charts to create custom dashboards on the fly, while troubleshooting!|next|planned|
-|More Customizability|Set default settings for all charts and views!|next|planned|
-|SystemD Journal|View the SystemD Journal of your systems on the dashboard.|soon|in progress|
-|UCUM Units|Migrate all metrics to the Unified Code for Units of Measure.|soon|in progress|
-|**Netdata Cloud<br/>On-Prem**|**Netdata Cloud available for On-Prem installation!**|**soon**|**in progress**|
-|Click to Activate|Configure Alerts and Data Collectors from the UI!|soon|in progress|
-|Integrations|Netdata Integrations Marketplace!|soon|finishing|
-|New Agent UI|Now Netdata Cloud and Netdata Agent share the same dashboard!|Jul<br/>2023|[v1.41](https://github.com/netdata/netdata/releases/tag/v1.41.0#v1410-one-dashboard)|
-|Summary Dashboards|High level tiles everywhere!|Jun<br/>2023|[v1.40](https://github.com/netdata/netdata/releases/tag/v1.40.0#v1400-visualization-summary-dashboards)|
-|Machine Learning|Multiple ML models per metric.|Jun<br/>2023|[v1.40](https://github.com/netdata/netdata/releases/tag/v1.40.0#v1400-ml-extended-training)|
-|SSL|Netdata Agent gets a new SSL layer.|Jun<br/>2023|[v1.40](https://github.com/netdata/netdata/releases/tag/v1.40.0#v1400-streaming)|
-|New Cloud UI|Filter, slice and dice any dataset from the UI! ML-first!|May<br/>2023|[v1.39](https://github.com/netdata/netdata/releases/tag/v1.39.0)|
-|Microsoft Windows|Monitor Windows hosts and apps!|May<br/>2023|[v1.39](https://github.com/netdata/netdata/releases/tag/v1.39.0#v1390-windows-support)|
-|Virtual Nodes|Go collectors can now be assigned to virtual nodes!|May<br/>2023|[v1.39](https://github.com/netdata/netdata/releases/tag/v1.39.0#v1390-virtual-nodes-and-custom-labels)|
-|DBENGINE v2|Faster, more reliable, far more scalable!|Feb<br/>2023|[v1.38](https://github.com/netdata/netdata/releases/tag/v1.38.0)|
-|Netdata Functions|Netdata beyond metrics! Monitoring anything!|Feb<br/>2023|[v1.38](https://github.com/netdata/netdata/releases/tag/v1.38.0#v1380-functions)|
-|Events Feed|Live feed of events about topology changes and alerts.|Feb<br/>2023|[v1.38](https://github.com/netdata/netdata/releases/tag/v1.38.0#v1380-feed)|
-|Role Based<br/>Access Control|More roles, offering finer control over access to infrastructure.|Feb<br/>2023|[v1.38](https://github.com/netdata/netdata/releases/tag/v1.38.0#v1380-rbac)|
-|Infinite Scalability|Streaming compression. Replication. Active-active clustering.|Nov<br/>2022|[v1.37](https://github.com/netdata/netdata/releases/tag/v1.37.0)|
-|Grafana Plugin|Netdata Cloud as a data source for Grafana.|Nov<br/>2022|[v1.37](https://github.com/netdata/netdata/releases/tag/v1.37.0#v1370-grafana-plugin)|
-|PostgreSQL|Completely rewritten, to reveal all the info, even at the table level.|Nov<br/>2022|[v1.37](https://github.com/netdata/netdata/releases/tag/v1.37.0#v1370-postgressql)|
-|Metrics Correlations|Advanced algorithms to find the needle in the haystack.|Aug<br/>2022|[v1.36](https://github.com/netdata/netdata/releases/tag/v1.36.0)|
-|Database Tiering|Netdata gets unlimited retention!|Aug<br/>2022|[v1.36](https://github.com/netdata/netdata/releases/tag/v1.36.0#v1360-tiering)|
-|Kubernetes|Monitor your Kubernetes workloads.|Aug<br/>2022|[v1.36](https://github.com/netdata/netdata/releases/tag/v1.36.0#v1360-kubernetes)|
-|Machine Learning|Anomaly Rate information on every chart.|Aug<br/>2022|[v1.36](https://github.com/netdata/netdata/releases/tag/v1.36.0#v1360-anomaly-rate-on-charts)|
-|Machine Learning|Anomaly Advisor! Bottom-up unsupervised anomaly detection.|Jun<br/>2022|[v1.35](https://github.com/netdata/netdata/releases/tag/v1.35.0#v1350-anomaly-advisor-ml)|
-|Machine Learning|Metrics Correlation on the Agent.|Jun<br/>2022|[v1.35](https://github.com/netdata/netdata/releases/tag/v1.35.0#v1350-metric-correlation-agent)|
+|             What              |                                             Description                                             |     When     |                                                 Status                                                  |
+|:-----------------------------:|:---------------------------------------------------------------------------------------------------:|:------------:|:-------------------------------------------------------------------------------------------------------:|
+|            WebRTC             |                             Browser to Agent communication via WebRTC.                              |    later     |                                                   POC                                                   |
+|   Advanced Troubleshooting    | Expanded view of dashboard charts integrating Metrics Correlations, Anomaly Advisor, and many more. |    later     |                                               interrupted                                               |
+|  Easy Custom<br/>Dashboards   |         Drag and drop charts to create custom dashboards on the fly, while troubleshooting!         |     next     |                                                 planned                                                 |
+|     More Customizability      |                           Set default settings for all charts and views!                            |     next     |                                                 planned                                                 |
+|        SystemD Journal        |                     View the SystemD Journal of your systems on the dashboard.                      |     soon     |                                               in progress                                               |
+|          UCUM Units           |                    Migrate all metrics to the Unified Code for Units of Measure.                    |     soon     |                                               in progress                                               |
+| **Netdata Cloud<br/>On-Prem** |                        **Netdata Cloud available for On-Prem installation!**                        |   **soon**   |                                             **in progress**                                             |
+|       Click to Activate       |                          Configure Alerts and Data Collectors from the UI!                          |     soon     |                                               in progress                                               |
+|         Integrations          |                                  Netdata Integrations Marketplace!                                  | Aug<br/>2023 |           [v1.42](https://github.com/netdata/netdata/releases#v1420-integrations-marketplace)           |
+|         New Agent UI          |                    Now Netdata Cloud and Netdata Agent share the same dashboard!                    | Jul<br/>2023 |          [v1.41](https://github.com/netdata/netdata/releases/tag/v1.41.0#v1410-one-dashboard)           |
+|      Summary Dashboards       |                                    High level tiles everywhere!                                     | Jun<br/>2023 | [v1.40](https://github.com/netdata/netdata/releases/tag/v1.40.0#v1400-visualization-summary-dashboards) |
+|       Machine Learning        |                                   Multiple ML models per metric.                                    | Jun<br/>2023 |       [v1.40](https://github.com/netdata/netdata/releases/tag/v1.40.0#v1400-ml-extended-training)       |
+|              SSL              |                                 Netdata Agent gets a new SSL layer.                                 | Jun<br/>2023 |            [v1.40](https://github.com/netdata/netdata/releases/tag/v1.40.0#v1400-streaming)             |
+|         New Cloud UI          |                      Filter, slice and dice any dataset from the UI! ML-first!                      | May<br/>2023 |                    [v1.39](https://github.com/netdata/netdata/releases/tag/v1.39.0)                     |
+|       Microsoft Windows       |                                   Monitor Windows hosts and apps!                                   | May<br/>2023 |         [v1.39](https://github.com/netdata/netdata/releases/tag/v1.39.0#v1390-windows-support)          |
+|         Virtual Nodes         |                         Go collectors can now be assigned to virtual nodes!                         | May<br/>2023 | [v1.39](https://github.com/netdata/netdata/releases/tag/v1.39.0#v1390-virtual-nodes-and-custom-labels)  |
+|          DBENGINE v2          |                              Faster, more reliable, far more scalable!                              | Feb<br/>2023 |                    [v1.38](https://github.com/netdata/netdata/releases/tag/v1.38.0)                     |
+|       Netdata Functions       |                            Netdata beyond metrics! Monitoring anything!                             | Feb<br/>2023 |            [v1.38](https://github.com/netdata/netdata/releases/tag/v1.38.0#v1380-functions)             |
+|          Events Feed          |                       Live feed of events about topology changes and alerts.                        | Feb<br/>2023 |               [v1.38](https://github.com/netdata/netdata/releases/tag/v1.38.0#v1380-feed)               |
+| Role Based<br/>Access Control |                  More roles, offering finer control over access to infrastructure.                  | Feb<br/>2023 |               [v1.38](https://github.com/netdata/netdata/releases/tag/v1.38.0#v1380-rbac)               |
+|     Infinite Scalability      |                    Streaming compression. Replication. Active-active clustering.                    | Nov<br/>2022 |                    [v1.37](https://github.com/netdata/netdata/releases/tag/v1.37.0)                     |
+|        Grafana Plugin         |                             Netdata Cloud as a data source for Grafana.                             | Nov<br/>2022 |          [v1.37](https://github.com/netdata/netdata/releases/tag/v1.37.0#v1370-grafana-plugin)          |
+|          PostgreSQL           |               Completely rewritten, to reveal all the info, even at the table level.                | Nov<br/>2022 |           [v1.37](https://github.com/netdata/netdata/releases/tag/v1.37.0#v1370-postgressql)            |
+|     Metrics Correlations      |                       Advanced algorithms to find the needle in the haystack.                       | Aug<br/>2022 |                    [v1.36](https://github.com/netdata/netdata/releases/tag/v1.36.0)                     |
+|       Database Tiering        |                                  Netdata gets unlimited retention!                                  | Aug<br/>2022 |             [v1.36](https://github.com/netdata/netdata/releases/tag/v1.36.0#v1360-tiering)              |
+|          Kubernetes           |                                 Monitor your Kubernetes workloads.                                  | Aug<br/>2022 |            [v1.36](https://github.com/netdata/netdata/releases/tag/v1.36.0#v1360-kubernetes)            |
+|       Machine Learning        |                              Anomaly Rate information on every chart.                               | Aug<br/>2022 |      [v1.36](https://github.com/netdata/netdata/releases/tag/v1.36.0#v1360-anomaly-rate-on-charts)      |
+|       Machine Learning        |                     Anomaly Advisor! Bottom-up unsupervised anomaly detection.                      | Jun<br/>2022 |        [v1.35](https://github.com/netdata/netdata/releases/tag/v1.35.0#v1350-anomaly-advisor-ml)        |
+|       Machine Learning        |                                  Metrics Correlation on the Agent.                                  | Jun<br/>2022 |     [v1.35](https://github.com/netdata/netdata/releases/tag/v1.35.0#v1350-metric-correlation-agent)     |
 
 </details>
 
@@ -156,7 +153,7 @@ It scales nicely from just a single server to thousands of servers, even in comp
 
 ### 1. **Install Netdata everywhere** :v:
    
-   Netdata can be installed on all Linux, MacOS, and FreeBSD systems. We provide binary packages for the most popular operating systems and package managers.
+   Netdata can be installed on all Linux, macOS, and FreeBSD systems. We provide binary packages for the most popular operating systems and package managers.
 
    - Install on [Ubuntu, Debian CentOS, Fedora, Suse, Red Hat, Arch, Alpine, Gentoo, even BusyBox](https://learn.netdata.cloud/docs/installing/one-line-installer-for-all-linux-systems).
    - Install with [Docker](https://learn.netdata.cloud/docs/installing/docker).<br/>
@@ -207,7 +204,7 @@ It scales nicely from just a single server to thousands of servers, even in comp
 
    You can also use Netdata Parents to:
 
-   - Offload your production systems (the parents runs ML, alerts, queries, etc for all their children)
+   - Offload your production systems (the parents run ML, alerts, queries, etc. for all their children)
    - Secure your production systems (the parents accept user connections, for all their children)
 
 ### 5. **Connect to Netdata Cloud** :cloud:
@@ -287,7 +284,7 @@ When using Netdata Parents, all the functions of a Netdata Agent (except data co
 The core of Netdata is developed in C. We have our own `libnetdata`, that provides:
 
 - **`DICTIONARY`**<br/>
-  A high-performance algorithm to maintain both indexed and ordered pools of structures Netdata needs. For indexing it uses JudyHS arrays, although it is modular: any hashtable or tree can be integrated into it. Despite being in C, dictionaries follow object-oriented programming principles, so there are constructors, destructors, automatic memory management, garbage collection, and more. For more see [here](https://github.com/netdata/netdata/tree/master/libnetdata/dictionary).
+  A high-performance algorithm to maintain both indexed and ordered pools of structures Netdata needs. It uses JudyHS arrays for indexing, although it is modular: any hashtable or tree can be integrated into it. Despite being in C, dictionaries follow object-oriented programming principles, so there are constructors, destructors, automatic memory management, garbage collection, and more. For more see [here](https://github.com/netdata/netdata/tree/master/libnetdata/dictionary).
   
 - **`ARAL`**<br/>
   ARray ALlocator (ARAL) is used to minimize the system allocations made by Netdata. ARAL is optimized for peak performance when multi-threaded. It also allows all structures that use it to be allocated in memory-mapped files (shared memory) instead of RAM. For more see [here](https://github.com/netdata/netdata/tree/master/libnetdata/aral).
@@ -442,6 +439,8 @@ So, the biggest difference of Netdata to Prometheus, and Grafana, is that we dec
 
     Maintaining such an index is a challenge: first, because the raw metrics collected do not provide this information, so we have to add it, and second because we need to maintain this index for the lifetime of each metric, which with our current database retention, it is usually more than a year.
 
+    At the same time, Netdata provides better retention than Prometheus due to database tiering, scales easier than Prometheus due to streaming, supports anomaly detection and it has a mertrics scoring engine to find the needle in the haystack when needed.
+
   - When compared to Grafana, Netdata is fully automated. Grafana has more customization capabilities than Netdata, but Netdata presents fully functional dashboards by itself and most importantly it gives you the means to understand, analyze, filter, slice and dice the data without the need for you to edit queries or be aware of any peculiarities the underlying metrics may have.
 
     Furthermore, to help you when you need to find the needle in the haystack, Netdata has advanced troubleshooting tools provided by the Netdata metrics scoring engine, that allows it to score metrics based on their anomaly rate, their differences or similarities for any given time frame.
@@ -595,7 +594,7 @@ Netdata is a widely adopted project...
 <details><summary>Click to see detailed answer ...</summary>
 &nbsp;<br/>&nbsp;<br/>
 
-Browse the [Netdata stargazers on Github](https://github.com/netdata/netdata/stargazers) to discover users from renowned companies and enterprises, such as AMD, Amazon, Baidu, Cisco, Delta, Facebook, IBM, Intel, Netflix, Qualcomm, Riot Games, SAP, Samsung, Unity, Valve, and many others.
+Browse the [Netdata stargazers on GitHub](https://github.com/netdata/netdata/stargazers) to discover users from renowned companies and enterprises, such as AMD, Amazon, Baidu, Cisco, Delta, Facebook, IBM, Intel, Netflix, Qualcomm, Riot Games, SAP, Samsung, Unity, Valve, and many others.
 
 Netdata also enjoys significant usage in academia, with notable institutions including New York University, Columbia University, New Jersey University, among several others.
 
@@ -624,6 +623,61 @@ In a nutshell, Netdata proves invaluable for:
 &nbsp;<br/>&nbsp;<br/>
 </details>
 
+### :globe_with_meridians: Is Netdata open-source?
+
+The Netdata Agent back-end is entirely open-source. We ship 3 different versions of the UI: 2 open-source versions and 1 closed-source version.
+
+<details><summary>Click to see detailed answer ...</summary>
+&nbsp;<br/>&nbsp;<br/>
+
+The entire back-end of the Netdata Agent is open-source, licensed under GPLv3+. We don't develop a separate enterprise version. All users, including commercial ones, use the same Netdata Agent.
+
+The Netdata Agent is shipped with multiple UI versions:
+
+- `http://agent.ip:19999/v0/`, the original open-source single-node UI, GPLv3+.
+- `http://agent.ip:19999/v1/`, the latest open-source single-node UI, GPLv3+.
+- `http://agent.ip:19999/v2/`, a snapshot of the latest Netdata Cloud UI as it was at the time the agent was released, licensed to be distributed with Netdata Agents under [NCUL1](https://github.com/netdata/netdata/blob/master/web/gui/v2/LICENSE.md).
+
+When you access a Netdata Agent via `http://agent.ip:19999/` a splash screen attempts to use the latest live version of Netdata Cloud UI (downloaded from Cloudflare). This only happens when the web browser has internet connectivity and Netdata Cloud is not disabled at the agent configuration. Otherwise, it falls back to `http://agent.ip:19999/v2/`.
+
+The Netdata Cloud UI is not open-source. But we thought that it is to the benefit of the community to allow everyone to use it directly with Netdata Agents, for free, even if Netdata Cloud is not used.
+
+&nbsp;<br/>&nbsp;<br/>
+</details>
+
+### :moneybag: What is your monetization strategy?
+
+Netdata generates revenue through subscriptions to advanced features of Netdata Cloud and sales of on-premise and private versions of Netdata Cloud.
+
+<details><summary>Click to see detailed answer ...</summary>
+&nbsp;<br/>&nbsp;<br/>
+
+Netdata generates revenue from these activities:
+
+1. **Netdata Cloud Subscriptions**<br/>
+   Direct funding for our project's vision comes from users subscribing to Netdata Cloud's advanced features.
+   
+2. **Netdata Cloud On-Prem or Private**<br/>
+   Purchasing the on-premises or private versions of Netdata Cloud supports our financial growth.
+
+Our Open-Source Community and the free access to Netdata Cloud, contribute to Netdata in the following ways:
+
+- **Netdata Cloud Community Use**<br/>
+  The free usage of Netdata Cloud demonstrates its market relevance. While this doesn't generate revenue, it reinforces trust among new users and aids in securing appropriate project funding.
+
+- **User Feedback**<br/>
+  Feedback, especially issues and bug reports, is invaluable. It steers us towards a more resilient and efficient product. This, too, isn't a revenue source but is pivotal for our project's evolution.
+
+- **Anonymous Telemetry Insights**<br/>
+  Users who keep anonymous telemetry enabled, help us make data informed decisions in refining and enhancing Netdata. This isn't a revenue stream, but knowing which features are used and how, contributes in building a better product for everyone.
+
+We don't monetize, directly or indirectly, users' or "device heuristics" data. Any data collected from community members are exclusively used for the purposes stated above.
+
+Netdata grows financially when tehnnology intensive organizations and operators, need - due to regulatory or business requirements - the entire Netdata suite (including Netdata Cloud) on-prem or private, bundled with top-tier support. It is a win-win case for all parties involved: these companies get a battle tested, robust and reliable solution, while the broader community that helps us build this product, enjoys it at no cost.
+
+&nbsp;<br/>&nbsp;<br/>
+</details>
+
 ## :book: Documentation
 
 Netdata's documentation is available at [**Netdata Learn**](https://learn.netdata.cloud).
@@ -644,7 +698,7 @@ Netdata is an inclusive open-source project and community. Please read our [Code
 Join the Netdata community:
 
 - Chat with us and other community members on [Discord](https://discord.com/invite/mPZ6WZKKG2).
-- Start a discussion on [Github discussions](https://github.com/netdata/netdata/discussions).
+- Start a discussion on [GitHub discussions](https://github.com/netdata/netdata/discussions).
 - Open a topic to our [community forums](https://community.netdata.cloud).
 
 > **Meet Up** :people_holding_hands::people_holding_hands::people_holding_hands:<br/>
@@ -669,10 +723,10 @@ What is a contribution? All the following are highly valuable to Netdata:
 
    Although we can't implement everything imaginable, we try to prioritize development on use-cases that are common to our community, are in the same direction we want Netdata to evolve and are aligned with our roadmap.
 
-4. **Support other community members**<br/>
-   Join our community on Github, Discord and Reddit. Generally, Netdata is relatively easy to set up and configure, but still people may need a little push in the right direction to use it effectively. Supporting other members is a great contribution by itself!
+3. **Support other community members**<br/>
+   Join our community on GitHub, Discord and Reddit. Generally, Netdata is relatively easy to set up and configure, but still people may need a little push in the right direction to use it effectively. Supporting other members is a great contribution by itself!
 
-5. **Add or improve integrations you need**<br/>
+4. **Add or improve integrations you need**<br/>
    Integrations tend to be easier and simpler to develop. If you would like to contribute your code to Netdata, we suggest that you start with the integrations you need, which Netdata does not currently support.
 
 General information about contributions:
@@ -687,5 +741,7 @@ instructions on building each Netdata component from the source and preparing a 
 
 ## License
 
-The Netdata Agent is [GPLv3+](https://github.com/netdata/netdata/blob/master/LICENSE). Netdata re-distributes other open-source tools and libraries. Please check the
+Netdata is released under [GPLv3+](https://github.com/netdata/netdata/blob/master/LICENSE). Netdata re-distributes other open-source tools and libraries. Please check the
 [third party licenses](https://github.com/netdata/netdata/blob/master/REDISTRIBUTED.md).
+
+The Latest Netdata UI, is distributed under [NCUL1](https://github.com/netdata/netdata/blob/master/web/gui/v2/LICENSE.md). It also uses third party open source components. Check the [UI third party licenses](https://github.com/netdata/netdata/blob/master/web/gui/v2/3D_PARTY_LICENSES.txt)

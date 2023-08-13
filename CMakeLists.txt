@@ -671,6 +671,7 @@ set(PROC_PLUGIN_FILES
         collectors/proc.plugin/sys_fs_btrfs.c
         collectors/proc.plugin/sys_class_power_supply.c
         collectors/proc.plugin/sys_devices_pci_aer.c
+        collectors/proc.plugin/sys_class_drm.c
         )
 
 set(TC_PLUGIN_FILES
@@ -734,7 +735,6 @@ set(RRD_PLUGIN_FILES
         database/rrdfunctions.h
         database/rrdhost.c
         database/rrdlabels.c
-        database/rrdlabels.h
         database/rrd.c
         database/rrd.h
         database/rrdset.c
@@ -744,7 +744,6 @@ set(RRD_PLUGIN_FILES
         database/rrdvar.h
         database/storage_engine.c
         database/storage_engine.h
-        database/storage_engine_types.h
         database/ram/rrddim_mem.c
         database/ram/rrddim_mem.h
         database/sqlite/sqlite_metadata.c
@@ -776,7 +775,6 @@ set(RRD_PLUGIN_FILES
         database/engine/rrdenginelib.h
         database/engine/rrdengineapi.c
         database/engine/rrdengineapi.h
-        database/engine/rrddim_eng.h
         database/engine/pagecache.c
         database/engine/pagecache.h
         database/engine/cache.c
@@ -1059,7 +1057,6 @@ ENDIF()
 
 set(NETDATA_FILES
         collectors/all.h
-        collectors/utils.h
         ${DAEMON_FILES}
         ${API_PLUGIN_FILES}
         ${EXPORTING_ENGINE_FILES}

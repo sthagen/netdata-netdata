@@ -204,7 +204,9 @@ void web_client_request_done(struct web_client *w) {
                 break;
 
             case WEB_CLIENT_MODE_POST:
+            case WEB_CLIENT_MODE_PUT:
             case WEB_CLIENT_MODE_GET:
+            case WEB_CLIENT_MODE_DELETE:
                 mode = "DATA";
                 break;
 
@@ -683,6 +685,12 @@ void buffer_data_options2string(BUFFER *wb, uint32_t options) {
 }
 
 static inline int check_host_and_call(RRDHOST *host, struct web_client *w, char *url, int (*func)(RRDHOST *, struct web_client *, char *)) {
+    //if(unlikely(host->rrd_memory_mode == RRD_MEMORY_MODE_NONE)) {
+    //    buffer_flush(w->response.data);
+    //    buffer_strcat(w->response.data, "This host does not maintain a database");
+    //    return HTTP_RESP_BAD_REQUEST;
+    //}
+
     return func(host, w, url);
 }
 
@@ -1075,6 +1083,14 @@ static inline char *web_client_valid_method(struct web_client *w, char *s) {
         s = &s[5];
         w->mode = WEB_CLIENT_MODE_POST;
     }
+    else if(!strncmp(s, "PUT ", 4)) {
+        s = &s[4];
+        w->mode = WEB_CLIENT_MODE_PUT;
+    }
+    else if(!strncmp(s, "DELETE ", 7)) {
+        s = &s[7];
+        w->mode = WEB_CLIENT_MODE_DELETE;
+    }
     else if(!strncmp(s, "STREAM ", 7)) {
         s = &s[7];
 
@@ -1458,7 +1474,7 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
         hash_localhost = simple_hash("localhost");
     }
 
-    if(host != rrdb.localhost) {
+    if(host != localhost) {
         buffer_flush(w->response.data);
         buffer_strcat(w->response.data, "Nesting of hosts is not allowed.");
         return HTTP_RESP_BAD_REQUEST;
@@ -1469,7 +1485,7 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
         netdata_log_debug(D_WEB_CLIENT, "%llu: Searching for host with name '%s'.", w->id, tok);
 
         if(nodeid) {
-            host = rrdhost_find_by_node_id(tok);
+            host = find_host_by_node_id(tok);
             if(!host) {
                 host = rrdhost_find_by_hostname(tok);
                 if (!host)
@@ -1481,7 +1497,7 @@ static inline int web_client_switch_host(RRDHOST *host, struct web_client *w, ch
             if(!host) {
                 host = rrdhost_find_by_guid(tok);
                 if (!host)
-                    host = rrdhost_find_by_node_id(tok);
+                    host = find_host_by_node_id(tok);
             }
         }
 
@@ -1660,8 +1676,8 @@ static inline int web_client_process_url(RRDHOST *host, struct web_client *w, ch
                 netdata_log_debug(D_WEB_CLIENT, "%llu: Searching for RRD data with name '%s'.", w->id, tok);
 
                 // do we have such a data set?
-                RRDSET *st = rrdset_find_by_name(host, tok);
-                if(!st) st = rrdset_find_by_id(host, tok);
+                RRDSET *st = rrdset_find_byname(host, tok);
+                if(!st) st = rrdset_find(host, tok);
                 if(!st) {
                     w->response.data->content_type = CT_TEXT_HTML;
                     buffer_strcat(w->response.data, "Chart is not found: ");
@@ -1747,6 +1763,8 @@ void web_client_process_request(struct web_client *w) {
                 case WEB_CLIENT_MODE_FILECOPY:
                 case WEB_CLIENT_MODE_POST:
                 case WEB_CLIENT_MODE_GET:
+                case WEB_CLIENT_MODE_PUT:
+                case WEB_CLIENT_MODE_DELETE:
                     if(unlikely(
                             !web_client_can_access_dashboard(w) &&
                             !web_client_can_access_registry(w) &&
@@ -1784,7 +1802,7 @@ void web_client_process_request(struct web_client *w) {
                         }
                     }
 
-                    w->response.code = (short)web_client_process_url(rrdb.localhost, w, path);
+                    w->response.code = (short)web_client_process_url(localhost, w, path);
                     break;
             }
             break;
@@ -1879,6 +1897,8 @@ void web_client_process_request(struct web_client *w) {
 
         case WEB_CLIENT_MODE_POST:
         case WEB_CLIENT_MODE_GET:
+        case WEB_CLIENT_MODE_PUT:
+        case WEB_CLIENT_MODE_DELETE:
             netdata_log_debug(D_WEB_CLIENT, "%llu: Done preparing the response. Sending data (%zu bytes) to client.", w->id, w->response.data->len);
             break;
 
@@ -2042,7 +2062,7 @@ ssize_t web_client_send_deflate(struct web_client *w)
 
         // ask for FINISH if we have all the input
         int flush = Z_SYNC_FLUSH;
-        if((w->mode == WEB_CLIENT_MODE_GET || w->mode == WEB_CLIENT_MODE_POST)
+        if((w->mode == WEB_CLIENT_MODE_GET || w->mode == WEB_CLIENT_MODE_POST || w->mode == WEB_CLIENT_MODE_PUT || w->mode == WEB_CLIENT_MODE_DELETE)
             || (w->mode == WEB_CLIENT_MODE_FILECOPY && !web_client_has_wait_receive(w) && w->response.data->len == w->response.rlen)) {
             flush = Z_FINISH;
             netdata_log_debug(D_DEFLATE, "%llu: Requesting Z_FINISH, if possible.", w->id);
