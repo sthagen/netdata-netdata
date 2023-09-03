@@ -16,6 +16,9 @@
         fprintf(stdout, PLUGINSD_KEYWORD_FUNCTION " \"processes\" %d \"%s\"\n", PLUGINS_FUNCTIONS_TIMEOUT_DEFAULT, APPS_PLUGIN_PROCESSES_FUNCTION_DESCRIPTION); \
     } while(0)
 
+#define APPS_PLUGIN_GLOBAL_FUNCTIONS() do { \
+        fprintf(stdout, PLUGINSD_KEYWORD_FUNCTION " GLOBAL \"processes\" %d \"%s\"\n", PLUGINS_FUNCTIONS_TIMEOUT_DEFAULT, APPS_PLUGIN_PROCESSES_FUNCTION_DESCRIPTION); \
+    } while(0)
 
 // ----------------------------------------------------------------------------
 // debugging
@@ -1454,17 +1457,17 @@ cleanup:
             netdata_log_info(
                     "FDS_LIMITS: PID %d (%s) is using "
                     "%0.2f %% of its fds limits, "
-                    "open fds = %llu ("
-                    "files = %llu, "
-                    "pipes = %llu, "
-                    "sockets = %llu, "
-                    "inotifies = %llu, "
-                    "eventfds = %llu, "
-                    "timerfds = %llu, "
-                    "signalfds = %llu, "
-                    "eventpolls = %llu "
-                    "other = %llu "
-                    "), open fds limit = %llu, "
+                    "open fds = %"PRIu64 "("
+                    "files = %"PRIu64 ", "
+                    "pipes = %"PRIu64 ", "
+                    "sockets = %"PRIu64", "
+                    "inotifies = %"PRIu64", "
+                    "eventfds = %"PRIu64", "
+                    "timerfds = %"PRIu64", "
+                    "signalfds = %"PRIu64", "
+                    "eventpolls = %"PRIu64" "
+                    "other = %"PRIu64" "
+                    "), open fds limit = %"PRIu64", "
                     "%s, "
                     "original line [%s]",
                     p->pid, p->comm, p->openfds_limits_percent, all_fds,
@@ -5687,7 +5690,7 @@ int main(int argc, char **argv) {
     netdata_thread_create(&reader_thread, "APPS_READER", NETDATA_THREAD_OPTION_DONT_LOG, reader_main, NULL);
     netdata_mutex_lock(&mutex);
 
-    APPS_PLUGIN_FUNCTIONS();
+    APPS_PLUGIN_GLOBAL_FUNCTIONS();
 
     usec_t step = update_every * USEC_PER_SEC;
     global_iterations_counter = 1;

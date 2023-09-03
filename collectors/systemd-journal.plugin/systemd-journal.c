@@ -11,12 +11,6 @@
 #include "libnetdata/libnetdata.h"
 #include "libnetdata/required_dummies.h"
 
-#ifndef SD_JOURNAL_ALL_NAMESPACES
-#define JOURNAL_NAMESPACE SD_JOURNAL_LOCAL_ONLY
-#else
-#define JOURNAL_NAMESPACE SD_JOURNAL_ALL_NAMESPACES
-#endif
-
 #include <systemd/sd-journal.h>
 #include <syslog.h>
 
@@ -35,6 +29,8 @@
 #define JOURNAL_PARAMETER_ANCHOR                "anchor"
 #define JOURNAL_PARAMETER_LAST                  "last"
 #define JOURNAL_PARAMETER_QUERY                 "query"
+#define JOURNAL_PARAMETER_FACETS                "facets"
+#define JOURNAL_PARAMETER_HISTOGRAM             "histogram"
 
 #define SYSTEMD_ALWAYS_VISIBLE_KEYS             NULL
 #define SYSTEMD_KEYS_EXCLUDED_FROM_FACETS       NULL
@@ -57,6 +53,8 @@
     "|_SYSTEMD_USER_UNIT"                       \
     "|USER_UNIT"                                \
     "|UNIT"                                     \
+    "|CONTAINER_NAME"                           \
+    "|IMAGE_NAME"                               \
     ""
 
 static netdata_mutex_t mutex = NETDATA_MUTEX_INITIALIZER;
@@ -65,17 +63,31 @@ static bool plugin_should_exit = false;
 DICTIONARY *uids = NULL;
 DICTIONARY *gids = NULL;
 
-
 // ----------------------------------------------------------------------------
 
 int systemd_journal_query(BUFFER *wb, FACETS *facets, usec_t after_ut, usec_t before_ut, usec_t stop_monotonic_ut) {
-    sd_journal *j;
+    sd_journal *j = NULL;
     int r;
 
-    // Open the system journal for reading
-    r = sd_journal_open(&j, JOURNAL_NAMESPACE);
-    if (r < 0)
+    if(*netdata_configured_host_prefix) {
+#ifdef HAVE_SD_JOURNAL_OS_ROOT
+        // Give our host prefix to systemd journal
+        r = sd_journal_open_directory(&j, netdata_configured_host_prefix, SD_JOURNAL_OS_ROOT);
+#else
+        char buf[FILENAME_MAX + 1];
+        snprintfz(buf, FILENAME_MAX, "%s/var/log/journal", netdata_configured_host_prefix);
+        r = sd_journal_open_directory(&j, buf, 0);
+#endif
+    }
+    else {
+        // Open the system journal for reading
+        r = sd_journal_open(&j, 0);
+    }
+
+    if (r < 0) {
+        netdata_log_error("SYSTEMD-JOURNAL: Failed to open SystemD Journal, with error %d", r);
         return HTTP_RESP_INTERNAL_SERVER_ERROR;
+    }
 
     facets_rows_begin(facets);
 
@@ -223,8 +235,7 @@ static char *uid_to_username(uid_t uid, char *buffer, size_t buffer_size) {
     if (getpwuid_r(uid, &pw, tmp, 1024, &result) != 0 || result == NULL)
         return NULL;
 
-    strncpy(buffer, pw.pw_name, buffer_size - 1);
-    buffer[buffer_size - 1] = '\0'; // Null-terminate just in case
+    snprintfz(buffer, buffer_size - 1, "%u (%s)", uid, pw.pw_name);
     return buffer;
 }
 
@@ -235,8 +246,7 @@ static char *gid_to_groupname(gid_t gid, char* buffer, size_t buffer_size) {
     if (getgrgid_r(gid, &grp, tmp, 1024, &result) != 0 || result == NULL)
         return NULL;
 
-    strncpy(buffer, grp.gr_name, buffer_size - 1);
-    buffer[buffer_size - 1] = '\0'; // Null-terminate just in case
+    snprintfz(buffer, buffer_size - 1, "%u (%s)", gid, grp.gr_name);
     return buffer;
 }
 
@@ -327,9 +337,6 @@ static void systemd_journal_dynamic_row_id(FACETS *facets __maybe_unused, BUFFER
 }
 
 static void function_systemd_journal(const char *transaction, char *function, char *line_buffer __maybe_unused, int line_max __maybe_unused, int timeout __maybe_unused) {
-    char *words[SYSTEMD_JOURNAL_MAX_PARAMS] = { NULL };
-    size_t num_words = quoted_strings_splitter_pluginsd(function, words, SYSTEMD_JOURNAL_MAX_PARAMS);
-
     BUFFER *wb = buffer_create(0, NULL);
     buffer_flush(wb);
     buffer_json_initialize(wb, "\"", "\"", 0, true, BUFFER_JSON_OPTIONS_NEWLINE_ON_ARRAY_ITEMS);
@@ -344,61 +351,89 @@ static void function_systemd_journal(const char *transaction, char *function, ch
     facets_accepted_param(facets, JOURNAL_PARAMETER_ANCHOR);
     facets_accepted_param(facets, JOURNAL_PARAMETER_LAST);
     facets_accepted_param(facets, JOURNAL_PARAMETER_QUERY);
+    facets_accepted_param(facets, JOURNAL_PARAMETER_FACETS);
+    facets_accepted_param(facets, JOURNAL_PARAMETER_HISTOGRAM);
 
     // register the fields in the order you want them on the dashboard
 
-    facets_register_dynamic_key(facets, "ND_JOURNAL_PROCESS", FACET_KEY_OPTION_NO_FACET|FACET_KEY_OPTION_VISIBLE|FACET_KEY_OPTION_FTS,
-                                systemd_journal_dynamic_row_id, NULL);
+    facets_register_dynamic_key_name(facets, "ND_JOURNAL_PROCESS",
+                                     FACET_KEY_OPTION_NO_FACET | FACET_KEY_OPTION_VISIBLE | FACET_KEY_OPTION_FTS,
+                                     systemd_journal_dynamic_row_id, NULL);
 
-    facets_register_key(facets, "MESSAGE",
-                        FACET_KEY_OPTION_NO_FACET|FACET_KEY_OPTION_MAIN_TEXT|FACET_KEY_OPTION_VISIBLE|FACET_KEY_OPTION_FTS);
+    facets_register_key_name(facets, "MESSAGE",
+                             FACET_KEY_OPTION_NO_FACET | FACET_KEY_OPTION_MAIN_TEXT | FACET_KEY_OPTION_VISIBLE |
+                             FACET_KEY_OPTION_FTS);
 
-    facets_register_key_transformation(facets, "PRIORITY", FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS,
-                                       systemd_journal_transform_priority, NULL);
+    facets_register_key_name_transformation(facets, "PRIORITY", FACET_KEY_OPTION_FACET | FACET_KEY_OPTION_FTS,
+                                            systemd_journal_transform_priority, NULL);
 
-    facets_register_key_transformation(facets, "SYSLOG_FACILITY", FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS,
-                                       systemd_journal_transform_syslog_facility, NULL);
+    facets_register_key_name_transformation(facets, "SYSLOG_FACILITY", FACET_KEY_OPTION_FACET | FACET_KEY_OPTION_FTS,
+                                            systemd_journal_transform_syslog_facility, NULL);
 
-    facets_register_key(facets, "SYSLOG_IDENTIFIER", FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS);
-    facets_register_key(facets, "UNIT", FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS);
-    facets_register_key(facets, "USER_UNIT", FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS);
+    facets_register_key_name(facets, "SYSLOG_IDENTIFIER", FACET_KEY_OPTION_FACET | FACET_KEY_OPTION_FTS);
+    facets_register_key_name(facets, "UNIT", FACET_KEY_OPTION_FACET | FACET_KEY_OPTION_FTS);
+    facets_register_key_name(facets, "USER_UNIT", FACET_KEY_OPTION_FACET | FACET_KEY_OPTION_FTS);
 
-    facets_register_key_transformation(facets, "_UID", FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS,
-                                       systemd_journal_transform_uid, uids);
+    facets_register_key_name_transformation(facets, "_UID", FACET_KEY_OPTION_FACET | FACET_KEY_OPTION_FTS,
+                                            systemd_journal_transform_uid, uids);
 
-    facets_register_key_transformation(facets, "_GID", FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS,
-                                       systemd_journal_transform_gid, gids);
+    facets_register_key_name_transformation(facets, "_GID", FACET_KEY_OPTION_FACET | FACET_KEY_OPTION_FTS,
+                                            systemd_journal_transform_gid, gids);
 
     time_t after_s = 0, before_s = 0;
     usec_t anchor = 0;
     size_t last = 0;
     const char *query = NULL;
+    const char *chart = NULL;
 
     buffer_json_member_add_object(wb, "request");
-    buffer_json_member_add_object(wb, "filters");
 
+    char *words[SYSTEMD_JOURNAL_MAX_PARAMS] = { NULL };
+    size_t num_words = quoted_strings_splitter_pluginsd(function, words, SYSTEMD_JOURNAL_MAX_PARAMS);
     for(int i = 1; i < SYSTEMD_JOURNAL_MAX_PARAMS ;i++) {
-        const char *keyword = get_word(words, num_words, i);
+        char *keyword = get_word(words, num_words, i);
         if(!keyword) break;
 
         if(strcmp(keyword, JOURNAL_PARAMETER_HELP) == 0) {
             systemd_journal_function_help(transaction);
             goto cleanup;
         }
-        else if(strncmp(keyword, JOURNAL_PARAMETER_AFTER ":", strlen(JOURNAL_PARAMETER_AFTER ":")) == 0) {
-            after_s = str2l(&keyword[strlen(JOURNAL_PARAMETER_AFTER ":")]);
+        else if(strncmp(keyword, JOURNAL_PARAMETER_AFTER ":", sizeof(JOURNAL_PARAMETER_AFTER ":") - 1) == 0) {
+            after_s = str2l(&keyword[sizeof(JOURNAL_PARAMETER_AFTER ":") - 1]);
         }
-        else if(strncmp(keyword, JOURNAL_PARAMETER_BEFORE ":", strlen(JOURNAL_PARAMETER_BEFORE ":")) == 0) {
-            before_s = str2l(&keyword[strlen(JOURNAL_PARAMETER_BEFORE ":")]);
+        else if(strncmp(keyword, JOURNAL_PARAMETER_BEFORE ":", sizeof(JOURNAL_PARAMETER_BEFORE ":") - 1) == 0) {
+            before_s = str2l(&keyword[sizeof(JOURNAL_PARAMETER_BEFORE ":") - 1]);
         }
-        else if(strncmp(keyword, JOURNAL_PARAMETER_ANCHOR ":", strlen(JOURNAL_PARAMETER_ANCHOR ":")) == 0) {
-            anchor = str2ull(&keyword[strlen(JOURNAL_PARAMETER_ANCHOR ":")], NULL);
+        else if(strncmp(keyword, JOURNAL_PARAMETER_ANCHOR ":", sizeof(JOURNAL_PARAMETER_ANCHOR ":") - 1) == 0) {
+            anchor = str2ull(&keyword[sizeof(JOURNAL_PARAMETER_ANCHOR ":") - 1], NULL);
         }
-        else if(strncmp(keyword, JOURNAL_PARAMETER_LAST ":", strlen(JOURNAL_PARAMETER_LAST ":")) == 0) {
-            last = str2ul(&keyword[strlen(JOURNAL_PARAMETER_LAST ":")]);
+        else if(strncmp(keyword, JOURNAL_PARAMETER_LAST ":", sizeof(JOURNAL_PARAMETER_LAST ":") - 1) == 0) {
+            last = str2ul(&keyword[sizeof(JOURNAL_PARAMETER_LAST ":") - 1]);
         }
-        else if(strncmp(keyword, JOURNAL_PARAMETER_QUERY ":", strlen(JOURNAL_PARAMETER_QUERY ":")) == 0) {
-            query= &keyword[strlen(JOURNAL_PARAMETER_QUERY ":")];
+        else if(strncmp(keyword, JOURNAL_PARAMETER_QUERY ":", sizeof(JOURNAL_PARAMETER_QUERY ":") - 1) == 0) {
+            query= &keyword[sizeof(JOURNAL_PARAMETER_QUERY ":") - 1];
+        }
+        else if(strncmp(keyword, JOURNAL_PARAMETER_HISTOGRAM ":", sizeof(JOURNAL_PARAMETER_HISTOGRAM ":") - 1) == 0) {
+            chart = &keyword[sizeof(JOURNAL_PARAMETER_HISTOGRAM ":") - 1];
+        }
+        else if(strncmp(keyword, JOURNAL_PARAMETER_FACETS ":", sizeof(JOURNAL_PARAMETER_FACETS ":") - 1) == 0) {
+            char *value = &keyword[sizeof(JOURNAL_PARAMETER_FACETS ":") - 1];
+            if(*value) {
+                buffer_json_member_add_array(wb, JOURNAL_PARAMETER_FACETS);
+
+                while(value) {
+                    char *sep = strchr(value, ',');
+                    if(sep)
+                        *sep++ = '\0';
+
+                    facets_register_facet_id(facets, value, FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS|FACET_KEY_OPTION_REORDER);
+                    buffer_json_add_array_item_string(wb, value);
+
+                    value = sep;
+                }
+
+                buffer_json_array_close(wb); // JOURNAL_PARAMETER_FACETS
+            }
         }
         else {
             char *value = strchr(keyword, ':');
@@ -412,7 +447,7 @@ static void function_systemd_journal(const char *transaction, char *function, ch
                     if(sep)
                         *sep++ = '\0';
 
-                    facets_register_facet_filter(facets, keyword, value, FACET_KEY_OPTION_REORDER);
+                    facets_register_facet_id_filter(facets, keyword, value, FACET_KEY_OPTION_FACET|FACET_KEY_OPTION_FTS|FACET_KEY_OPTION_REORDER);
                     buffer_json_add_array_item_string(wb, value);
 
                     value = sep;
@@ -422,8 +457,6 @@ static void function_systemd_journal(const char *transaction, char *function, ch
             }
         }
     }
-
-    buffer_json_object_close(wb); // filters
 
     time_t expires = now_realtime_sec() + 1;
     time_t now_s;
@@ -453,12 +486,15 @@ static void function_systemd_journal(const char *transaction, char *function, ch
     buffer_json_member_add_uint64(wb, "anchor", anchor);
     buffer_json_member_add_uint64(wb, "last", last);
     buffer_json_member_add_string(wb, "query", query);
+    buffer_json_member_add_string(wb, "chart", chart);
     buffer_json_member_add_time_t(wb, "timeout", timeout);
     buffer_json_object_close(wb); // request
 
     facets_set_items(facets, last);
     facets_set_anchor(facets, anchor);
     facets_set_query(facets, query);
+    facets_set_histogram(facets, chart ? chart : "PRIORITY", after_s * USEC_PER_SEC, before_s * USEC_PER_SEC);
+
     int response = systemd_journal_query(wb, facets, after_s * USEC_PER_SEC, before_s * USEC_PER_SEC,
                                        now_monotonic_usec() + (timeout - 1) * USEC_PER_SEC);
 
@@ -543,6 +579,9 @@ int main(int argc __maybe_unused, char **argv __maybe_unused) {
     uids = dictionary_create(0);
     gids = dictionary_create(0);
 
+    netdata_configured_host_prefix = getenv("NETDATA_HOST_PREFIX");
+    if(verify_netdata_host_prefix() == -1) exit(1);
+
     // ------------------------------------------------------------------------
     // debug
 
@@ -566,7 +605,7 @@ int main(int argc __maybe_unused, char **argv __maybe_unused) {
     bool tty = isatty(fileno(stderr)) == 1;
 
     netdata_mutex_lock(&mutex);
-    fprintf(stdout, PLUGINSD_KEYWORD_FUNCTION " \"%s\" %d \"%s\"\n",
+    fprintf(stdout, PLUGINSD_KEYWORD_FUNCTION " GLOBAL \"%s\" %d \"%s\"\n",
             SYSTEMD_JOURNAL_FUNCTION_NAME, SYSTEMD_JOURNAL_DEFAULT_TIMEOUT, SYSTEMD_JOURNAL_FUNCTION_DESCRIPTION);
 
     heartbeat_t hb;

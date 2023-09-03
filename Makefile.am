@@ -201,6 +201,7 @@ LIBNETDATA_FILES = \
     libnetdata/string/utf8.h \
     libnetdata/worker_utilization/worker_utilization.c \
     libnetdata/worker_utilization/worker_utilization.h \
+    libnetdata/xxhash.h \
     libnetdata/http/http_defs.h \
     libnetdata/dyn_conf/dyn_conf.c \
     libnetdata/dyn_conf/dyn_conf.h \
@@ -472,6 +473,7 @@ RRD_PLUGIN_FILES = \
     database/rrdfamily.c \
     database/rrdhost.c \
     database/rrdlabels.c \
+    database/rrdlabels.h \
     database/rrd.c \
     database/rrd.h \
     database/rrdset.c \
@@ -503,6 +505,9 @@ RRD_PLUGIN_FILES = \
     database/sqlite/sqlite_aclk_alert.h \
     database/sqlite/sqlite3.c \
     database/sqlite/sqlite3.h \
+    database/sqlite/sqlite3recover.c \
+    database/sqlite/sqlite3recover.h \
+    database/sqlite/dbdata.c \
     database/KolmogorovSmirnovDist.c \
     database/KolmogorovSmirnovDist.h \
     $(NULL)
@@ -598,6 +603,8 @@ API_PLUGIN_FILES = \
     web/api/exporters/allmetrics.h \
     web/api/exporters/shell/allmetrics_shell.c \
     web/api/exporters/shell/allmetrics_shell.h \
+    web/api/ilove/ilove.c \
+    web/api/ilove/ilove.h \
     web/api/queries/average/average.c \
     web/api/queries/average/average.h \
     web/api/queries/countif/countif.c \

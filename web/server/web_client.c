@@ -22,8 +22,8 @@ inline int web_client_bearer_required(struct web_client *w) {
     w->response.data->content_type = CT_TEXT_PLAIN;
     buffer_flush(w->response.data);
     buffer_strcat(w->response.data, "An authorization bearer is required to access the resource.");
-    w->response.code = HTTP_RESP_UNAUTHORIZED;
-    return HTTP_RESP_UNAUTHORIZED;
+    w->response.code = HTTP_RESP_PRECOND_FAIL;
+    return HTTP_RESP_PRECOND_FAIL;
 }
 
 static inline int bad_request_multiple_dashboard_versions(struct web_client *w) {
@@ -50,6 +50,7 @@ static inline int web_client_cork_socket(struct web_client *w __maybe_unused) {
     return 0;
 }
 
+#ifdef ENABLE_HTTPS
 static inline void web_client_enable_wait_from_ssl(struct web_client *w) {
     if (w->ssl.ssl_errno == SSL_ERROR_WANT_READ)
         web_client_enable_ssl_wait_receive(w);
@@ -60,6 +61,7 @@ static inline void web_client_enable_wait_from_ssl(struct web_client *w) {
         web_client_disable_ssl_wait_send(w);
     }
 }
+#endif
 
 static inline int web_client_uncork_socket(struct web_client *w __maybe_unused) {
 #ifdef TCP_CORK
@@ -928,6 +930,8 @@ const char *web_response_code_to_string(int code) {
             return "Request Header Fields Too Large";
         case 451:
             return "Unavailable For Legal Reasons";
+        case 499: // nginx's extension to the standard
+            return "Client Closed Request";
 
         case 500:
             return "Internal Server Error";
@@ -2437,7 +2441,7 @@ inline bool web_client_timeout_checkpoint_and_check(struct web_client *w, usec_t
     if (since_reception_ut >= w->timings.timeout_ut) {
         buffer_flush(w->response.data);
         buffer_strcat(w->response.data, "Query timeout exceeded");
-        w->response.code = HTTP_RESP_BACKEND_FETCH_FAILED;
+        w->response.code = HTTP_RESP_GATEWAY_TIMEOUT;
         return true;
     }
 

@@ -488,6 +488,8 @@ set(LIBNETDATA_FILES
         libnetdata/threads/threads.h
         libnetdata/url/url.c
         libnetdata/url/url.h
+        libnetdata/dyn_conf/dyn_conf.c
+        libnetdata/dyn_conf/dyn_conf.h
         libnetdata/string/utf8.h
         libnetdata/worker_utilization/worker_utilization.c
         libnetdata/worker_utilization/worker_utilization.h
@@ -711,6 +713,10 @@ set(STATSD_PLUGIN_FILES
         collectors/statsd.plugin/statsd.c
         )
 
+set(SYSTEMD_JOURNAL_PLUGIN_FILES
+        collectors/systemd-journal.plugin/systemd-journal.c
+        )
+
 set(RRD_PLUGIN_FILES
         database/contexts/api_v1.c
         database/contexts/api_v2.c
@@ -735,6 +741,7 @@ set(RRD_PLUGIN_FILES
         database/rrdfunctions.h
         database/rrdhost.c
         database/rrdlabels.c
+        database/rrdlabels.h
         database/rrd.c
         database/rrd.h
         database/rrdset.c
@@ -764,6 +771,9 @@ set(RRD_PLUGIN_FILES
         database/sqlite/sqlite_aclk_alert.h
         database/sqlite/sqlite3.c
         database/sqlite/sqlite3.h
+        database/sqlite/sqlite3recover.c
+        database/sqlite/sqlite3recover.h
+        database/sqlite/dbdata.c
         database/engine/rrdengine.c
         database/engine/rrdengine.h
         database/engine/rrddiskprotocol.h
@@ -1067,6 +1077,7 @@ set(NETDATA_FILES
         ${RRD_PLUGIN_FILES}
         ${REGISTRY_PLUGIN_FILES}
         ${STATSD_PLUGIN_FILES}
+        ${SYSTEMD_JOURNAL_PLUGIN_FILES}
         ${STREAMING_PLUGIN_FILES}
         ${WEB_PLUGIN_FILES}
         ${CLAIM_PLUGIN_FILES}

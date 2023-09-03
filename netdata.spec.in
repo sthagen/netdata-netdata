@@ -124,18 +124,6 @@ BuildRequires: systemd-rpm-macros
 BuildRequires: systemd
 %endif
 
-# Runtime dependencies
-#
-%if 0%{?centos_ver} == 7 || 0%{?centos_ver} == 6
-Requires: python
-%else
-%if 0%{?centos_ver} == 8
-Requires: python38
-%else
-Requires: python3
-%endif
-%endif
-
 # Core requirements for the install to succeed
 Requires(pre): /usr/sbin/groupadd
 Requires(pre): /usr/sbin/useradd
@@ -148,24 +136,24 @@ Requires(pre): /usr/sbin/useradd
 # makes it impossible to properly test the packages prior to upload,
 # so we just skip depending on them on CentOS 7.
 %if 0%{?_have_ebpf}
-Requires: netdata-plugin-ebpf
+Requires: netdata-plugin-ebpf = %{version}
 %endif
-Requires: netdata-plugin-apps
-Requires: netdata-plugin-pythond
-Requires: netdata-plugin-go
-Requires: netdata-plugin-debugfs
-Requires: netdata-plugin-chartsd
-Requires: netdata-plugin-slabinfo
-Requires: netdata-plugin-perf
+Requires: netdata-plugin-apps = %{version}
+Requires: netdata-plugin-pythond = %{version}
+Requires: netdata-plugin-go = %{version}
+Requires: netdata-plugin-debugfs = %{version}
+Requires: netdata-plugin-chartsd = %{version}
+Requires: netdata-plugin-slabinfo = %{version}
+Requires: netdata-plugin-perf = %{version}
 %if 0%{?_have_nfacct}
-Requires: netdata-plugin-nfacct
+Requires: netdata-plugin-nfacct = %{version}
 %endif
 %if 0%{?_have_freeipmi} && 0%{?centos_ver} != 6 && 0%{?centos_ver} != 7 && 0%{?amazon_linux} != 2
-Suggests: netdata-plugin-freeipmi
+Suggests: netdata-plugin-freeipmi = %{version}
 %endif
 %if 0%{?centos_ver} != 6 && 0%{?centos_ver} != 7 && 0%{?amazon_linux} != 2
-Suggests: netdata-plugin-cups
-Recommends: netdata-plugin-systemd-journal
+Suggests: netdata-plugin-cups = %{version}
+Recommends: netdata-plugin-systemd-journal = %{version}
 %endif
 
 
@@ -703,7 +691,7 @@ fi
 %{_libexecdir}/%{name}/plugins.d/charts.d.plugin
 %{_libexecdir}/%{name}/plugins.d/charts.d.dryrun-helper.sh
 %{_libexecdir}/%{name}/charts.d/
-%defattr(0644,root,netdata,0644)
+%defattr(0644,root,netdata,0755)
 %{_libdir}/%{name}/conf.d/charts.d.conf
 %{_libdir}/%{name}/conf.d/charts.d/
 
@@ -733,7 +721,7 @@ fi
 %files plugin-ebpf
 %defattr(4750,root,netdata,4750)
 %{_libexecdir}/%{name}/plugins.d/ebpf.plugin
-%defattr(0644,root,netdata,0644)
+%defattr(0644,root,netdata,0755)
 %{_libdir}/%{name}/conf.d/ebpf.d.conf
 %{_libdir}/%{name}/conf.d/ebpf.d
 
@@ -767,11 +755,7 @@ Conflicts: netdata < %{version}
 %if 0%{?centos_ver} == 7 || 0%{?centos_ver} == 6
 Requires: python
 %else
-%if 0%{?centos_ver} == 8
-Requires: python38
-%else
 Requires: python3
-%endif
 %endif
 %if 0%{?centos_ver} != 7
 Suggests: sudo
@@ -792,7 +776,7 @@ fi
 %defattr(0750,root,netdata,0750)
 %{_libexecdir}/%{name}/plugins.d/python.d.plugin
 %{_libexecdir}/%{name}/python.d
-%defattr(0640,root,netdata,0640)
+%defattr(0644,root,netdata,0755)
 %{_libdir}/%{name}/conf.d/python.d.conf
 %{_libdir}/%{name}/conf.d/python.d
 
@@ -822,7 +806,7 @@ fi
 # CAP_NET_ADMIN needed for WireGuard collector
 # CAP_NET_RAW needed for ping collector
 %caps(cap_net_admin,cap_net_raw=eip) %{_libexecdir}/%{name}/plugins.d/go.d.plugin
-%defattr(0644,root,netdata,0644)
+%defattr(0644,root,netdata,0755)
 %{_libdir}/%{name}/conf.d/go.d.conf
 %{_libdir}/%{name}/conf.d/go.d
 
@@ -845,7 +829,7 @@ fi
 %defattr(0750,root,netdata,0750)
 # CAP_DAC_READ_SEARCH and CAP_SYS_PTRACE needed for data collection by the plugin.
 %caps(cap_dac_read_search,cap_sys_ptrace=ep) %{_libexecdir}/%{name}/plugins.d/apps.plugin
-%defattr(0644,root,netdata,0644)
+%defattr(0644,root,netdata,0755)
 %{_libdir}/%{name}/conf.d/apps_groups.conf
 
 %package plugin-slabinfo
@@ -935,6 +919,7 @@ fi
 %caps(cap_dac_read_search=ep) %attr(0750,root,netdata) %{_libexecdir}/%{name}/plugins.d/systemd-journal.plugin
 
 %changelog
+* Mon Aug 21 2023 Austin Hemmelgarn <austin@netdata.cloud> 0.0.0-22
 * Thu Aug 03 2023 Austin Hemmelgarn <austin@netdata.cloud> 0.0.0-21
 - Added systemd-journal plugin handling
 * Wed Jun 14 2023 Konstantin Shalygin <k0ste@k0ste.ru> 0.0.0-20

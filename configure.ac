@@ -650,7 +650,7 @@ AC_C_BIGENDIAN([],
     [AC_MSG_ERROR([Could not find out system endiannnes])])
 
 AC_CHECK_SIZEOF(void *)
-if test "$ac_cv_sizeof_void_p" = 8; then 
+if test "$ac_cv_sizeof_void_p" = 8; then
     AC_MSG_RESULT(Detected 64-bit Build Environment)
     	LIBJUDY_CFLAGS="$LIBJUDY_CFLAGS -DJU_64BIT"
 else 
@@ -1142,6 +1142,19 @@ AC_MSG_RESULT([${enable_plugin_systemd_journal}])
 AM_CONDITIONAL([ENABLE_PLUGIN_SYSTEMD_JOURNAL], [test "${enable_plugin_systemd_journal}" = "yes"])
 
 AC_MSG_NOTICE([OPTIONAL_SYSTEMD_LIBS is set to: ${OPTIONAL_SYSTEMD_LIBS}])
+
+if test "${enable_plugin_systemd_journal}" = "yes"; then
+    AC_MSG_CHECKING([for SD_JOURNAL_OS_ROOT in systemd])
+    AC_COMPILE_IFELSE(
+        [AC_LANG_PROGRAM(
+            [[#include <systemd/sd-journal.h>]],
+            [[int x = SD_JOURNAL_OS_ROOT;]]
+        )],
+        [AC_DEFINE(HAVE_SD_JOURNAL_OS_ROOT, 1, [Define if SD_JOURNAL_OS_ROOT is available])
+            AC_MSG_RESULT(yes)],
+            [AC_MSG_RESULT(no)]
+    )
+fi
 
 LIBS="${LIBS_BAK}"
 
@@ -2034,6 +2047,7 @@ AC_CONFIG_FILES([
     web/Makefile
     web/api/Makefile
     web/api/badges/Makefile
+    web/api/ilove/Makefile
     web/api/exporters/Makefile
     web/api/exporters/shell/Makefile
     web/api/exporters/prometheus/Makefile

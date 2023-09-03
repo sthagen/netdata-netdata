@@ -331,6 +331,9 @@ int is_legacy = 1;
     host->rrd_history_entries        = align_entries_to_pagesize(memory_mode, entries);
     host->health.health_enabled      = ((memory_mode == RRD_MEMORY_MODE_NONE)) ? 0 : health_enabled;
 
+    netdata_mutex_init(&host->aclk_state_lock);
+    netdata_mutex_init(&host->receiver_lock);
+
     if (likely(!archived)) {
         rrdfunctions_init(host);
         host->rrdlabels = rrdlabels_create();
@@ -360,9 +363,6 @@ int is_legacy = 1;
         case RRD_MEMORY_MODE_DBENGINE:
             break;
     }
-
-    netdata_mutex_init(&host->aclk_state_lock);
-    netdata_mutex_init(&host->receiver_lock);
 
     host->system_info = system_info;
 
@@ -509,7 +509,8 @@ int is_legacy = 1;
     if(t != host) {
         netdata_log_error("Host '%s': cannot add host with machine guid '%s' to index. It already exists as host '%s' with machine guid '%s'.",
                           rrdhost_hostname(host), host->machine_guid, rrdhost_hostname(t), t->machine_guid);
-        rrdhost_free___while_having_rrd_wrlock(host, true);
+        if (!is_localhost)
+            rrdhost_free___while_having_rrd_wrlock(host, true);
         rrd_unlock();
         return NULL;
     }
@@ -1316,7 +1317,7 @@ void rrdhost_save_charts(RRDHOST *host) {
     rrdset_foreach_done(st);
 }
 
-struct rrdhost_system_info *rrdhost_labels_to_system_info(DICTIONARY *labels) {
+struct rrdhost_system_info *rrdhost_labels_to_system_info(RRDLABELS *labels) {
     struct rrdhost_system_info *info = callocz(1, sizeof(struct rrdhost_system_info));
     info->hops = 1;
 
@@ -1344,7 +1345,7 @@ struct rrdhost_system_info *rrdhost_labels_to_system_info(DICTIONARY *labels) {
 }
 
 static void rrdhost_load_auto_labels(void) {
-    DICTIONARY *labels = localhost->rrdlabels;
+    RRDLABELS *labels = localhost->rrdlabels;
 
     if (localhost->system_info->cloud_provider_type)
         rrdlabels_add(labels, "_cloud_provider_type", localhost->system_info->cloud_provider_type, RRDLABEL_SRC_AUTO);
@@ -1417,7 +1418,7 @@ void rrdhost_set_is_parent_label(void) {
     int count = __atomic_load_n(&localhost->connected_children_count, __ATOMIC_RELAXED);
 
     if (count == 0 || count == 1) {
-        DICTIONARY *labels = localhost->rrdlabels;
+        RRDLABELS *labels = localhost->rrdlabels;
         rrdlabels_add(labels, "_is_parent", (count) ? "true" : "false", RRDLABEL_SRC_AUTO);
 
         //queue a node info
@@ -1854,7 +1855,9 @@ void rrdhost_status(RRDHOST *host, time_t now, RRDHOST_STATUS *s) {
 
         s->stream.since = host->sender->last_state_since_t;
         s->stream.peers = socket_peers(host->sender->rrdpush_sender_socket);
+#ifdef ENABLE_HTTPS
         s->stream.ssl = SSL_connection(&host->sender->ssl);
+#endif
 
         memcpy(s->stream.sent_bytes_on_this_connection_per_type,
                host->sender->sent_bytes_on_this_connection_per_type,

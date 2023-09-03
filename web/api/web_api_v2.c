@@ -53,16 +53,27 @@ static time_t bearer_get_token(uuid_t *uuid) {
 }
 
 #define HTTP_REQUEST_AUTHORIZATION_BEARER "\r\nAuthorization: Bearer "
+#define HTTP_REQUEST_X_NETDATA_AUTH_BEARER "\r\nX-Netdata-Auth: Bearer "
 
 BEARER_STATUS extract_bearer_token_from_request(struct web_client *w, char *dst, size_t dst_len) {
     const char *req = buffer_tostring(w->response.data);
     size_t req_len = buffer_strlen(w->response.data);
-    const char *bearer = strcasestr(req, HTTP_REQUEST_AUTHORIZATION_BEARER);
+    const char *bearer = NULL;
+    const char *bearer_end = NULL;
 
-    if(!bearer)
+    bearer = strcasestr(req, HTTP_REQUEST_X_NETDATA_AUTH_BEARER);
+    if(bearer)
+        bearer_end = bearer + sizeof(HTTP_REQUEST_X_NETDATA_AUTH_BEARER) - 1;
+    else {
+        bearer = strcasestr(req, HTTP_REQUEST_AUTHORIZATION_BEARER);
+        if(bearer)
+            bearer_end = bearer + sizeof(HTTP_REQUEST_AUTHORIZATION_BEARER) - 1;
+    }
+
+    if(!bearer || !bearer_end)
         return BEARER_STATUS_NO_BEARER_IN_HEADERS;
 
-    const char *token_start = bearer + sizeof(HTTP_REQUEST_AUTHORIZATION_BEARER) - 1;
+    const char *token_start = bearer_end;
 
     while(isspace(*token_start))
         token_start++;
@@ -652,7 +663,7 @@ static int web_client_api_request_v2_webrtc(RRDHOST *host __maybe_unused, struct
 }
 
 #define CONFIG_API_V2_URL "/api/v2/config"
-static int web_client_api_request_v2_config(RRDHOST *host __maybe_unused, struct web_client *w, char *query) {
+static int web_client_api_request_v2_config(RRDHOST *host __maybe_unused, struct web_client *w, char *query __maybe_unused) {
 
     char *url = strdupz(buffer_tostring(w->url_as_received));
     char *url_full = url;
@@ -740,6 +751,8 @@ static struct web_api_command api_commands_v2[] = {
         {"bearer_get_token",    0, WEB_CLIENT_ACL_ACLK | ACL_DEV_OPEN_ACCESS, api_v2_bearer_token, 0},
 
         {"config", 0, WEB_CLIENT_ACL_DASHBOARD_ACLK_WEBRTC, web_client_api_request_v2_config, 1},
+
+        { "ilove.svg",       0, WEB_CLIENT_ACL_NOCHECK, web_client_api_request_v2_ilove, 0 },
 
         // terminator
         {NULL,                  0, WEB_CLIENT_ACL_NONE,                 NULL, 0},
