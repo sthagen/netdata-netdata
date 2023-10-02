@@ -59,6 +59,17 @@ It scales nicely from just a single server to thousands of servers, even in comp
 - :star: **Open and Extensible**<br/>
   Netdata is a modular platform that can be extended in all possible ways and it also integrates nicely with other monitoring solutions.
 
+---
+
+NEW: **Netdata and LOGS !** 🥳</br>
+
+Check the [SystemD-Journal Plugin of Netdata](https://github.com/netdata/netdata/tree/master/collectors/systemd-journal.plugin), that allows you to view, explore, analyze and query SystemD-Journal logs!
+The plugin is available from Oct 3, 2023 to nightly channel users.
+
+![image](https://github.com/netdata/netdata/assets/2662304/691b7470-ec56-430c-8b81-0c9e49012679)
+
+---
+
 &nbsp;<br/>
 <p align="center">
   <img src="https://raw.githubusercontent.com/cncf/artwork/master/other/cncf/horizontal/white/cncf-white.svg#gh-dark-mode-only" alt="CNCF" width="300">
@@ -107,7 +118,7 @@ It scales nicely from just a single server to thousands of servers, even in comp
 |   Advanced Troubleshooting    | Expanded view of dashboard charts integrating Metrics Correlations, Anomaly Advisor, and many more. |    later     |                                               interrupted                                               |
 |  Easy Custom<br/>Dashboards   |         Drag and drop charts to create custom dashboards on the fly, while troubleshooting!         |     next     |                                                 planned                                                 |
 |     More Customizability      |                           Set default settings for all charts and views!                            |     next     |                                                 planned                                                 |
-|        SystemD Journal        |                     View the SystemD Journal of your systems on the dashboard.                      |     soon     |                                               in progress                                               |
+|        SystemD Journal        |                     View the SystemD Journal of your systems on the dashboard.                      |     soon     |                                               in nightly                                               |
 |          UCUM Units           |                    Migrate all metrics to the Unified Code for Units of Measure.                    |     soon     |                                               in progress                                               |
 | **Netdata Cloud<br/>On-Prem** |                        **Netdata Cloud available for On-Prem installation!**                        |   **soon**   |                                             **in progress**                                             |
 |       Click to Activate       |                          Configure Alerts and Data Collectors from the UI!                          |     soon     |                                               in progress                                               |
@@ -710,7 +721,7 @@ Join the Netdata community:
 > [Click here for the schedule](https://www.meetup.com/netdata/events/).
 
 You can also find Netdata on:<br/>
-[Twitter](https://twitter.com/linuxnetdata) | [YouTube](https://www.youtube.com/c/Netdata) | [Reddit](https://www.reddit.com/r/netdata/) | [LinkedIn](https://www.linkedin.com/company/netdata-cloud/) | [StackShare](https://stackshare.io/netdata) | [Product Hunt](https://www.producthunt.com/posts/netdata-monitoring-agent/) | [Repology](https://repology.org/metapackage/netdata/versions) | [Facebook](https://www.facebook.com/linuxnetdata/)
+[Twitter](https://twitter.com/netdatahq) | [YouTube](https://www.youtube.com/c/Netdata) | [Reddit](https://www.reddit.com/r/netdata/) | [LinkedIn](https://www.linkedin.com/company/netdata-cloud/) | [StackShare](https://stackshare.io/netdata) | [Product Hunt](https://www.producthunt.com/posts/netdata-monitoring-agent/) | [Repology](https://repology.org/metapackage/netdata/versions) | [Facebook](https://www.facebook.com/linuxnetdata/)
 
 ## :pray: Contribute
 
