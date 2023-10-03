@@ -97,9 +97,12 @@ int fstat64(int fd, struct stat64 *buf) {
 #define SYSTEMD_JOURNAL_FUNCTION_NAME           "systemd-journal"
 #define SYSTEMD_JOURNAL_DEFAULT_TIMEOUT         60
 #define SYSTEMD_JOURNAL_MAX_PARAMS              100
-#define SYSTEMD_JOURNAL_DEFAULT_QUERY_DURATION  (3 * 3600)
+#define SYSTEMD_JOURNAL_DEFAULT_QUERY_DURATION  (1 * 3600)
 #define SYSTEMD_JOURNAL_DEFAULT_ITEMS_PER_QUERY 200
 #define SYSTEMD_JOURNAL_WORKER_THREADS          5
+
+#define JOURNAL_VS_REALTIME_DELTA_DEFAULT_UT (5 * USEC_PER_SEC) // assume always 5 seconds latency
+#define JOURNAL_VS_REALTIME_DELTA_MAX_UT (2 * 60 * USEC_PER_SEC) // up to 2 minutes latency
 
 #define JOURNAL_PARAMETER_HELP                  "help"
 #define JOURNAL_PARAMETER_AFTER                 "after"
@@ -248,6 +251,22 @@ struct journal_file {
     usec_t max_journal_vs_realtime_delta_ut;
 };
 
+static void log_fqs(FUNCTION_QUERY_STATUS *fqs, const char *msg) {
+    netdata_log_error("ERROR: %s, on query "
+                      "timeframe [%"PRIu64" - %"PRIu64"], "
+                      "anchor [%"PRIu64" - %"PRIu64"], "
+                      "if_modified_since %"PRIu64", "
+                      "data_only:%s, delta:%s, tail:%s, direction:%s"
+                      , msg
+                      , fqs->after_ut, fqs->before_ut
+                      , fqs->anchor.start_ut, fqs->anchor.stop_ut
+                      , fqs->if_modified_since
+                      , fqs->data_only ? "true" : "false"
+                      , fqs->delta ? "true" : "false"
+                      , fqs->tail ? "tail" : "false"
+                      , fqs->direction == FACETS_ANCHOR_DIRECTION_FORWARD ? "forward" : "backward");
+}
+
 static inline bool netdata_systemd_journal_seek_to(sd_journal *j, usec_t timestamp) {
     if(sd_journal_seek_realtime_usec(j, timestamp) < 0) {
         netdata_log_error("SYSTEMD-JOURNAL: Failed to seek to %" PRIu64, timestamp);
@@ -261,9 +280,6 @@ static inline bool netdata_systemd_journal_seek_to(sd_journal *j, usec_t timesta
 }
 
 #define JD_SOURCE_REALTIME_TIMESTAMP "_SOURCE_REALTIME_TIMESTAMP"
-
-#define JOURNAL_VS_REALTIME_DELTA_DEFAULT_UT (2 * USEC_PER_SEC) // assume always 2 seconds latency
-#define JOURNAL_VS_REALTIME_DELTA_MAX_UT (2 * 60 * USEC_PER_SEC) // up to 2 minutes delta
 
 static inline bool parse_journal_field(const char *data, size_t data_length, const char **key, size_t *key_length, const char **value, size_t *value_length) {
     const char *k = data;
@@ -330,7 +346,8 @@ static inline size_t netdata_systemd_journal_process_row(sd_journal *j, FACETS *
 
 #define FUNCTION_PROGRESS_UPDATE_ROWS(rows_read, rows) __atomic_fetch_add(&(rows_read), rows, __ATOMIC_RELAXED)
 #define FUNCTION_PROGRESS_UPDATE_BYTES(bytes_read, bytes) __atomic_fetch_add(&(bytes_read), bytes, __ATOMIC_RELAXED)
-#define FUNCTION_PROGRESS_EVERY_ROWS 10000
+#define FUNCTION_PROGRESS_EVERY_ROWS (1ULL << 13)
+#define FUNCTION_DATA_ONLY_CHECK_EVERY_ROWS (1ULL << 7)
 
 static inline ND_SD_JOURNAL_STATUS check_stop(const bool *cancelled, const usec_t *stop_monotonic_ut) {
     if(cancelled && __atomic_load_n(cancelled, __ATOMIC_RELAXED)) {
@@ -354,13 +371,14 @@ ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_backward(
 
     usec_t start_ut = ((fqs->data_only && fqs->anchor.start_ut) ? fqs->anchor.start_ut : fqs->before_ut) + anchor_delta;
     usec_t stop_ut = (fqs->data_only && fqs->anchor.stop_ut) ? fqs->anchor.stop_ut : fqs->after_ut;
+    bool stop_when_full = (fqs->data_only && !fqs->anchor.stop_ut);
 
     if(!netdata_systemd_journal_seek_to(j, start_ut))
         return ND_SD_JOURNAL_FAILED_TO_SEEK;
 
     size_t errors_no_timestamp = 0;
     usec_t earliest_msg_ut = 0;
-    size_t row_counter = 0, last_row_counter = 0;
+    size_t row_counter = 0, last_row_counter = 0, rows_useful = 0;
     size_t bytes = 0, last_bytes = 0;
 
     ND_SD_JOURNAL_STATUS status = ND_SD_JOURNAL_OK;
@@ -384,17 +402,19 @@ ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_backward(
 
         bytes += netdata_systemd_journal_process_row(j, facets, jf, &msg_ut);
         if(facets_row_finished(facets, msg_ut))
-            fqs->rows_useful++;
+            rows_useful++;
 
         row_counter++;
-        if(row_counter % 100 == 0 && fqs->data_only && facets_rows(facets) >= fqs->entries) {
+        if(unlikely((row_counter % FUNCTION_DATA_ONLY_CHECK_EVERY_ROWS) == 0 &&
+            stop_when_full &&
+            facets_rows(facets) >= fqs->entries)) {
             // stop the data only query
             usec_t oldest = facets_row_oldest_ut(facets);
             if(oldest && msg_ut < (oldest - anchor_delta))
                 break;
         }
 
-        if(row_counter % FUNCTION_PROGRESS_EVERY_ROWS == 0) {
+        if(unlikely(row_counter % FUNCTION_PROGRESS_EVERY_ROWS == 0)) {
             FUNCTION_PROGRESS_UPDATE_ROWS(fqs->rows_read, row_counter - last_row_counter);
             last_row_counter = row_counter;
 
@@ -407,6 +427,8 @@ ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_backward(
 
     FUNCTION_PROGRESS_UPDATE_ROWS(fqs->rows_read, row_counter - last_row_counter);
     FUNCTION_PROGRESS_UPDATE_BYTES(fqs->bytes_read, bytes - last_bytes);
+
+    fqs->rows_useful += rows_useful;
 
     if(errors_no_timestamp)
         netdata_log_error("SYSTEMD-JOURNAL: %zu lines did not have timestamps", errors_no_timestamp);
@@ -425,13 +447,14 @@ ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_forward(
 
     usec_t start_ut = (fqs->data_only && fqs->anchor.start_ut) ? fqs->anchor.start_ut : fqs->after_ut;
     usec_t stop_ut = ((fqs->data_only && fqs->anchor.stop_ut) ? fqs->anchor.stop_ut : fqs->before_ut) + anchor_delta;
+    bool stop_when_full = (fqs->data_only && !fqs->anchor.stop_ut);
 
     if(!netdata_systemd_journal_seek_to(j, start_ut))
         return ND_SD_JOURNAL_FAILED_TO_SEEK;
 
     size_t errors_no_timestamp = 0;
     usec_t earliest_msg_ut = 0;
-    size_t row_counter = 0, last_row_counter = 0;
+    size_t row_counter = 0, last_row_counter = 0, rows_useful = 0;
     size_t bytes = 0, last_bytes = 0;
 
     ND_SD_JOURNAL_STATUS status = ND_SD_JOURNAL_OK;
@@ -455,16 +478,19 @@ ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_forward(
 
         bytes += netdata_systemd_journal_process_row(j, facets, jf, &msg_ut);
         if(facets_row_finished(facets, msg_ut))
-            fqs->rows_useful++;
+            rows_useful++;
 
         row_counter++;
-        if(row_counter % 100 == 0 && fqs->data_only && facets_rows(facets) >= fqs->entries) {
+        if(unlikely((row_counter % FUNCTION_DATA_ONLY_CHECK_EVERY_ROWS) == 0 &&
+            stop_when_full &&
+            facets_rows(facets) >= fqs->entries)) {
+            // stop the data only query
             usec_t newest = facets_row_newest_ut(facets);
             if(newest && msg_ut > (newest + anchor_delta))
                 break;
         }
 
-        if(row_counter % FUNCTION_PROGRESS_EVERY_ROWS == 0) {
+        if(unlikely(row_counter % FUNCTION_PROGRESS_EVERY_ROWS == 0)) {
             FUNCTION_PROGRESS_UPDATE_ROWS(fqs->rows_read, row_counter - last_row_counter);
             last_row_counter = row_counter;
 
@@ -477,6 +503,8 @@ ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_forward(
 
     FUNCTION_PROGRESS_UPDATE_ROWS(fqs->rows_read, row_counter - last_row_counter);
     FUNCTION_PROGRESS_UPDATE_BYTES(fqs->bytes_read, bytes - last_bytes);
+
+    fqs->rows_useful += rows_useful;
 
     if(errors_no_timestamp)
         netdata_log_error("SYSTEMD-JOURNAL: %zu lines did not have timestamps", errors_no_timestamp);
@@ -565,7 +593,7 @@ static bool netdata_systemd_filtering_by_journal(sd_journal *j, FACETS *facets, 
     }
 
     if(failures) {
-        netdata_log_error("failed to setup journal filter, will run the full query.");
+        log_fqs(fqs, "failed to setup journal filter, will run the full query.");
         sd_journal_flush_matches(j);
         return true;
     }
@@ -581,16 +609,16 @@ static ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_one_file(
     sd_journal *j = NULL;
     errno = 0;
 
-#ifdef HAVE_SD_JOURNAL_OPEN_FILES_FD
-    int fd = open(filename, O_RDONLY);
-    fstat_cache_enable(fd);
-
-    if(sd_journal_open_files_fd(&j, &fd, 1, ND_SD_JOURNAL_OPEN_FLAGS) < 0 || !j) {
-        fqs->cached_count += fstat_cache_disable(fd);
-        close(fd);
-        return ND_SD_JOURNAL_FAILED_TO_OPEN;
-    }
-#else // !HAVE_SD_JOURNAL_OPEN_FILES_FD
+//#ifdef HAVE_SD_JOURNAL_OPEN_FILES_FD
+//    int fd = open(filename, O_RDONLY);
+//    fstat_cache_enable(fd);
+//
+//    if(sd_journal_open_files_fd(&j, &fd, 1, ND_SD_JOURNAL_OPEN_FLAGS) < 0 || !j) {
+//        fqs->cached_count += fstat_cache_disable(fd);
+//        close(fd);
+//        return ND_SD_JOURNAL_FAILED_TO_OPEN;
+//    }
+//#else // !HAVE_SD_JOURNAL_OPEN_FILES_FD
 
     const char *paths[2] = {
             [0] = filename,
@@ -599,7 +627,7 @@ static ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_one_file(
     if(sd_journal_open_files(&j, paths, ND_SD_JOURNAL_OPEN_FLAGS) < 0 || !j)
         return ND_SD_JOURNAL_FAILED_TO_OPEN;
 
-#endif // !HAVE_SD_JOURNAL_OPEN_FILES_FD
+//#endif // !HAVE_SD_JOURNAL_OPEN_FILES_FD
 
     ND_SD_JOURNAL_STATUS status;
     bool matches_filters = true;
@@ -626,10 +654,10 @@ static ND_SD_JOURNAL_STATUS netdata_systemd_journal_query_one_file(
 
     sd_journal_close(j);
 
-#ifdef HAVE_SD_JOURNAL_OPEN_FILES_FD
-    fqs->cached_count += fstat_cache_disable(fd);
-    close(fd);
-#endif
+//#ifdef HAVE_SD_JOURNAL_OPEN_FILES_FD
+//    fqs->cached_count += fstat_cache_disable(fd);
+//    close(fd);
+//#endif
 
     return status;
 }
@@ -1093,6 +1121,9 @@ static int netdata_systemd_journal_query(BUFFER *wb, FACETS *facets, FUNCTION_QU
 
     fqs->files_matched = 0;
     fqs->file_working = 0;
+    fqs->rows_useful = 0;
+    fqs->rows_read = 0;
+    fqs->bytes_read = 0;
 
     size_t files_used = 0;
     size_t files_max = dictionary_entries(journal_files_registry);
@@ -1117,10 +1148,6 @@ static int netdata_systemd_journal_query(BUFFER *wb, FACETS *facets, FUNCTION_QU
         buffer_flush(wb);
         return HTTP_RESP_NOT_MODIFIED;
     }
-
-    // We will not do an if_modified_since query
-    // we know something changed in the files
-    fqs->if_modified_since = 0;
 
     // sort the files, so that they are optimal for facets
     if(files_used >= 2) {
@@ -1222,6 +1249,12 @@ static int netdata_systemd_journal_query(BUFFER *wb, FACETS *facets, FUNCTION_QU
 
     switch (status) {
         case ND_SD_JOURNAL_OK:
+            if(fqs->if_modified_since && !fqs->rows_useful) {
+                buffer_flush(wb);
+                return HTTP_RESP_NOT_MODIFIED;
+            }
+            break;
+
         case ND_SD_JOURNAL_TIMED_OUT:
         case ND_SD_JOURNAL_NO_FILE_MATCHED:
             break;
@@ -2336,7 +2369,7 @@ static void function_systemd_journal(const char *transaction, char *function, in
     // set query time-frame, anchors and direction
 
     fqs->after_ut = after_s * USEC_PER_SEC;
-    fqs->before_ut = before_s * USEC_PER_SEC;
+    fqs->before_ut = (before_s * USEC_PER_SEC) + USEC_PER_SEC - 1;
     fqs->if_modified_since = if_modified_since;
     fqs->data_only = data_only;
     fqs->delta = (fqs->data_only) ? delta : false;
@@ -2348,18 +2381,6 @@ static void function_systemd_journal(const char *transaction, char *function, in
     fqs->filters = filters;
     fqs->query = (query && *query) ? query : NULL;
     fqs->histogram = (chart && *chart) ? chart : NULL;
-
-    if(anchor && anchor < fqs->after_ut) {
-        netdata_log_error("Received anchor %"PRIu64" is too small for query time-frame [%"PRIu64" - %"PRIu64"]",
-                          anchor, fqs->after_ut, fqs->before_ut);
-        anchor = 0;
-    }
-    else if(anchor > fqs->before_ut) {
-        netdata_log_error("Received anchor %"PRIu64" is too big for query time-frame [%"PRIu64" - %"PRIu64"]",
-                          anchor, fqs->after_ut, fqs->before_ut);
-        anchor = 0;
-    }
-
     fqs->direction = direction;
     fqs->anchor.start_ut = anchor;
     fqs->anchor.stop_ut = 0;
@@ -2372,6 +2393,21 @@ static void function_systemd_journal(const char *transaction, char *function, in
         fqs->direction = direction = FACETS_ANCHOR_DIRECTION_BACKWARD;
         fqs->anchor.start_ut = 0;
         fqs->anchor.stop_ut = anchor;
+    }
+
+    if(anchor && anchor < fqs->after_ut) {
+        log_fqs(fqs, "received anchor is too small for query timeframe, ignoring anchor");
+        anchor = 0;
+        fqs->anchor.start_ut = 0;
+        fqs->anchor.stop_ut = 0;
+        fqs->direction = direction = FACETS_ANCHOR_DIRECTION_BACKWARD;
+    }
+    else if(anchor > fqs->before_ut) {
+        log_fqs(fqs, "received anchor is too big for query timeframe, ignoring anchor");
+        anchor = 0;
+        fqs->anchor.start_ut = 0;
+        fqs->anchor.stop_ut = 0;
+        fqs->direction = direction = FACETS_ANCHOR_DIRECTION_BACKWARD;
     }
 
     facets_set_anchor(facets, fqs->anchor.start_ut, fqs->anchor.stop_ut, fqs->direction);
@@ -2514,6 +2550,8 @@ int main(int argc __maybe_unused, char **argv __maybe_unused) {
     error_log_errors_per_period = 100;
     error_log_throttle_period = 3600;
 
+    log_set_global_severity_for_external_plugins();
+
     netdata_configured_host_prefix = getenv("NETDATA_HOST_PREFIX");
     if(verify_netdata_host_prefix() == -1) exit(1);
 
@@ -2573,7 +2611,7 @@ int main(int argc __maybe_unused, char **argv __maybe_unused) {
 
     if(argc == 2 && strcmp(argv[1], "debug") == 0) {
         bool cancelled = false;
-        char buf[] = "systemd-journal after:-2592000 before:0 last:500";
+        char buf[] = "systemd-journal after:1696319393 before:1696320293 anchor:1696320283039944 direction:forward last:100 if_modified_since:1696320283039989 data_only:true delta:true tail:true slice:true source:all histogram:DHKucpqUoe1";
         // char buf[] = "systemd-journal after:1695332964 before:1695937764 direction:backward last:100 slice:true source:all DHKucpqUoe1:PtVoyIuX.MU";
         // char buf[] = "systemd-journal after:1694511062 before:1694514662 anchor:1694514122024403";
         function_systemd_journal("123", buf, 600, &cancelled);

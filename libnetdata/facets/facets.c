@@ -1736,12 +1736,18 @@ void facets_rows_begin(FACETS *facets) {
 bool facets_row_finished(FACETS *facets, usec_t usec) {
     facets->operations.rows.evaluated++;
 
-    if((facets->query && facets->keys_filtered_by_query && !facets->current_row.keys_matched_by_query) ||
+    if(unlikely((facets->query && facets->keys_filtered_by_query && !facets->current_row.keys_matched_by_query) ||
             (facets->timeframe.before_ut && usec > facets->timeframe.before_ut) ||
-            (facets->timeframe.after_ut && usec < facets->timeframe.after_ut)) {
+            (facets->timeframe.after_ut && usec < facets->timeframe.after_ut))) {
         // this row is not useful
         // 1. not matched by full text search, or
         // 2. not in our timeframe
+        facets_reset_keys_with_value_and_row(facets);
+        return false;
+    }
+
+    bool within_anchor = facets_is_entry_within_anchor(facets, usec);
+    if(unlikely(!within_anchor && (facets->options & FACETS_OPTION_DATA_ONLY))) {
         facets_reset_keys_with_value_and_row(facets);
         return false;
     }
@@ -1770,20 +1776,19 @@ bool facets_row_finished(FACETS *facets, usec_t usec) {
             facets->histogram.key = k;
     }
 
-    bool within_anchor = facets_is_entry_within_anchor(facets, usec);
+    if(selected_keys >= total_keys - 1) {
+        size_t found = 0;
+        (void) found;
 
-    if(within_anchor && selected_keys >= total_keys - 1) {
-        size_t found = 0; (void)found;
-
-        for(size_t p = 0; p < entries ;p++) {
+        for(size_t p = 0; p < entries; p++) {
             FACET_KEY *k = facets->keys_with_values.array[p];
 
             size_t counted_by = selected_keys;
 
-            if (counted_by != total_keys && !k->key_values_selected_in_row)
+            if(counted_by != total_keys && !k->key_values_selected_in_row)
                 counted_by++;
 
-            if (counted_by == total_keys) {
+            if(counted_by == total_keys) {
                 FACET_VALUE *v = FACET_VALUE_GET_CURRENT_VALUE(k);
                 v->final_facet_value_counter++;
 
@@ -1796,7 +1801,6 @@ bool facets_row_finished(FACETS *facets, usec_t usec) {
 
     if(selected_keys == total_keys) {
         // we need to keep this row
-
         facets_histogram_update_value(facets, usec);
 
         if(within_anchor)
