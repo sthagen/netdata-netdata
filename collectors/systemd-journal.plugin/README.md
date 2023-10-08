@@ -28,11 +28,15 @@ journal centralization servers.
 `systemd-journal.plugin` is a Netdata Function Plugin.
 
 To protect your privacy, as with all Netdata Functions, a free Netdata Cloud user account is required to access it.
+For more information check [this discussion](https://github.com/netdata/netdata/discussions/16136).
 
 ### Limitations
 
 - This plugin is not available when Netdata is installed in a container. The problem is that `libsystemd` is not available in Alpine Linux (there is a `libsystemd`, but it is a dummy that returns failure on all calls). We plan to change this, by shipping Netdata containers based on Debian.
 - For the same reason (lack of `systemd` support for Alpine Linux), the plugin is not available on `static` builds of Netdata (which are based on `muslc`, not `glibc`).
+- On old systemd systems (like Centos 7), the plugin runs always in "full data query" mode, which makes it slower. The reason, is that systemd API is missing some important calls we need to use the field indexes of `systemd` journal. However, when running in this mode, the plugin offers also negative matches on the data (like filtering for all logs that do not have set some field), and this is the reason "full data query" mode is also offered as an option even on newer versions of `systemd`.
+
+To use the plugin, install one of our native distribution packages, or install it from source.
 
 ## Journal Sources
 
@@ -174,14 +178,18 @@ The histogram presented by the plugin is interactive:
 ## PLAY mode
 
 The plugin supports PLAY mode, to continuously update the screen with new log entries found in the journal files.
+Just hit the "play" button at the top of the Netdata dashboard screen.
 
-On centralized log servers, this provides a unified view of all the logs encountered across the entire infrastructure.
+On centralized log servers, PLAY mode provides a unified view of all the new logs encountered across the entire infrastructure,
+from all hosts sending logs to the central logs server via `systemd-remote`.
 
 ## Full-text search
 
 The plugin supports searching for any text on all fields of the log entries.
 
 Full text search is combined with the selected filters.
+
+The text box accepts asterisks `*` as wildcards. So, `a*b*c` means match anything that contains `a`, then `b` and then `c` with anything between them.
 
 ## Query performance
 
@@ -192,16 +200,27 @@ of the files into memory, to satisfy each query.
 
 On logs aggregation servers, the performance of the queries depend on the following factors:
 
-1. The number of files involved in each query. This is why we suggest to select a source when possible.
-2. The speed of the disks hosting the journal files. Journal files perform a lot of reading while querying, so the fastest the disks, the faster the query will finish.
-3. The memory available for caching parts of the files. Increased memory will help the kernel cache the most frequently used parts of the journal files, avoiding disk I/O and speeding up queries.
-4. The number of filters applied. Queries are significantly faster when just a few filters are selected.
+1. The **number of files** involved in each query.
 
-In general, for a faster experience, keep a low number of rows within the visible timeframe.
+   This is why we suggest to select a source when possible.
+   
+2. The **speed of the disks** hosting the journal files.
 
-Even on long timeframes, selecting a couple of filters that will result in a few dozen thousand log entries
-will provide fast / rapid responses, usually less than a second. To the contrary, viewing timeframes with millions
-of entries may result in longer delays.
+   Journal files perform a lot of reading while querying, so the fastest the disks, the faster the query will finish.
+   
+3. The **memory available** for caching parts of the files.
+
+   Increased memory will help the kernel cache the most frequently used parts of the journal files, avoiding disk I/O and speeding up queries.
+   
+4. The **number of filters** applied.
+
+   Queries are significantly faster when just a few filters are selected.
+
+In general, for a faster experience, **keep a low number of rows within the visible timeframe**.
+
+Even on long timeframes, selecting a couple of filters that will result in a **few dozen thousand** log entries
+will provide fast / rapid responses, usually less than a second. To the contrary, viewing timeframes with **millions
+of entries** may result in longer delays.
 
 The plugin aborts journal queries when your browser cancels inflight requests. This allows you to work on the UI
 while there are background queries running.
@@ -255,7 +274,7 @@ You need a free Netdata Cloud account only to verify your identity and enable th
 Netdata Functions. Once this is done, all the data flow directly from your Netdata agent
 to your web browser.
 
-To understand why this is required, check [this discussion](https://github.com/netdata/netdata/discussions/16136).
+Also check [this discussion](https://github.com/netdata/netdata/discussions/16136).
 
 When you access Netdata via `https://app.netdata.cloud`, your data travel via Netdata Cloud,
 but they are not stored in Netdata Cloud. This is to allow you access your Netdata agents from
