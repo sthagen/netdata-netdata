@@ -32,11 +32,25 @@ For more information check [this discussion](https://github.com/netdata/netdata/
 
 ### Limitations
 
+#### Plugin availability
+
+The following are limitations related to the availability of the plugin:
+
 - This plugin is not available when Netdata is installed in a container. The problem is that `libsystemd` is not available in Alpine Linux (there is a `libsystemd`, but it is a dummy that returns failure on all calls). We plan to change this, by shipping Netdata containers based on Debian.
 - For the same reason (lack of `systemd` support for Alpine Linux), the plugin is not available on `static` builds of Netdata (which are based on `muslc`, not `glibc`).
 - On old systemd systems (like Centos 7), the plugin runs always in "full data query" mode, which makes it slower. The reason, is that systemd API is missing some important calls we need to use the field indexes of `systemd` journal. However, when running in this mode, the plugin offers also negative matches on the data (like filtering for all logs that do not have set some field), and this is the reason "full data query" mode is also offered as an option even on newer versions of `systemd`.
 
 To use the plugin, install one of our native distribution packages, or install it from source.
+
+#### `systemd` journal features
+
+The following are limitations related to the features of `systemd` journal:
+
+- This plugin does not support binary field values. `systemd` journal has the ability to assign fields with binary data. This plugin assumes all fields contain text values (text in this context includes numbers).
+- This plugin does not support multiple values per field for any given log entry. `systemd` journal has the ability to accept the same field key, multiple times, with multiple values on a single log entry. This plugin will present the last value and ignore the others for this log entry.
+- This plugin will only read journal files located in `/var/log/journal` or `/run/log/journal`. `systemd-remote` has the ability to store journal files anywhere (user configured). If journal files are not located in `/var/log/journal` or `/run/log/journal` (and any of their subdirectories), the plugin will not find them.
+
+Other than the above, this plugin supports all features of `systemd` journals.
 
 ## Journal Sources
 
@@ -98,6 +112,15 @@ For information about configuring a journals' centralization server, check [this
 
 ## Journal Fields
 
+`systemd` journals are designed to support multiple fields per log entry. The power of `systemd` journals is that,
+unlike other log management systems, it supports dynamic and variable fields for each log message,
+while all fields and their values are indexed for fast querying.
+
+This means that each application can log messages annotated with its own unique fields and values, and `systemd`
+journals will automatically index all of them, without any configuration or manual action.
+
+For a description of the most frequent fields found in `systemd` journals, check `man systemd.journal-fields`. 
+
 Fields found in the journal files are automatically added to the UI in multiple places to help you explore
 and filter the data.
 
@@ -107,17 +130,17 @@ The plugin automatically enriches certain fields to make them more user-friendly
 - `PRIORITY`: the numeric value is replaced with the human-readable name of each priority.
 - `SYSLOG_FACILITY`: the encoded value is replaced with the human-readable name of each facility.
 - `ERRNO`: the numeric value is annotated with the short name of each value.
-- `_UID` `_AUDIT_LOGINUID` and `_SYSTEMD_OWNER_UID`: the local user database is consulted to annotate them with usernames.
-- `_GID`: the local group database is consulted to annotate them with group names.
+- `_UID` `_AUDIT_LOGINUID`, `_SYSTEMD_OWNER_UID`, `OBJECT_UID`, `OBJECT_SYSTEMD_OWNER_UID`, `OBJECT_AUDIT_LOGINUID`: the local user database is consulted to annotate them with usernames.
+- `_GID`, `OBJECT_GID`: the local group database is consulted to annotate them with group names.
 - `_CAP_EFFECTIVE`: the encoded value is annotated with a human-readable list of the linux capabilities.
 - `_SOURCE_REALTIME_TIMESTAMP`: the numeric value is annotated with human-readable datetime in UTC.
 
 The values of all other fields are presented as found in the journals.
 
 > IMPORTANT:
-> `_UID` `_AUDIT_LOGINUID`, `_SYSTEMD_OWNER_UID` and `_GID` annotations are added during presentation and are taken
-> from the server running the plugin. For `remote` sources, the names presented may not reflect the actual user and
-> group names on the origin server. The numeric value will still be visible though, as-is on the origin server.
+> The UID and GID annotations are added during presentation and are taken from the server running the plugin.
+> For `remote` sources, the names presented may not reflect the actual user and group names on the origin server.
+> The numeric value will still be visible though, as-is on the origin server.
 
 The annotations are not searchable with full text search. They are only added for the presentation of the fields. 
 
