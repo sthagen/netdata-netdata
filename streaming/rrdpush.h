@@ -48,8 +48,10 @@ typedef enum {
     STREAM_CAP_IEEE754          = (1 << 15), // streaming supports binary/hex transfer of double values
     STREAM_CAP_DATA_WITH_ML     = (1 << 16), // streaming supports transferring anomaly bit
     STREAM_CAP_DYNCFG           = (1 << 17), // dynamic configuration of plugins trough streaming
+    STREAM_CAP_SLOTS            = (1 << 18), // the sender can appoint a unique slot for each chart
     STREAM_CAP_ZSTD             = (1 << 19), // ZSTD compression supported
     STREAM_CAP_GZIP             = (1 << 20), // GZIP compression supported
+    STREAM_CAP_BROTLI           = (1 << 21), // BROTLI compression supported
 
     STREAM_CAP_INVALID          = (1 << 30), // used as an invalid value for capabilities when this is set
     // this must be signed int, so don't use the last bit
@@ -68,7 +70,13 @@ typedef enum {
 #define STREAM_CAP_ZSTD_AVAILABLE 0
 #endif  // ENABLE_ZSTD
 
-#define STREAM_CAP_COMPRESSIONS_AVAILABLE (STREAM_CAP_LZ4_AVAILABLE|STREAM_CAP_ZSTD_AVAILABLE|STREAM_CAP_GZIP)
+#ifdef ENABLE_BROTLI
+#define STREAM_CAP_BROTLI_AVAILABLE STREAM_CAP_BROTLI
+#else
+#define STREAM_CAP_BROTLI_AVAILABLE 0
+#endif  // ENABLE_BROTLI
+
+#define STREAM_CAP_COMPRESSIONS_AVAILABLE (STREAM_CAP_LZ4_AVAILABLE|STREAM_CAP_ZSTD_AVAILABLE|STREAM_CAP_BROTLI_AVAILABLE|STREAM_CAP_GZIP)
 
 extern STREAM_CAPABILITIES globally_disabled_capabilities;
 
@@ -153,6 +161,7 @@ typedef enum __attribute__((packed)) {
     STREAM_TRAFFIC_TYPE_FUNCTIONS,
     STREAM_TRAFFIC_TYPE_METADATA,
     STREAM_TRAFFIC_TYPE_DATA,
+    STREAM_TRAFFIC_TYPE_DYNCFG,
 
     // terminator
     STREAM_TRAFFIC_TYPE_MAX,
@@ -707,5 +716,8 @@ void rrdpush_send_dyncfg_reset(RRDHOST *host, const char *plugin_name);
 
 bool rrdpush_compression_initialize(struct sender_state *s);
 bool rrdpush_decompression_initialize(struct receiver_state *rpt);
+void rrdpush_parse_compression_order(struct receiver_state *rpt, const char *order);
+void rrdpush_select_receiver_compression_algorithm(struct receiver_state *rpt);
+void rrdpush_compression_deactivate(struct sender_state *s);
 
 #endif //NETDATA_RRDPUSH_H

@@ -69,43 +69,6 @@ BUFFER *sender_start(struct sender_state *s) {
 
 static inline void rrdpush_sender_thread_close_socket(RRDHOST *host);
 
-/*
-* In case of stream compression buffer overflow
-* Inform the user through the error log file and 
-* deactivate compression by downgrading the stream protocol.
-*/
-static inline void deactivate_compression(struct sender_state *s) {
-    worker_is_busy(WORKER_SENDER_JOB_DISCONNECT_NO_COMPRESSION);
-
-    switch(s->compressor.algorithm) {
-        case COMPRESSION_ALGORITHM_MAX:
-        case COMPRESSION_ALGORITHM_NONE:
-            netdata_log_error("STREAM_COMPRESSION: compression error on 'host:%s' without any compression enabled. Ignoring error.",
-                    rrdhost_hostname(s->host));
-            break;
-
-        case COMPRESSION_ALGORITHM_GZIP:
-            netdata_log_error("STREAM_COMPRESSION: GZIP compression error on 'host:%s'. Disabling GZIP for this node.",
-                    rrdhost_hostname(s->host));
-            s->disabled_capabilities |= STREAM_CAP_GZIP;
-            break;
-
-        case COMPRESSION_ALGORITHM_LZ4:
-            netdata_log_error("STREAM_COMPRESSION: LZ4 compression error on 'host:%s'. Disabling ZSTD for this node.",
-                    rrdhost_hostname(s->host));
-            s->disabled_capabilities |= STREAM_CAP_LZ4;
-            break;
-
-        case COMPRESSION_ALGORITHM_ZSTD:
-            netdata_log_error("STREAM_COMPRESSION: ZSTD compression error on 'host:%s'. Disabling ZSTD for this node.",
-                              rrdhost_hostname(s->host));
-            s->disabled_capabilities |= STREAM_CAP_ZSTD;
-            break;
-    }
-
-    rrdpush_sender_thread_close_socket(s->host);
-}
-
 #define SENDER_BUFFER_ADAPT_TO_TIMES_MAX_SIZE 3
 
 // Collector thread finishing a transmission
@@ -179,7 +142,9 @@ void sender_commit(struct sender_state *s, BUFFER *wb, STREAM_TRAFFIC_TYPE type)
                     netdata_log_error("STREAM %s [send to %s]: COMPRESSION failed again. Deactivating compression",
                           rrdhost_hostname(s->host), s->connected_to);
 
-                    deactivate_compression(s);
+                    worker_is_busy(WORKER_SENDER_JOB_DISCONNECT_NO_COMPRESSION);
+                    rrdpush_compression_deactivate(s);
+                    rrdpush_sender_thread_close_socket(s->host);
                     sender_unlock(s);
                     return;
                 }
@@ -224,7 +189,7 @@ void sender_commit(struct sender_state *s, BUFFER *wb, STREAM_TRAFFIC_TYPE type)
 
     sender_unlock(s);
 
-    if(signal_sender)
+    if(signal_sender && (!stream_has_capability(s, STREAM_CAP_INTERPOLATED) || type != STREAM_TRAFFIC_TYPE_DATA))
         rrdpush_signal_sender_to_wake_up(s);
 }
 
@@ -284,14 +249,15 @@ static void rrdpush_sender_thread_send_custom_host_variables(RRDHOST *host) {
 static void rrdpush_sender_thread_reset_all_charts(RRDHOST *host) {
     RRDSET *st;
     rrdset_foreach_read(st, host) {
-        rrdset_flag_clear(st, RRDSET_FLAG_UPSTREAM_EXPOSED | RRDSET_FLAG_SENDER_REPLICATION_IN_PROGRESS);
+        rrdset_flag_clear(st, RRDSET_FLAG_SENDER_REPLICATION_IN_PROGRESS);
         rrdset_flag_set(st, RRDSET_FLAG_SENDER_REPLICATION_FINISHED);
 
-        st->upstream_resync_time_s = 0;
+        st->rrdpush.sender.resync_time_s = 0;
+        rrdset_metadata_updated(st);
 
         RRDDIM *rd;
         rrddim_foreach_read(rd, st)
-            rrddim_clear_exposed(rd);
+            rrddim_metadata_exposed_upstream_clear(rd);
         rrddim_foreach_done(rd);
     }
     rrdset_foreach_done(st);
@@ -1493,7 +1459,7 @@ void *rrdpush_sender_thread(void *ptr) {
             }
         };
 
-        int poll_rc = poll(fds, 2, 1000);
+        int poll_rc = poll(fds, 2, 50); // timeout in milliseconds
 
         netdata_log_debug(D_STREAM, "STREAM: poll() finished collector=%d socket=%d (current chunk %zu bytes)...",
               fds[Collector].revents, fds[Socket].revents, outstanding);
