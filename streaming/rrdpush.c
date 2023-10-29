@@ -208,7 +208,7 @@ int configured_as_parent() {
 // chart labels
 static int send_clabels_callback(const char *name, const char *value, RRDLABEL_SRC ls, void *data) {
     BUFFER *wb = (BUFFER *)data;
-    buffer_sprintf(wb, "CLABEL \"%s\" \"%s\" %d\n", name, value, ls);
+    buffer_sprintf(wb, "CLABEL \"%s\" \"%s\" %d\n", name, value, ls & ~(RRDLABEL_FLAG_INTERNAL));
     return 1;
 }
 
@@ -374,7 +374,7 @@ static void rrdpush_send_chart_metrics(BUFFER *wb, RRDSET *st, struct sender_sta
             internal_error(true, "STREAM: 'host:%s/chart:%s/dim:%s' flag 'exposed' is updated but not exposed",
                            rrdhost_hostname(st->rrdhost), rrdset_id(st), rrddim_id(rd));
             // we will include it in the next iteration
-            rrdset_metadata_updated(st);
+            rrddim_metadata_updated(rd);
         }
     }
     rrddim_foreach_done(rd);

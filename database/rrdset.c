@@ -5,6 +5,12 @@
 #include <sched.h>
 #include "storage_engine.h"
 
+
+void rrdset_metadata_updated(RRDSET *st) {
+    __atomic_add_fetch(&st->version, 1, __ATOMIC_RELAXED);
+    rrdcontext_updated_rrdset(st);
+}
+
 // ----------------------------------------------------------------------------
 // RRDSET rrdpush send chart_slots
 
@@ -79,7 +85,7 @@ void rrdset_pluginsd_receive_unslot(RRDSET *st) {
     }
 
     st->pluginsd.last_slot = -1;
-    st->pluginsd.with_slots = false;
+    st->pluginsd.dims_with_slots = false;
 }
 
 void rrdset_pluginsd_receive_unslot_and_cleanup(RRDSET *st) {
@@ -96,7 +102,7 @@ void rrdset_pluginsd_receive_unslot_and_cleanup(RRDSET *st) {
     st->pluginsd.pos = 0;
     st->pluginsd.set = false;
     st->pluginsd.last_slot = -1;
-    st->pluginsd.with_slots = false;
+    st->pluginsd.dims_with_slots = false;
     st->pluginsd.collector_tid = 0;
 
     spinlock_unlock(&st->pluginsd.spinlock);
@@ -156,8 +162,8 @@ static inline RRDSET *rrdset_index_find_name(RRDHOST *host, const char *name) {
 static inline void rrdset_update_permanent_labels(RRDSET *st) {
     if(!st->rrdlabels) return;
 
-    rrdlabels_add(st->rrdlabels, "_collect_plugin", rrdset_plugin_name(st), RRDLABEL_SRC_AUTO| RRDLABEL_FLAG_PERMANENT);
-    rrdlabels_add(st->rrdlabels, "_collect_module", rrdset_module_name(st), RRDLABEL_SRC_AUTO| RRDLABEL_FLAG_PERMANENT);
+    rrdlabels_add(st->rrdlabels, "_collect_plugin", rrdset_plugin_name(st), RRDLABEL_SRC_AUTO | RRDLABEL_FLAG_DONT_DELETE);
+    rrdlabels_add(st->rrdlabels, "_collect_module", rrdset_module_name(st), RRDLABEL_SRC_AUTO | RRDLABEL_FLAG_DONT_DELETE);
 }
 
 static STRING *rrdset_fix_name(RRDHOST *host, const char *chart_full_id, const char *type, const char *current_name, const char *name) {
@@ -484,7 +490,6 @@ static bool rrdset_conflict_callback(const DICTIONARY_ITEM *item __maybe_unused,
     rrdset_update_permanent_labels(st);
 
     rrdset_flag_set(st, RRDSET_FLAG_SYNC_CLOCK);
-    rrdset_metadata_updated(st);
 
     return ctr->react_action != RRDSET_REACT_NONE;
 }
@@ -512,7 +517,7 @@ static void rrdset_react_callback(const DICTIONARY_ITEM *item __maybe_unused, vo
         rrdhost_flag_set(st->rrdhost, RRDHOST_FLAG_METADATA_UPDATE);
     }
 
-    rrdcontext_updated_rrdset(st);
+    rrdset_metadata_updated(st);
 }
 
 void rrdset_index_init(RRDHOST *host) {
