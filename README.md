@@ -1,9 +1,9 @@
 <p align="center">
 <a href="https://www.netdata.cloud#gh-light-mode-only">
-  <img src="https://github.com/netdata/netdata/assets/2662304/a62997fb-d75d-42df-b188-b804cd034a70#gh-light-mode-only" alt="Netdata" width="300"/>
+  <img src="https://www.netdata.cloud/img/readme-images/netdata_readme_logo_light.png" alt="Netdata" width="300"/>
 </a>
 <a href="https://www.netdata.cloud#gh-dark-mode-only">
-  <img src="https://github.com/netdata/netdata/assets/2662304/95ea1560-5e83-44d3-ad33-7980f8298b65#gh-dark-mode-only" alt="Netdata" width="300"/>
+  <img src="https://www.netdata.cloud/img/readme-images/netdata_readme_logo_dark.png" alt="Netdata" width="300"/>
 </a>
 </p>
 <h3 align="center">Monitor your servers, containers, and applications,<br/>in high-resolution and in real-time.</h3>
@@ -31,11 +31,11 @@
 <hr class="solid">
 
 <p align="center">
-<a href="netdata.cloud#gh-light-mode-only">
-  <img src="https://github.com/netdata/netdata/assets/139226121/9949ef9b-50ad-457f-8072-afa5323d1ee5#gh-light-mode-only" alt="ObservabilityCon23" width="600"/>
+<a href="https://www.netdata.cloud#gh-light-mode-only">
+  <img src="https://www.netdata.cloud/img/readme-images/srecon_light.png" alt="ObservabilityCon23" width="600"/>
 </a>
-<a href="netdata.cloud#gh-dark-mode-only">
-  <img src="https://github.com/netdata/netdata/assets/139226121/09b5d082-ba1e-48a0-a823-f364a145c1cb#gh-dark-mode-only" alt="ObservabilityCon23" width="600"/>
+<a href="https://www.netdata.cloud#gh-dark-mode-only">
+  <img src="https://www.netdata.cloud/img/readme-images/srecon_dark.png" alt="ObservabilityCon23" width="600"/>
 </a>
 </p>
 
@@ -70,6 +70,23 @@ It scales nicely from just a single server to thousands of servers, even in comp
 
 - :star: **Open and Extensible**<br/>
   Netdata is a modular platform that can be extended in all possible ways and it also integrates nicely with other monitoring solutions.
+
+---
+
+**LATEST BLOG POST**:<br/>
+
+<p align="center">
+<a href="https://blog.netdata.cloud/netdata-vs-prometheus-performance-analysis/#gh-light-mode-only">
+  <img src="https://www.netdata.cloud/img/readme-images/netdata%20vs%20prometheus.png#gh-light-mode-only" alt="Netdata vs Prometheus" width="700"/>
+</a>
+<a href="https://blog.netdata.cloud/netdata-vs-prometheus-performance-analysis/#gh-dark-mode-only">
+  <img src="https://www.netdata.cloud/img/readme-images/netdata%20vs%20prometheus%20dark.png#gh-dark-mode-only" alt="Netdata" width="700"/>
+</a>
+</p>
+
+In an era dominated by data-driven decision making, **monitoring tools** play an indispensable role in ensuring that our systems run efficiently and without interruption. When considering tools like Netdata and Prometheus, performance isn't just a number; it's about empowering users with real-time insights and enabling them to act with agility.
+
+A performance comparison between **Netdata and Prometheus** is not a race for the top spot but an exploration of where we stand today and where improvements can be made. Through this, we hope to drive innovation, ensure optimal performance, and ultimately deliver better value to our users. [READ MORE](https://blog.netdata.cloud/netdata-vs-prometheus-performance-analysis/)
 
 ---
 
