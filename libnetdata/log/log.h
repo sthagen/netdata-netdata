@@ -9,8 +9,8 @@ extern "C" {
 
 #include "../libnetdata.h"
 
-#define ND_LOG_DEFAULT_THROTTLE_LOGS 1200
-#define ND_LOG_DEFAULT_THROTTLE_PERIOD 3600
+#define ND_LOG_DEFAULT_THROTTLE_LOGS 1000
+#define ND_LOG_DEFAULT_THROTTLE_PERIOD 60
 
 typedef enum  __attribute__((__packed__)) {
     NDLS_UNSET = 0,   // internal use only
@@ -147,6 +147,7 @@ bool nd_log_journal_socket_available(void);
 ND_LOG_FIELD_ID nd_log_field_id_by_name(const char *field, size_t len);
 int nd_log_priority2id(const char *priority);
 const char *nd_log_id2priority(ND_LOG_FIELD_PRIORITY priority);
+const char *nd_log_method_for_external_plugins(const char *s);
 
 typedef bool (*log_formatter_callback_t)(BUFFER *wb, void *data);
 
