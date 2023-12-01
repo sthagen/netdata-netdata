@@ -929,7 +929,7 @@ static void inflight_functions_insert_callback(const DICTIONARY_ITEM *item, void
     const char *transaction = dictionary_acquired_item_name(item);
 
     char buffer[2048 + 1];
-    snprintfz(buffer, 2048, "%s %s %d \"%s\"\n",
+    snprintfz(buffer, sizeof(buffer) - 1, "%s %s %d \"%s\"\n",
                       pf->payload ? "FUNCTION_PAYLOAD" : "FUNCTION",
                       transaction,
                       pf->timeout,
@@ -1102,7 +1102,7 @@ void pluginsd_function_cancel(void *data) {
             internal_error(true, "PLUGINSD: sending function cancellation to plugin for transaction '%s'", transaction);
 
             char buffer[2048 + 1];
-            snprintfz(buffer, 2048, "%s %s\n",
+            snprintfz(buffer, sizeof(buffer) - 1, "%s %s\n",
                       PLUGINSD_KEYWORD_FUNCTION_CANCEL,
                       transaction);
 
@@ -1117,7 +1117,7 @@ void pluginsd_function_cancel(void *data) {
     dfe_done(t);
 
     if(sent <= 0)
-        nd_log(NDLS_DAEMON, NDLP_NOTICE,
+        nd_log(NDLS_DAEMON, NDLP_DEBUG,
                "PLUGINSD: FUNCTION_CANCEL request didn't match any pending function requests in pluginsd.d.");
 }
 
