@@ -33,9 +33,9 @@ time_t rrdset_free_obsolete_time_s = 3600;
 time_t rrdhost_free_orphan_time_s = 3600;
 time_t rrdhost_free_ephemeral_time_s = 86400;
 
-bool is_storage_engine_shared(STORAGE_INSTANCE *engine __maybe_unused) {
+bool is_storage_engine_shared(STORAGE_INSTANCE *si __maybe_unused) {
 #ifdef ENABLE_DBENGINE
-    if(!rrdeng_is_legacy(engine))
+    if(!rrdeng_is_legacy(si))
         return true;
 #endif
 
@@ -337,7 +337,7 @@ int is_legacy = 1;
     netdata_mutex_init(&host->receiver_lock);
 
     if (likely(!archived)) {
-        rrdfunctions_host_init(host);
+        rrd_functions_host_init(host);
         host->last_connected = now_realtime_sec();
         host->rrdlabels = rrdlabels_create();
         rrdhost_initialize_rrdpush_sender(
@@ -436,13 +436,13 @@ int is_legacy = 1;
             host->db[0].tier_grouping = get_tier_grouping(0);
 
             ret = rrdeng_init(
-                (struct rrdengine_instance **)&host->db[0].instance,
+                (struct rrdengine_instance **)&host->db[0].si,
                 dbenginepath,
                 default_rrdeng_disk_quota_mb,
                 0); // may fail here for legacy dbengine initialization
 
             if(ret == 0) {
-                rrdeng_readiness_wait((struct rrdengine_instance *)host->db[0].instance);
+                rrdeng_readiness_wait((struct rrdengine_instance *)host->db[0].si);
 
                 // assign the rest of the shared storage instances to it
                 // to allow them collect its metrics too
@@ -450,7 +450,7 @@ int is_legacy = 1;
                 for(size_t tier = 1; tier < storage_tiers ; tier++) {
                     host->db[tier].mode = RRD_MEMORY_MODE_DBENGINE;
                     host->db[tier].eng = storage_engine_get(host->db[tier].mode);
-                    host->db[tier].instance = (STORAGE_INSTANCE *) multidb_ctx[tier];
+                    host->db[tier].si = (STORAGE_INSTANCE *) multidb_ctx[tier];
                     host->db[tier].tier_grouping = get_tier_grouping(tier);
                 }
             }
@@ -459,7 +459,7 @@ int is_legacy = 1;
             for(size_t tier = 0; tier < storage_tiers ; tier++) {
                 host->db[tier].mode = RRD_MEMORY_MODE_DBENGINE;
                 host->db[tier].eng = storage_engine_get(host->db[tier].mode);
-                host->db[tier].instance = (STORAGE_INSTANCE *)multidb_ctx[tier];
+                host->db[tier].si = (STORAGE_INSTANCE *)multidb_ctx[tier];
                 host->db[tier].tier_grouping = get_tier_grouping(tier);
             }
         }
@@ -483,7 +483,7 @@ int is_legacy = 1;
     else {
         host->db[0].mode = host->rrd_memory_mode;
         host->db[0].eng = storage_engine_get(host->db[0].mode);
-        host->db[0].instance = NULL;
+        host->db[0].si = NULL;
         host->db[0].tier_grouping = get_tier_grouping(0);
 
 #ifdef ENABLE_DBENGINE
@@ -491,7 +491,7 @@ int is_legacy = 1;
         for(size_t tier = 1; tier < storage_tiers ; tier++) {
             host->db[tier].mode = RRD_MEMORY_MODE_DBENGINE;
             host->db[tier].eng = storage_engine_get(host->db[tier].mode);
-            host->db[tier].instance = (STORAGE_INSTANCE *) multidb_ctx[tier];
+            host->db[tier].si = (STORAGE_INSTANCE *) multidb_ctx[tier];
             host->db[tier].tier_grouping = get_tier_grouping(tier);
         }
 #endif
@@ -572,9 +572,6 @@ int is_legacy = 1;
          , string2str(host->health.health_default_exec)
          , string2str(host->health.health_default_recipient)
     );
-
-    host->configurable_plugins = dyncfg_dictionary_create();
-    dictionary_register_delete_callback(host->configurable_plugins, plugin_del_cb, NULL);
 
     if(!archived) {
         metaqueue_host_update_info(host);
@@ -694,7 +691,7 @@ static void rrdhost_update(RRDHOST *host
     if (rrdhost_flag_check(host, RRDHOST_FLAG_ARCHIVED)) {
         rrdhost_flag_clear(host, RRDHOST_FLAG_ARCHIVED);
 
-        rrdfunctions_host_init(host);
+        rrd_functions_host_init(host);
 
         if(!host->rrdlabels)
             host->rrdlabels = rrdlabels_create();
@@ -1115,18 +1112,17 @@ int rrd_init(char *hostname, struct rrdhost_system_info *system_info, bool unitt
     if (unlikely(!localhost))
         return 1;
 
+    dyncfg_host_init(localhost);
+
     // we register this only on localhost
     // for the other nodes, the origin server should register it
-    rrd_collector_started(); // this creates a collector that runs for as long as netdata runs
-    rrd_function_add(localhost, NULL, "streaming", 10, RRDFUNCTIONS_PRIORITY_DEFAULT + 1,
-                     RRDFUNCTIONS_STREAMING_HELP, "top",
-                     HTTP_ACCESS_MEMBERS, true,
-                     rrdhost_function_streaming, NULL);
+    rrd_function_add_inline(localhost, NULL, "streaming", 10,
+                            RRDFUNCTIONS_PRIORITY_DEFAULT + 1, RRDFUNCTIONS_STREAMING_HELP, "top",
+        HTTP_ACCESS_MEMBER, rrdhost_function_streaming);
 
-    rrd_function_add(localhost, NULL, "netdata-api-calls", 10, RRDFUNCTIONS_PRIORITY_DEFAULT + 2,
-                     RRDFUNCTIONS_PROGRESS_HELP, "top",
-                     HTTP_ACCESS_MEMBERS, true,
-                     rrdhost_function_progress, NULL);
+    rrd_function_add_inline(localhost, NULL, "netdata-api-calls", 10,
+                            RRDFUNCTIONS_PRIORITY_DEFAULT + 2, RRDFUNCTIONS_PROGRESS_HELP, "top",
+        HTTP_ACCESS_MEMBER, rrdhost_function_progress);
 
     if (likely(system_info)) {
         migrate_localhost(&localhost->host_uuid);
@@ -1267,9 +1263,9 @@ void rrdhost_free___while_having_rrd_wrlock(RRDHOST *host, bool force) {
 #ifdef ENABLE_DBENGINE
     for(size_t tier = 0; tier < storage_tiers ;tier++) {
         if(host->db[tier].mode == RRD_MEMORY_MODE_DBENGINE
-            && host->db[tier].instance
-            && !is_storage_engine_shared(host->db[tier].instance))
-            rrdeng_prepare_exit((struct rrdengine_instance *)host->db[tier].instance);
+            && host->db[tier].si
+            && !is_storage_engine_shared(host->db[tier].si))
+            rrdeng_prepare_exit((struct rrdengine_instance *)host->db[tier].si);
     }
 #endif
 
@@ -1288,9 +1284,9 @@ void rrdhost_free___while_having_rrd_wrlock(RRDHOST *host, bool force) {
 #ifdef ENABLE_DBENGINE
     for(size_t tier = 0; tier < storage_tiers ;tier++) {
         if(host->db[tier].mode == RRD_MEMORY_MODE_DBENGINE
-            && host->db[tier].instance
-            && !is_storage_engine_shared(host->db[tier].instance))
-            rrdeng_exit((struct rrdengine_instance *)host->db[tier].instance);
+            && host->db[tier].si
+            && !is_storage_engine_shared(host->db[tier].si))
+            rrdeng_exit((struct rrdengine_instance *)host->db[tier].si);
     }
 #endif
 
@@ -1328,7 +1324,7 @@ void rrdhost_free___while_having_rrd_wrlock(RRDHOST *host, bool force) {
     freez(host->node_id);
 
     rrdfamily_index_destroy(host);
-    rrdfunctions_host_destroy(host);
+    rrd_functions_host_destroy(host);
     rrdvariables_destroy(host->rrdvars);
     if (host == localhost)
         rrdvariables_destroy(health_rrdvars);
@@ -1666,7 +1662,7 @@ void rrdhost_cleanup_all(void) {
     rrdhost_foreach_read(host) {
         if (host != localhost && rrdhost_option_check(host, RRDHOST_OPTION_DELETE_ORPHAN_HOST) && !host->receiver
             /* don't delete multi-host DB host files */
-            && !(host->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE && is_storage_engine_shared(host->db[0].instance))
+            && !(host->rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE && is_storage_engine_shared(host->db[0].si))
         )
             rrdhost_delete_charts(host);
         else
@@ -1848,6 +1844,10 @@ void rrdhost_status(RRDHOST *host, time_t now, RRDHOST_STATUS *s) {
     s->now = now;
 
     RRDHOST_FLAGS flags = __atomic_load_n(&host->flags, __ATOMIC_RELAXED);
+
+    // --- dyncfg ---
+
+    s->dyncfg.status = dyncfg_available_for_rrdhost(host) ? RRDHOST_DYNCFG_STATUS_AVAILABLE : RRDHOST_DYNCFG_STATUS_UNAVAILABLE;
 
     // --- db ---
 

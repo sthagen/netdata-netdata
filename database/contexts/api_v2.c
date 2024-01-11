@@ -729,6 +729,15 @@ static void agent_capabilities_to_json(BUFFER *wb, RRDHOST *host, const char *ke
     freez(capas);
 }
 
+static inline void host_dyncfg_to_json_v2(BUFFER *wb, const char *key, RRDHOST_STATUS *s) {
+    buffer_json_member_add_object(wb, key);
+    {
+        buffer_json_member_add_string(wb, "status", rrdhost_dyncfg_status_to_string(s->dyncfg.status));
+    }
+    buffer_json_object_close(wb); // health
+
+}
+
 static inline void rrdhost_health_to_json_v2(BUFFER *wb, const char *key, RRDHOST_STATUS *s) {
     buffer_json_member_add_object(wb, key);
     {
@@ -841,6 +850,8 @@ static void rrdcontext_to_json_v2_rrdhost(BUFFER *wb, RRDHOST *host, struct rrdc
 
                 host_functions2json(host, wb); // functions
                 agent_capabilities_to_json(wb, host, "capabilities");
+
+                host_dyncfg_to_json_v2(wb, "dyncfg", &s);
             }
             buffer_json_object_close(wb); // this instance
             buffer_json_array_close(wb); // instances
@@ -917,7 +928,7 @@ static ssize_t rrdcontext_to_json_v2_add_host(void *data, RRDHOST *host, bool qu
                 .node_ids = &ctl->nodes.ni,
                 .help = NULL,
                 .tags = NULL,
-                .access = HTTP_ACCESS_MEMBERS,
+                .access = HTTP_ACCESS_MEMBER,
                 .priority = RRDFUNCTIONS_PRIORITY_DEFAULT,
         };
         host_functions_to_dict(host, ctl->functions.dict, &t, sizeof(t), &t.help, &t.tags, &t.access, &t.priority);
@@ -1019,10 +1030,10 @@ void buffer_json_agents_v2(BUFFER *wb, struct query_timings *timings, time_t now
             STORAGE_ENGINE *eng = localhost->db[tier].eng;
             if (!eng) continue;
 
-            uint64_t max = storage_engine_disk_space_max(eng->backend, localhost->db[tier].instance);
-            uint64_t used = storage_engine_disk_space_used(eng->backend, localhost->db[tier].instance);
-            time_t first_time_s = storage_engine_global_first_time_s(eng->backend, localhost->db[tier].instance);
-            size_t currently_collected_metrics = storage_engine_collected_metrics(eng->backend, localhost->db[tier].instance);
+            uint64_t max = storage_engine_disk_space_max(eng->seb, localhost->db[tier].si);
+            uint64_t used = storage_engine_disk_space_used(eng->seb, localhost->db[tier].si);
+            time_t first_time_s = storage_engine_global_first_time_s(eng->seb, localhost->db[tier].si);
+            size_t currently_collected_metrics = storage_engine_collected_metrics(eng->seb, localhost->db[tier].si);
 
             NETDATA_DOUBLE percent;
             if (used && max)
