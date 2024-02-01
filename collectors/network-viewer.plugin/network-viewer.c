@@ -65,6 +65,8 @@ static void local_socket_to_array(struct local_socket_state *ls, struct local_so
     const char *type;
     if(n->net_ns_inode == ls->proc_self_net_ns_inode)
         type = "system";
+    else if(n->net_ns_inode == 0)
+        type = "[unknown]";
     else
         type = "container";
 
@@ -106,7 +108,7 @@ void network_viewer_function(const char *transaction, char *function __maybe_unu
     CLEAN_BUFFER *wb = buffer_create(0, NULL);
     buffer_flush(wb);
     wb->content_type = CT_APPLICATION_JSON;
-    buffer_json_initialize(wb, "\"", "\"", 0, true, BUFFER_JSON_OPTIONS_DEFAULT);
+    buffer_json_initialize(wb, "\"", "\"", 0, true, BUFFER_JSON_OPTIONS_MINIFY);
 
     buffer_json_member_add_uint64(wb, "status", HTTP_RESP_OK);
     buffer_json_member_add_string(wb, "type", "table");
@@ -125,6 +127,7 @@ void network_viewer_function(const char *transaction, char *function __maybe_unu
             .udp4 = true,
             .udp6 = true,
             .pid = true,
+            .uid = true,
             .cmdline = true,
             .comm = true,
             .namespaces = true,

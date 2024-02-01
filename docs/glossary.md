@@ -15,7 +15,7 @@ Use the alphabatized list below to find the answer to your single-term questions
 
 - [**Agent** or **Netdata Agent**](https://github.com/netdata/netdata/blob/master/packaging/installer/README.md): Netdata's distributed monitoring Agent collects thousands of metrics from systems, hardware, and applications with zero configuration. It runs permanently on all your physical/virtual servers, containers, cloud deployments, and edge/IoT devices.
 
-- [**Agent-cloud link** or **ACLK**](https://github.com/netdata/netdata/blob/master/aclk/README.md): The Agent-Cloud link (ACLK) is the mechanism responsible for securely connecting a Netdata Agent to your web browser through Netdata Cloud.
+- [**Agent-cloud link** or **ACLK**](https://github.com/netdata/netdata/blob/master/src/aclk/README.md): The Agent-Cloud link (ACLK) is the mechanism responsible for securely connecting a Netdata Agent to your web browser through Netdata Cloud.
 
 - [**Aggregate Function**](https://github.com/netdata/netdata/blob/master/docs/cloud/visualize/interact-new-charts.md#aggregate-functions-over-time): A function applied When the granularity of the data collected is higher than the plotted points on the chart.
 
@@ -142,9 +142,9 @@ metrics, troubleshoot complex performance problems, and make data interoperable 
 
 ## R
 
-- [**Registry**](https://github.com/netdata/netdata/blob/master/registry/README.md): Registry that allows Netdata to provide unified cross-server dashboards.
+- [**Registry**](https://github.com/netdata/netdata/blob/master/src/registry/README.md): Registry that allows Netdata to provide unified cross-server dashboards.
 
-- [**Replication Streaming**](https://github.com/netdata/netdata/blob/master/streaming/README.md): Streaming configuration where child `A`, _with_ a database and web dashboard, streams metrics to parent `B`.
+- [**Replication Streaming**](https://github.com/netdata/netdata/blob/master/src/streaming/README.md): Streaming configuration where child `A`, _with_ a database and web dashboard, streams metrics to parent `B`.
 
 - [**Room** or **War Room**](https://github.com/netdata/netdata/blob/master/docs/cloud/manage/organize-your-infrastrucutre-invite-your-team.md#netdata-cloud-war-rooms): War Rooms organize your connected nodes and provide infrastructure-wide dashboards using real-time metrics and visualizations.
 
@@ -160,7 +160,7 @@ metrics, troubleshoot complex performance problems, and make data interoperable 
 
 - [**Template Entity Type**](https://github.com/netdata/netdata/blob/master/health/REFERENCE.md#entity-types): Entity type that defines rules that apply to all charts of a specific context, and use the template label. Templates help you apply one entity to all disks, all network interfaces, all MySQL databases, and so on.
 
-- [**Tiers**](https://github.com/netdata/netdata/blob/master/database/engine/README.md#tiers): Tiering is a mechanism of providing multiple tiers of data with different granularity of metrics (the frequency they are collected and stored, i.e. their resolution).
+- [**Tiers**](https://github.com/netdata/netdata/blob/master/src/database/engine/README.md#tiers): Tiering is a mechanism of providing multiple tiers of data with different granularity of metrics (the frequency they are collected and stored, i.e. their resolution).
 
 ## U
 
