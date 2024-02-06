@@ -461,12 +461,9 @@ void netdata_cleanup_and_exit(int ret, const char *action, const char *action_re
                 for (size_t tier = 0; tier < storage_tiers; tier++)
                     running += rrdeng_collectors_running(multidb_ctx[tier]);
 
-                if(running) {
+                if (running) {
                     nd_log_limit_static_thread_var(erl, 1, 100 * USEC_PER_MS);
-                    nd_log_limit(&erl, NDLS_DAEMON, NDLP_NOTICE,
-                                 "waiting for %zu collectors to finish", running);
-                    // sleep_usec(100 * USEC_PER_MS);
-                    cleanup_destroyed_dictionaries();
+                    nd_log_limit(&erl, NDLS_DAEMON, NDLP_NOTICE, "waiting for %zu collectors to finish", running);
                 }
                 count--;
             }
@@ -737,21 +734,25 @@ void cancel_main_threads() {
     freez(static_threads);
 }
 
-struct option_def option_definitions[] = {
-    // opt description                                    arg name       default value
-    { 'c', "Configuration file to load.",                 "filename",    CONFIG_DIR "/" CONFIG_FILENAME},
-    { 'D', "Do not fork. Run in the foreground.",         NULL,          "run in the background"},
-    { 'd', "Fork. Run in the background.",                NULL,          "run in the background"},
-    { 'h', "Display this help message.",                  NULL,          NULL},
-    { 'P', "File to save a pid while running.",           "filename",    "do not save pid to a file"},
-    { 'i', "The IP address to listen to.",                "IP",          "all IP addresses IPv4 and IPv6"},
-    { 'p', "API/Web port to use.",                        "port",        "19999"},
-    { 's', "Prefix for /proc and /sys (for containers).", "path",        "no prefix"},
-    { 't', "The internal clock of netdata.",              "seconds",     "1"},
-    { 'u', "Run as user.",                                "username",    "netdata"},
-    { 'v', "Print netdata version and exit.",             NULL,          NULL},
-    { 'V', "Print netdata version and exit.",             NULL,          NULL},
-    { 'W', "See Advanced options below.",                 "options",     NULL},
+static const struct option_def {
+    const char val;
+    const char *description;
+    const char *arg_name;
+    const char *default_value;
+} option_definitions[] = {
+    {'c', "Configuration file to load.", "filename", CONFIG_DIR "/" CONFIG_FILENAME},
+    {'D', "Do not fork. Run in the foreground.", NULL, "run in the background"},
+    {'d', "Fork. Run in the background.", NULL, "run in the background"},
+    {'h', "Display this help message.", NULL, NULL},
+    {'P', "File to save a pid while running.", "filename", "do not save pid to a file"},
+    {'i', "The IP address to listen to.", "IP", "all IP addresses IPv4 and IPv6"},
+    {'p', "API/Web port to use.", "port", "19999"},
+    {'s', "Prefix for /proc and /sys (for containers).", "path", "no prefix"},
+    {'t', "The internal clock of netdata.", "seconds", "1"},
+    {'u', "Run as user.", "username", "netdata"},
+    {'v', "Print netdata version and exit.", NULL, NULL},
+    {'V', "Print netdata version and exit.", NULL, NULL},
+    {'W', "See Advanced options below.", "options", NULL},
 };
 
 int help(int exitcode) {
