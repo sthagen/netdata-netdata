@@ -47,15 +47,18 @@ else()
         message(FATAL_ERROR "Wrong version regex match count ${CMAKE_MATCH_COUNT} (should be in 3, 4 or 5)")
 endif()
 
+set(NETDATA_VERSION ${FIELD_MAJOR}.${FIELD_MINOR}.${FIELD_PATCH}.${FIELD_TWEAK})
+
 #
 # project
 #
 
 project(netdata
-        VERSION ${FIELD_MAJOR}.${FIELD_MINOR}.${FIELD_PATCH}.${FIELD_TWEAK}
+        VERSION ${NETDATA_VERSION}
         DESCRIPTION "Netdata real-time monitoring"
         HOMEPAGE_URL "https://www.netdata.cloud"
         LANGUAGES C CXX)
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/packaging/cmake/Modules")
 
 find_package(PkgConfig REQUIRED)
 
@@ -97,20 +100,21 @@ option(ENABLE_ML "enable machine learning" True)
 option(ENABLE_H2O "enable h2o" True)
 option(ENABLE_DBENGINE "enable dbengine" True)
 
-option(ENABLE_PLUGIN_DEBUGFS "enable debugfs.plugin" True)
 option(ENABLE_PLUGIN_APPS "enable apps.plugin" True)
+option(ENABLE_PLUGIN_CGROUP_NETWORK "enable cgroup-network plugin" True)
+option(ENABLE_PLUGIN_CUPS "enable cups.plugin" True)
+option(ENABLE_PLUGIN_DEBUGFS "enable debugfs.plugin" True)
+option(ENABLE_PLUGIN_EBPF "enable ebpf.plugin" True)
 option(ENABLE_PLUGIN_FREEIPMI "enable freeipmi.plugin" True)
+option(ENABLE_PLUGIN_GO "enable go.d.plugin" True)
+option(ENABLE_PLUGIN_LOCAL_LISTENERS "enable local-listeners" True)
+option(ENABLE_PLUGIN_LOGS_MANAGEMENT "enable logs-management.plugin" True)
+option(ENABLE_PLUGIN_NETWORK_VIEWER "enable network-viewer" True)
 option(ENABLE_PLUGIN_NFACCT "enable nfacct.plugin" True)
-option(ENABLE_PLUGIN_XENSTAT "enable xenstat.plugin" True)
 option(ENABLE_PLUGIN_PERF "enable perf.plugin" True)
 option(ENABLE_PLUGIN_SLABINFO "enable slabinfo.plugin" True)
-option(ENABLE_PLUGIN_CUPS "enable cups.plugin" True)
-option(ENABLE_PLUGIN_CGROUP_NETWORK "enable cgroup-network plugin" True)
-option(ENABLE_PLUGIN_EBPF "enable ebpf.plugin" True)
-option(ENABLE_PLUGIN_LOCAL_LISTENERS "enable local-listeners" True)
-option(ENABLE_PLUGIN_NETWORK_VIEWER "enable network-viewer" True)
 option(ENABLE_PLUGIN_SYSTEMD_JOURNAL "enable systemd-journal.plugin" True)
-option(ENABLE_PLUGIN_LOGS_MANAGEMENT "enable logs-management.plugin" True)
+option(ENABLE_PLUGIN_XENSTAT "enable xenstat.plugin" True)
 
 option(ENABLE_EXPORTER_PROMETHEUS_REMOTE_WRITE "enable prometheus remote write exporter" True)
 option(ENABLE_EXPORTER_MONGODB "enable mongodb exporter" True)
@@ -123,6 +127,14 @@ option(ENABLE_LOGS_MANAGEMENT_TESTS "enable logs management tests" True)
 
 option(ENABLE_SENTRY "enable sentry" False)
 option(ENABLE_WEBRTC "enable webrtc" False)
+
+if(ENABLE_PLUGIN_GO)
+    include(NetdataGoTools)
+
+    find_min_go_version("${CMAKE_SOURCE_DIR}/src/go")
+
+    find_package(Go "${MIN_GO_VERSION}" REQUIRED)
+endif()
 
 if(ENABLE_SENTRY)
         include(FetchContent)
@@ -165,8 +177,7 @@ endif()
 # handling of extra compiler flags
 #
 
-include(CheckCCompilerFlag)
-include(CheckCXXCompilerFlag)
+include(NetdataCompilerFlags)
 
 # Disable hardening for debug builds by default.
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -174,71 +185,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 else()
         option(DISABLE_HARDENING "disable adding extra compiler flags for hardening" FALSE)
 endif()
-
-# Construct a pre-processor safe name
-function(make_cpp_safe_name value target)
-        string(REPLACE "-" "_" tmp "${value}")
-        string(REPLACE "=" "_" tmp "${tmp}")
-        set(${target} "${tmp}" PARENT_SCOPE)
-endfunction()
-
-# Conditionally add an extra compiler flag to C and C++ flags.
-#
-# If the language flags already match the `match` argument, skip this flag.
-# Otherwise, check for support for `flag` and if support is found, add it to
-# the language-specific `target` flag group.
-function(add_simple_extra_compiler_flag match flag target)
-        set(CMAKE_REQUIRED_FLAGS "-Werror")
-
-        make_cpp_safe_name("${flag}" flag_name)
-
-        if(NOT ${CMAKE_C_FLAGS} MATCHES ${match})
-                check_c_compiler_flag("${flag}" HAVE_C_${flag_name})
-                if(HAVE_C_${flag_name})
-                        set(${target}_C_FLAGS "${${target}_C_FLAGS} ${flag}" PARENT_SCOPE)
-                endif()
-        endif()
-
-        if(NOT ${CMAKE_CXX_FLAGS} MATCHES ${match})
-                check_cxx_compiler_flag("${flag}" HAVE_CXX_${flag_name})
-                if(HAVE_CXX_${flag_name})
-                        set(${target}_CXX_FLAGS "${${target}_CXX_FLAGS} ${flag}" PARENT_SCOPE)
-                endif()
-        endif()
-endfunction()
-
-# Same as add_simple_extra_compiler_flag, but check for a second flag if the
-# first one is unsupported.
-function(add_double_extra_compiler_flag match flag1 flag2 target)
-        set(CMAKE_REQUIRED_FLAGS "-Werror")
-
-        make_cpp_safe_name("${flag1}" flag1_name)
-        make_cpp_safe_name("${flag2}" flag2_name)
-
-        if(NOT ${CMAKE_C_FLAGS} MATCHES ${match})
-                check_c_compiler_flag("${flag1}" HAVE_C_${flag1_name})
-                if(HAVE_C_${flag1_name})
-                        set(${target}_C_FLAGS "${${target}_C_FLAGS} ${flag1}" PARENT_SCOPE)
-                else()
-                        check_c_compiler_flag("${flag2}" HAVE_C_${flag2_name})
-                        if(HAVE_C_${flag2_name})
-                                set(${target}_C_FLAGS "${${target}_C_FLAGS} ${flag2}" PARENT_SCOPE)
-                        endif()
-                endif()
-        endif()
-
-        if(NOT ${CMAKE_CXX_FLAGS} MATCHES ${match})
-                check_cxx_compiler_flag("${flag1}" HAVE_CXX_${flag1_name})
-                if(HAVE_CXX_${flag1_name})
-                        set(${target}_CXX_FLAGS "${${target}_CXX_FLAGS} ${flag1}" PARENT_SCOPE)
-                else()
-                        check_cxx_compiler_flag("${flag2}" HAVE_CXX_${flag2_name})
-                        if(HAVE_CXX_${flag2_name})
-                                set(${target}_CXX_FLAGS "${${target}_CXX_FLAGS} ${flag2}" PARENT_SCOPE)
-                        endif()
-                endif()
-        endif()
-endfunction()
 
 set(EXTRA_HARDENING_C_FLAGS "")
 set(EXTRA_HARDENING_CXX_FLAGS "")
@@ -663,7 +609,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/os.c
         src/libnetdata/os.h
         src/libnetdata/simple_hashtable.h
-        src/libnetdata/endian.h
+        src/libnetdata/byteorder.h
         src/libnetdata/onewayalloc/onewayalloc.c
         src/libnetdata/onewayalloc/onewayalloc.h
         src/libnetdata/popen/popen.c
@@ -824,6 +770,8 @@ set(DAEMON_FILES
         src/daemon/signals.c
         src/daemon/signals.h
         src/daemon/service.c
+        src/daemon/watcher.c
+        src/daemon/watcher.h
         src/daemon/static_threads.c
         src/daemon/static_threads.h
         src/daemon/commands.c
@@ -1522,11 +1470,12 @@ set_source_files_properties(JudyLTables.c PROPERTIES COMPILE_OPTIONS "-I${CMAKE_
 # build libnetdata
 #
 
-include(packaging/cmake/systemd.cmake)
+include(NetdataDetectSystemd)
+detect_systemd()
 
 add_library(libnetdata STATIC ${LIBNETDATA_FILES})
 
-target_include_directories(libnetdata BEFORE PUBLIC ${CONFIG_H_DIR} ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(libnetdata BEFORE PUBLIC ${CONFIG_H_DIR} ${CMAKE_SOURCE_DIR}/src)
 
 # pthread (FIXME: use find_package for this)
 
@@ -1653,9 +1602,6 @@ target_link_libraries(libnetdata PUBLIC ${CRYPTO_LDFLAGS})
 target_include_directories(libnetdata BEFORE PUBLIC ${OPENSSL_INCLUDE_DIRS})
 target_compile_options(libnetdata PUBLIC ${OPENSSL_CFLAGS_OTHER})
 target_link_libraries(libnetdata PUBLIC ${OPENSSL_LDFLAGS})
-
-# h2o
-target_link_libraries(libnetdata PUBLIC "$<$<BOOL:${ENABLE_H2O}>:h2o>")
 
 # mnl
 pkg_check_modules(MNL libmnl)
@@ -2118,6 +2064,7 @@ target_link_libraries(netdata PRIVATE
         "$<$<BOOL:${MACOS}>:${IOKIT};${FOUNDATION}>"
         "$<$<BOOL:${ENABLE_SENTRY}>:sentry>"
         "$<$<BOOL:${ENABLE_WEBRTC}>:LibDataChannel::LibDataChannelStatic>"
+        "$<$<BOOL:${ENABLE_H2O}>:h2o>"
 )
 
 #
@@ -2197,6 +2144,18 @@ target_link_libraries(netdatacli libnetdata)
 install(TARGETS netdatacli
         COMPONENT netdatacli
         DESTINATION usr/sbin)
+
+#
+# Build go.d.plugin
+#
+
+if(ENABLE_PLUGIN_GO)
+    add_go_target(go-plugin go.d.plugin src/go/collectors/go.d.plugin cmd/godplugin)
+
+    install(PROGRAMS ${CMAKE_BINARY_DIR}/go.d.plugin
+            COMPONENT go.d.plugin
+            DESTINATION usr/libexec/netdata/plugins.d)
+endif()
 
 #
 # Generate config file
@@ -2703,6 +2662,23 @@ if (ENABLE_PLUGIN_LOGS_MANAGEMENT)
         install(FILES ${CMAKE_BINARY_DIR}/src/logsmanagement/stock_conf/logsmanagement.d.conf
                 COMPONENT logs_management_plugin
                 DESTINATION usr/lib/netdata/conf.d)
+endif()
+
+#
+# go.d.plugin
+#
+if(ENABLE_PLUGIN_GO)
+    install(FILES src/go/collectors/go.d.plugin/config/go.d.conf
+            COMPONENT go.d.plugin
+            DESTINATION usr/lib/netdata/conf.d)
+    install(DIRECTORY
+            COMPONENT go.d.plugin
+            DESTINATION usr/lib/netdata/conf.d/go.d)
+
+    file(GLOB GO_CONF_FILES src/go/collectors/go.d.plugin/config/go.d/*.conf)
+    install(FILES ${GO_CONF_FILES}
+            COMPONENT go.d.plugin
+            DESTINATION usr/lib/netdata/conf.d/go.d)
 endif()
 
 #
