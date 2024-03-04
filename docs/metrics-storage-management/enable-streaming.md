@@ -10,9 +10,7 @@ When one node streams metrics to another, the node receiving metrics can visuali
 [export](https://github.com/netdata/netdata/blob/master/docs/export/external-databases.md) all metrics to an external TSDB. When Netdata streams metrics to another
 Netdata, the receiving one is able to perform everything a Netdata instance is capable of.
 
-Streaming lets you decide exactly how you want to store and maintain metrics data. While we believe Netdata's
-[distributed architecture](https://github.com/netdata/netdata/blob/master/docs/store/distributed-data-architecture.md) is 
-ideal for speed and scale, streaming provides centralization options and high data availability.
+Streaming lets you decide exactly how you want to store and maintain metrics data. While we believe Netdata's distributed architecture is ideal for speed and scale, streaming provides centralization options and high data availability.
 
 This document will get you started quickly with streaming. More advanced concepts and suggested production deployments
 can be found in the [streaming and replication reference](https://github.com/netdata/netdata/blob/master/src/streaming/README.md).
@@ -80,7 +78,7 @@ protect them from the internet by making their UI accessible only via an nginx p
 for the parent and even each child, if necessary. 
 
 Both children and the parent are connected to the cloud, to enable infrastructure observability, 
-[without transferring the collected data](https://github.com/netdata/netdata/blob/master/docs/netdata-security.md). 
+[without transferring the collected data](https://github.com/netdata/netdata/blob/master/docs/security-and-privacy-design/README.md). 
 Requests for data are always serverd by a connected Netdata agent. When both a child and a parent are connected, 
 the cloud will always select the parent to query the user requested data.
 

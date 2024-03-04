@@ -10,7 +10,7 @@ nodes running the Netdata Agent. A node is any system in your infrastructure tha
 physical or virtual machine (VM), container, cloud deployment, or edge/IoT device.
 
 The Netdata Agent uses zero-configuration collectors to gather metrics from every application and container instantly,
-and uses Netdata's [distributed data architecture](https://github.com/netdata/netdata/blob/master/docs/store/distributed-data-architecture.md) to store metrics
+and uses Netdata's distributed data architecture to store metrics
 locally. Without a slow and troublesome centralized data lake for your infrastructure's metrics, you reduce the
 resources you need to invest in, and the complexity of, monitoring your infrastructure.
 
@@ -143,7 +143,7 @@ sudo ./edit-config netdata.conf
 Our [configuration basics doc](https://github.com/netdata/netdata/blob/master/docs/configure/nodes.md) contains more information about `netdata.conf`, `edit-config`,
 along with simple examples to get you familiar with editing your node's configuration.
 
-After you've learned the basics, you should [secure your infrastructure's nodes](https://github.com/netdata/netdata/blob/master/docs/netdata-security.md) using
+After you've learned the basics, you should [secure your infrastructure's nodes](https://github.com/netdata/netdata/blob/master/docs/security-and-privacy-design/README.md) using
 one of our recommended methods. These security best practices ensure no untrusted parties gain access to the metrics
 collected on any of your nodes.
 
