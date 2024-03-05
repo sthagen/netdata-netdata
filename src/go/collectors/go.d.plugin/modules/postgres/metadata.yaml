@@ -69,7 +69,7 @@ modules:
               ```
               
               After creating the new user, restart the Netdata agent with `sudo systemctl restart netdata`, or
-              the [appropriate method](https://github.com/netdata/netdata/blob/master/packaging/installer/README.md#maintaining-a-netdata-agent-installation) for your
+              the [appropriate method](https://github.com/netdata/netdata/blob/master/docs/configure/start-stop-restart.md) for your
               system.
       configuration:
         file:
@@ -98,7 +98,7 @@ modules:
               default_value: 2
               required: false
             - name: collect_databases_matching
-              description: Databases selector. Determines which database metrics will be collected. Syntax is [simple patterns](https://github.com/netdata/go.d.plugin/tree/master/pkg/matcher#simple-patterns-matcher).
+              description: Databases selector. Determines which database metrics will be collected. Syntax is [simple patterns](https://github.com/netdata/netdata/tree/master/src/go/collectors/go.d.plugin/pkg/matcher#simple-patterns-matcher).
               default_value: ""
               required: false
             - name: max_db_tables

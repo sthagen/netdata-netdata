@@ -1009,7 +1009,7 @@ void dbengine_init(char *hostname) {
 int rrd_init(char *hostname, struct rrdhost_system_info *system_info, bool unittest) {
     rrdhost_init();
 
-    if (unlikely(sql_init_database(DB_CHECK_NONE, system_info ? 0 : 1))) {
+    if (unlikely(sql_init_meta_database(DB_CHECK_NONE, system_info ? 0 : 1))) {
         if (default_rrd_memory_mode == RRD_MEMORY_MODE_DBENGINE) {
             set_late_global_environment(system_info);
             fatal("Failed to initialize SQLite");
@@ -1437,6 +1437,9 @@ static void rrdhost_load_auto_labels(void) {
     rrdlabels_add(labels, "_has_unstable_connection", has_unstable_connection ? "true" : "false", RRDLABEL_SRC_AUTO);
 
     rrdlabels_add(labels, "_is_parent", (localhost->connected_children_count > 0) ? "true" : "false", RRDLABEL_SRC_AUTO);
+
+    rrdlabels_add(labels, "_hostname", string2str(localhost->hostname), RRDLABEL_SRC_AUTO);
+    rrdlabels_add(labels, "_os", string2str(localhost->os), RRDLABEL_SRC_AUTO);
 
     if (localhost->rrdpush_send_destination)
         rrdlabels_add(labels, "_streams_to", localhost->rrdpush_send_destination, RRDLABEL_SRC_AUTO);
