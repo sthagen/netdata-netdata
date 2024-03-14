@@ -1,45 +1,45 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package netlisteners
+package dockerd
 
 import (
 	"context"
-	"errors"
 	"sort"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/netdata/netdata/go/go.d.plugin/agent/discovery/sd/model"
 
+	"github.com/docker/docker/api/types"
+	typesContainer "github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type listenersCli interface {
-	addListener(s string)
-	removeListener(s string)
+type dockerCli interface {
+	addContainer(cntr types.Container)
+	removeContainer(id string)
 }
 
 type discoverySim struct {
-	listenersCli func(cli listenersCli, interval, expiry time.Duration)
-	wantGroups   []model.TargetGroup
+	dockerCli  func(cli dockerCli, interval time.Duration)
+	wantGroups []model.TargetGroup
 }
 
 func (sim *discoverySim) run(t *testing.T) {
 	d, err := NewDiscoverer(Config{
 		Source: "",
-		Tags:   "netlisteners",
+		Tags:   "docker",
 	})
 	require.NoError(t, err)
 
-	mock := newMockLocalListenersExec()
+	mock := newMockDockerd()
 
-	d.ll = mock
-
-	d.interval = time.Millisecond * 100
-	d.expiryTime = time.Second * 1
+	d.newDockerClient = func(addr string) (dockerClient, error) {
+		return mock, nil
+	}
+	d.listInterval = time.Millisecond * 100
 
 	seen := make(map[string]model.TargetGroup)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -79,7 +79,8 @@ func (sim *discoverySim) run(t *testing.T) {
 		require.Fail(t, "discovery failed to start")
 	}
 
-	sim.listenersCli(mock, d.interval, d.expiryTime)
+	sim.dockerCli(mock, d.listInterval)
+	time.Sleep(time.Second)
 
 	cancel()
 
@@ -97,60 +98,60 @@ func (sim *discoverySim) run(t *testing.T) {
 	sortTargetGroups(tggs)
 	sortTargetGroups(sim.wantGroups)
 
-	wantLen, gotLen := calcTargets(sim.wantGroups), calcTargets(tggs)
+	wantLen, gotLen := len(sim.wantGroups), len(tggs)
 	assert.Equalf(t, wantLen, gotLen, "different len (want %d got %d)", wantLen, gotLen)
 	assert.Equal(t, sim.wantGroups, tggs)
+
+	assert.True(t, mock.negApiVerCalled, "NegotiateAPIVersion called")
+	assert.True(t, mock.closeCalled, "Close called")
 }
 
-func newMockLocalListenersExec() *mockLocalListenersExec {
-	return &mockLocalListenersExec{
-		listeners: make(map[string]bool),
+func newMockDockerd() *mockDockerd {
+	return &mockDockerd{
+		containers: make(map[string]types.Container),
 	}
 }
 
-type mockLocalListenersExec struct {
-	errResponse bool
-	mux         sync.Mutex
-	listeners   map[string]bool
+type mockDockerd struct {
+	negApiVerCalled bool
+	closeCalled     bool
+	mux             sync.Mutex
+	containers      map[string]types.Container
 }
 
-func (m *mockLocalListenersExec) addListener(s string) {
+func (m *mockDockerd) addContainer(cntr types.Container) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
-	m.listeners[s] = true
+	m.containers[cntr.ID] = cntr
 }
 
-func (m *mockLocalListenersExec) removeListener(s string) {
+func (m *mockDockerd) removeContainer(id string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
-	delete(m.listeners, s)
+	delete(m.containers, id)
 }
 
-func (m *mockLocalListenersExec) discover(context.Context) ([]byte, error) {
-	if m.errResponse {
-		return nil, errors.New("mock discover() error")
-	}
-
+func (m *mockDockerd) ContainerList(_ context.Context, _ typesContainer.ListOptions) ([]types.Container, error) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 
-	var buf strings.Builder
-	for s := range m.listeners {
-		buf.WriteString(s)
-		buf.WriteByte('\n')
+	var cntrs []types.Container
+	for _, cntr := range m.containers {
+		cntrs = append(cntrs, cntr)
 	}
 
-	return []byte(buf.String()), nil
+	return cntrs, nil
 }
 
-func calcTargets(tggs []model.TargetGroup) int {
-	var n int
-	for _, tgg := range tggs {
-		n += len(tgg.Targets())
-	}
-	return n
+func (m *mockDockerd) NegotiateAPIVersion(_ context.Context) {
+	m.negApiVerCalled = true
+}
+
+func (m *mockDockerd) Close() error {
+	m.closeCalled = true
+	return nil
 }
 
 func sortTargetGroups(tggs []model.TargetGroup) {
@@ -158,9 +159,4 @@ func sortTargetGroups(tggs []model.TargetGroup) {
 		return
 	}
 	sort.Slice(tggs, func(i, j int) bool { return tggs[i].Source() < tggs[j].Source() })
-
-	for idx := range tggs {
-		tgts := tggs[idx].Targets()
-		sort.Slice(tgts, func(i, j int) bool { return tgts[i].Hash() < tgts[j].Hash() })
-	}
 }
