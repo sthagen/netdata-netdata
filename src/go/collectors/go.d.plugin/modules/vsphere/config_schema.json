@@ -39,14 +39,17 @@
       "host_include": {
         "title": "Host selectors",
         "description": "Configuration for monitoring specific hosts. The selector format follows the pattern `/Datacenter/Cluster/Host`, where each value can be set using [Netdata simple patterns](https://github.com/netdata/netdata/tree/master/src/libnetdata/simple_pattern#readme).",
-        "type": "array",
+        "type": [
+          "array",
+          "null"
+        ],
         "uniqueItems": true,
         "items": {
           "title": "Host selector",
           "description": "",
           "type": "string",
           "default": "/*/*/*",
-          "pattern": "^/"
+          "pattern": "^$|^/"
         },
         "default": [
           "/*"
@@ -55,14 +58,17 @@
       "vm_include": {
         "title": "Virtual machine selectors",
         "description": "Configuration for monitoring specific virtual machines. The selector format follows the pattern `/Datacenter/Cluster/Host/VM`, where each value can be set using [Netdata simple patterns](https://github.com/netdata/netdata/tree/master/src/libnetdata/simple_pattern#readme).",
-        "type": "array",
+        "type": [
+          "array",
+          "null"
+        ],
         "uniqueItems": true,
         "items": {
           "title": "VM selector",
           "description": "",
           "type": "string",
           "default": "/*/*/*/*",
-          "pattern": "^/"
+          "pattern": "^$|^/"
         },
         "default": [
           "/*"
@@ -100,7 +106,10 @@
       "headers": {
         "title": "Headers",
         "description": "Additional HTTP headers to include in the request.",
-        "type": "object",
+        "type": [
+          "object",
+          "null"
+        ],
         "additionalProperties": {
           "type": "string"
         }
@@ -114,19 +123,19 @@
         "title": "TLS CA",
         "description": "The path to the CA certificate file for TLS verification.",
         "type": "string",
-        "pattern": "^/"
+        "pattern": "^$|^/"
       },
       "tls_cert": {
         "title": "TLS certificate",
         "description": "The path to the client certificate file for TLS authentication.",
         "type": "string",
-        "pattern": "^/"
+        "pattern": "^$|^/"
       },
       "tls_key": {
         "title": "TLS key",
         "description": "The path to the client key file for TLS authentication.",
         "type": "string",
-        "pattern": "^/"
+        "pattern": "^$|^/"
       }
     },
     "required": [
