@@ -144,7 +144,11 @@
       "password",
       "host_include",
       "vm_include"
-    ]
+    ],
+    "additionalProperties": false,
+    "patternProperties": {
+      "^name$": {}
+    }
   },
   "uiSchema": {
     "uiOptions": {

@@ -131,7 +131,11 @@
     "required": [
       "url",
       "webadmin"
-    ]
+    ],
+    "additionalProperties": false,
+    "patternProperties": {
+      "^name$": {}
+    }
   },
   "uiSchema": {
     "ui:flavour": "tabs",

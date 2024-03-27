@@ -112,7 +112,11 @@
     "required": [
       "url",
       "repositories"
-    ]
+    ],
+    "additionalProperties": false,
+    "patternProperties": {
+      "^name$": {}
+    }
   },
   "uiSchema": {
     "ui:flavour": "tabs",
