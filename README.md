@@ -45,15 +45,15 @@ Netdata monitors all the following:
 |                     **System Resources**<small><br/>CPU, Memory and system shared resources</small> |                 Full                  |   Yes   |  Yes  |               Yes                |
 |                        **Storage**<small><br/>Disks, Mount points, Filesystems, RAID arrays</small> |                 Full                  |  Basic  | Basic |              Basic               |
 |                         **Network**<small><br/>Network Interfaces, Protocols, Firewall, etc</small> |                 Full                  |  Basic  | Basic |              Basic               |
-|                                                                              **Hardware & Sensors** |                 Full                  |  Some   | Some  |               Some               |
-|                               **O/S Services**<small><br/>Resources, Performance and Status</small> | Yes<small><br/>`systemd`-only</small> |    -    |   -   |                -                 |
+|                **Hardware & Sensors**<small><br/>Fans, Temperatures, Controllers, GPUs, etc</small> |                 Full                  |  Some   | Some  |               Some               |
+|                               **O/S Services**<small><br/>Resources, Performance and Status</small> | Yes<small><br/>`systemd`-only</small> |    -    |   -   |              Basic               |
 |                                                                                            **Logs** |   Yes<small><br/>`systemd`-journal    |    -    |   -   |                -                 |
 |                              **Processes**<small><br/>Resources, Performance, OOM, and more</small> |                  Yes                  |   Yes   |  Yes  |               Yes                |
 |                         **Network Connections**<small><br/>Live TCP and UDP sockets per PID</small> |                  Yes                  |    -    |   -   |                -                 |
 |                       **Containers**<small><br/>Docker/containerd, LXC/LXD, Kubernetes, etc</small> |                  Yes                  |    -    |   -   |                -                 |
 |                         **VMs** (from the host)<small><br/>KVM, qemu, libvirt, Proxmox, etc</small> |   Yes<small><br/>`cgroups`</small>    |    -    |   -   | Yes<small><br/>`Hyper-V`</small> |
 |               **Synthetic Checks**<small><br/>Test APIs, TCP ports, Ping, Certificates, etc</small> |                  Yes                  |   Yes   |  Yes  |               Yes                |
-|  **Packaged Applications**<small><br/>nginx, apache, postgres, redis,<br/>and hundreds more</small> |                  Yes                  |   Yes   |  Yes  |               Yes                |
+|  **Packaged Applications**<small><br/>nginx, apache, postgres, redis, mongodb,<br/>and hundreds more</small> |                  Yes                  |   Yes   |  Yes  |               Yes                |
 |                                      **Custom Applications**<small><br/>OpenMetrics, StatsD</small> |                  Yes                  |   Yes   |  Yes  |               Yes                |
 
 When Netdata runs on Linux, it monitors every kernel feature available, providing full coverage of all kernel technologies that can be monitored.
@@ -74,7 +74,7 @@ Netdata provides full **enterprise hardware** coverage, monitoring all component
   Trains multiple Machine-Learning (ML) models for each metric and uses AI to detect anomalies based on the past behavior of each metric.
 
 - :fire: **Powerful Visualization**<br/>
-  Clear and precise visualization allowing you to understand any dataset at first sight, but also to filter, slice and dice the data directly on the dashboard, without the need to learn a query language.
+  Fully automated dashboard providing corellated visualization of all metrics, allowing you to understand any dataset at first sight, but also to filter, slice and dice the data directly on the dashboards, without the need to learn a query language.
 
 - :bell: **Out of box Alerts**<br/>
   Comes with hundreds of alerts out of the box to detect common issues and pitfalls, revealing issues that can easily go unnoticed. It supports several notification methods to let you know when your attention is needed.
