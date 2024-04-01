@@ -20,7 +20,7 @@ require (
 	github.com/facebook/time v0.0.0-20240301144314-9afaa3836e98
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-redis/redis/v8 v8.11.5
-	github.com/go-sql-driver/mysql v1.8.0
+	github.com/go-sql-driver/mysql v1.8.1
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gofrs/flock v0.8.1
 	github.com/golang/mock v1.6.0
@@ -42,7 +42,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/tomasen/fcgi_client v0.0.0-20180423082037-2bb3d819fd19
 	github.com/valyala/fastjson v1.6.4
-	github.com/vmware/govmomi v0.36.1
+	github.com/vmware/govmomi v0.36.2
 	go.mongodb.org/mongo-driver v1.14.0
 	golang.org/x/net v0.22.0
 	golang.org/x/text v0.14.0
