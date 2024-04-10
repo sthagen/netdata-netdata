@@ -1,5 +1,5 @@
 <!--startmeta
-custom_edit_url: "https://github.com/netdata/netdata/edit/master/src/go/collectors/go.d.plugin/modules/intelgpu/integrations/intel_gpu.md"
+custom_edit_url: "https://github.com/netdata/netdata/edit/master/src/go/collectors/go.d.plugin/modules/intelgpu/README.md"
 meta_yaml: "https://github.com/netdata/netdata/edit/master/src/go/collectors/go.d.plugin/modules/intelgpu/metadata.yaml"
 sidebar_label: "Intel GPU"
 learn_status: "Published"
@@ -76,7 +76,7 @@ Labels:
 
 | Label      | Description     |
 |:-----------|:----------------|
-| engine | Engine name (Render/3D, Blitter, VideoEnhance, Video, Compute). |
+| engine_class | Engine class (Render/3D, Blitter, VideoEnhance, Video, Compute). |
 | engine_instance | Engine instance (e.g. Render/3D/0, Video/0, Video/1). |
 
 Metrics:
