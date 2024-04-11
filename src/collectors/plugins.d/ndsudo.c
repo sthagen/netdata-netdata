@@ -13,6 +13,14 @@ struct command {
     const char *params;
     const char *search[MAX_SEARCH];
 } allowed_commands[] = {
+        {
+        .name = "igt-json",
+        .params = "-J -s {{interval}}",
+        .search = {
+            [0] = "intel_gpu_top",
+            [1] = NULL,
+        },
+    },
     {
         .name = "nvme-list",
         .params = "list --output-format=json",
@@ -259,6 +267,9 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "command not recognized: %s\n", cmd);
         return 3;
     }
+
+    char new_path[] = "/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin";
+    setenv("PATH", new_path, 1);
 
     bool found = false;
     char filename[FILENAME_MAX];
