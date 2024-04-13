@@ -16,7 +16,7 @@ require (
 	github.com/clbanning/rfile/v2 v2.0.0-20231024120205-ac3fca974b0e
 	github.com/cloudflare/cfssl v1.6.5
 	github.com/coreos/go-systemd/v22 v22.5.0
-	github.com/docker/docker v26.0.0+incompatible
+	github.com/docker/docker v26.0.1+incompatible
 	github.com/facebook/time v0.0.0-20240301144314-9afaa3836e98
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-redis/redis/v8 v8.11.5
@@ -37,13 +37,13 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/muesli/cancelreader v0.2.2
 	github.com/prometheus-community/pro-bing v0.4.0
-	github.com/prometheus/common v0.52.2
+	github.com/prometheus/common v0.52.3
 	github.com/prometheus/prometheus v2.5.0+incompatible
 	github.com/stretchr/testify v1.9.0
 	github.com/tomasen/fcgi_client v0.0.0-20180423082037-2bb3d819fd19
 	github.com/valyala/fastjson v1.6.4
-	github.com/vmware/govmomi v0.36.3
-	go.mongodb.org/mongo-driver v1.14.0
+	github.com/vmware/govmomi v0.37.0
+	go.mongodb.org/mongo-driver v1.15.0
 	golang.org/x/net v0.24.0
 	golang.org/x/text v0.14.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20220504211119-3d4a969bb56b
