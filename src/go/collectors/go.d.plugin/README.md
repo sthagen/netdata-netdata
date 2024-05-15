@@ -87,6 +87,7 @@ see the appropriate collector readme.
 | [k8s_kubeproxy](https://github.com/netdata/netdata/tree/master/src/go/collectors/go.d.plugin/modules/k8s_kubeproxy)           |          Kube-proxy           |
 | [k8s_state](https://github.com/netdata/netdata/tree/master/src/go/collectors/go.d.plugin/modules/k8s_state)                   |   Kubernetes cluster state    |
 | [lighttpd](https://github.com/netdata/netdata/tree/master/src/go/collectors/go.d.plugin/modules/lighttpd)                     |           Lighttpd            |
+| [litespeed](https://github.com/netdata/netdata/tree/master/src/go/collectors/go.d.plugin/modules/litespeed)                   |           Litespeed           |
 | [logind](https://github.com/netdata/netdata/tree/master/src/go/collectors/go.d.plugin/modules/logind)                         |        systemd-logind         |
 | [logstash](https://github.com/netdata/netdata/tree/master/src/go/collectors/go.d.plugin/modules/logstash)                     |           Logstash            |
 | [lvm](https://github.com/netdata/netdata/tree/master/src/go/collectors/go.d.plugin/modules/lvm)                               |      LVM logical volumes      |
@@ -141,7 +142,7 @@ see the appropriate collector readme.
 ## Configuration
 
 Edit the `go.d.conf` configuration file using `edit-config` from the
-Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration.md#the-netdata-config-directory), which is typically
+Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#the-netdata-config-directory), which is typically
 at `/etc/netdata`.
 
 ```bash
