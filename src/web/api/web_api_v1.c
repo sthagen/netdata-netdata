@@ -142,7 +142,7 @@ void web_client_api_v1_init(void) {
 
     time_grouping_init();
 
-	uuid_t uuid;
+    nd_uuid_t uuid;
 
 	// generate
 	uuid_generate(uuid);
@@ -181,7 +181,7 @@ char *get_mgmt_api_key(void) {
 
     // generate a new one?
     if(!guid[0]) {
-        uuid_t uuid;
+        nd_uuid_t uuid;
 
         uuid_generate_time(uuid);
         uuid_unparse_lower(uuid, guid);
@@ -1233,7 +1233,7 @@ static inline void web_client_api_request_v1_info_mirrored_hosts(BUFFER *wb) {
     }
     buffer_json_array_close(wb);
 
-    rrd_unlock();
+    rrd_rdunlock();
 }
 
 void host_labels2json(RRDHOST *host, BUFFER *wb, const char *key) {
@@ -1415,6 +1415,7 @@ inline int web_client_api_request_v1_info(RRDHOST *host, struct web_client *w, c
     return HTTP_RESP_OK;
 }
 
+#ifdef ENABLE_OPENSSL
 static int web_client_api_request_v1_aclk_state(RRDHOST *host, struct web_client *w, char *url) {
     UNUSED(url);
     UNUSED(host);
@@ -1431,6 +1432,7 @@ static int web_client_api_request_v1_aclk_state(RRDHOST *host, struct web_client
     buffer_no_cacheable(wb);
     return HTTP_RESP_OK;
 }
+#endif
 
 int web_client_api_request_v1_metric_correlations(RRDHOST *host, struct web_client *w, char *url) {
     return web_client_api_request_weights(host, w, url, default_metric_correlations_method, WEIGHTS_FORMAT_CHARTS, 1);
@@ -1890,6 +1892,7 @@ static struct web_api_command api_commands_v1[] = {
         .callback = web_client_api_request_v1_info,
         .allow_subpaths = 0
     },
+#ifdef ENABLE_OPENSSL
     {
         .api = "aclk",
         .hash = 0,
@@ -1898,6 +1901,7 @@ static struct web_api_command api_commands_v1[] = {
         .callback = web_client_api_request_v1_aclk_state,
         .allow_subpaths = 0
     },
+#endif
     {
         // deprecated - use /api/v2/info
         .api = "dbengine_stats",

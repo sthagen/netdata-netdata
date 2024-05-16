@@ -69,7 +69,7 @@ typedef enum __attribute__((packed)) {
     BIB_LIB_ZLIB,
     BIB_LIB_BROTLI,
     BIB_LIB_PROTOBUF,
-    BIB_LIB_OPENSSL,
+    BIB_LIB_SSL,
     BIB_LIB_LIBDATACHANNEL,
     BIB_LIB_JSONC,
     BIB_LIB_LIBCAP,
@@ -650,12 +650,17 @@ static struct {
                 .json = "protobuf",
                 .value = NULL,
         },
-        [BIB_LIB_OPENSSL] = {
+        [BIB_LIB_SSL] = {
                 .category = BIC_LIBS,
                 .type = BIT_BOOLEAN,
                 .analytics = NULL,
+#if defined(ENABLE_OPENSSL)
                 .print = "OpenSSL (cryptography)",
                 .json = "openssl",
+#elif defined(ENABLE_WOLFSSL)
+                .print = "WolfSSL (cryptography)",
+                .json = "wolfssl",
+#endif
                 .value = NULL,
         },
         [BIB_LIB_LIBDATACHANNEL] = {
@@ -1058,6 +1063,16 @@ __attribute__((constructor)) void initialize_build_info(void) {
     build_info_set_value(BIB_FEATURE_BUILT_FOR, "MacOS");
     build_info_set_status(BIB_PLUGIN_MACOS, true);
 #endif
+#ifdef COMPILED_FOR_WINDOWS
+    build_info_set_status(BIB_FEATURE_BUILT_FOR, true);
+#if defined(__CYGWIN__) && defined(__MSYS__)
+    build_info_set_value(BIB_FEATURE_BUILT_FOR, "Windows (MSYS)");
+#elif defined(__CYGWIN__)
+    build_info_set_value(BIB_FEATURE_BUILT_FOR, "Windows (CYGWIN)");
+#else
+    build_info_set_value(BIB_FEATURE_BUILT_FOR, "Windows");
+#endif
+#endif
 
 #ifdef ENABLE_ACLK
     build_info_set_status(BIB_FEATURE_CLOUD, true);
@@ -1152,8 +1167,8 @@ __attribute__((constructor)) void initialize_build_info(void) {
 #ifdef HAVE_LIBDATACHANNEL
     build_info_set_status(BIB_LIB_LIBDATACHANNEL, true);
 #endif
-#ifdef ENABLE_OPENSSL
-    build_info_set_status(BIB_LIB_OPENSSL, true);
+#if defined(ENABLE_OPENSSL) || defined(ENABLE_WOLFSSL)
+    build_info_set_status(BIB_LIB_SSL, true);
 #endif
 #ifdef ENABLE_JSONC
     build_info_set_status(BIB_LIB_JSONC, true);

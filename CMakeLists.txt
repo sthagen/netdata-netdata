@@ -126,9 +126,13 @@ set(CONFIG_H ${CONFIG_H_DIR}/config.h)
 option(DEFAULT_FEATURE_STATE "Specify the default state for most optional features" True)
 mark_as_advanced(DEFAULT_FEATURE_STATE)
 
+# ssl
+option(ENABLE_WOLFSSL "Compile netdata using WolfSSL." False)
+cmake_dependent_option(ENABLE_OPENSSL "Compile netdata using OpenSSL." True "NOT ENABLE_WOLFSSL" False)
+
 # High-level features
-option(ENABLE_ACLK "Enable Netdata Cloud support (ACLK)" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_CLOUD "Enable Netdata Cloud by default at runtime" ${DEFAULT_FEATURE_STATE})
+cmake_dependent_option(ENABLE_ACLK "Enable Netdata Cloud support (ACLK)" ${DEFAULT_FEATURE_STATE} "NOT ENABLE_WOLFSSL" False)
+cmake_dependent_option(ENABLE_CLOUD "Enable Netdata Cloud by default at runtime" ${DEFAULT_FEATURE_STATE} "NOT ENABLE_WOLFSSL" False)
 option(ENABLE_ML "Enable machine learning features" ${DEFAULT_FEATURE_STATE})
 option(ENABLE_DBENGINE "Enable dbengine metrics storage" True)
 
@@ -143,7 +147,7 @@ mark_as_advanced(ENABLE_LEGACY_EBPF_PROGRAMS)
 option(ENABLE_PLUGIN_FREEIPMI "Enable IPMI monitoring" ${DEFAULT_FEATURE_STATE})
 option(ENABLE_PLUGIN_GO "Enable metric collectors written in Go" ${DEFAULT_FEATURE_STATE})
 option(ENABLE_PLUGIN_LOCAL_LISTENERS "Enable local listening socket tracking (including service auto-discovery support)" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_LOGS_MANAGEMENT "Enable log collection and monitoring based on Fluent Bit" ${DEFAULT_FEATURE_STATE})
+cmake_dependent_option(ENABLE_PLUGIN_LOGS_MANAGEMENT "Enable log collection and monitoring based on Fluent Bit" ${DEFAULT_FEATURE_STATE} "NOT ENABLE_WOLFSSL" False)
 option(ENABLE_PLUGIN_NETWORK_VIEWER "Enable network viewer functionality" ${DEFAULT_FEATURE_STATE})
 option(ENABLE_PLUGIN_NFACCT "Enable Linux NFACCT metric collection" ${DEFAULT_FEATURE_STATE})
 option(ENABLE_PLUGIN_PERF "Enable Linux performance counter monitoring" ${DEFAULT_FEATURE_STATE})
@@ -167,7 +171,8 @@ mark_as_advanced(ENABLE_LOGS_MANAGEMENT_TESTS)
 # Experimental features
 option(ENABLE_WEBRTC "Enable WebRTC dashboard communications (experimental)" False)
 mark_as_advanced(ENABLE_WEBRTC)
-option(ENABLE_H2O "Enable H2O web server (experimental)" True)
+
+cmake_dependent_option(ENABLE_H2O "Enable H2O web server (experimental)" True "NOT ENABLE_WOLFSSL" False)
 mark_as_advanced(ENABLE_H2O)
 
 # Other optional functionality
@@ -179,6 +184,21 @@ mark_as_advanced(BUILD_FOR_PACKAGING)
 
 cmake_dependent_option(FORCE_LEGACY_LIBBPF "Force usage of libbpf 0.0.9 instead of the latest version." False "ENABLE_PLUGIN_EBPF" False)
 mark_as_advanced(FORCE_LEGACY_LIBBPF)
+
+include(CheckFunctionExists)
+
+if(ENABLE_WOLFSSL)
+        pkg_check_modules(WOLFSSL wolfssl)
+
+        list(APPEND CMAKE_REQUIRED_LIBRARIES wolfssl)
+        check_function_exists(wolfSSL_set_alpn_protos HAVE_WOLFSSL_SET_ALPN_PROTOS)
+        if(NOT HAVE_WOLFSSL_SET_ALPN_PROTOS)
+            message(FATAL_ERROR "Your WolfSSL library has not been compiled with the OPENSSL_EXTRA flag, which is necessary to create symbols for the OpenSSL API that Netdata uses.")
+        endif()
+else()
+        # openssl/crypto
+        pkg_check_modules(OPENSSL openssl)
+endif()
 
 if(ENABLE_ACLK OR ENABLE_EXPORTER_PROMETHEUS_REMOTE_WRITE)
         set(NEED_PROTOBUF True)
@@ -225,23 +245,51 @@ endif()
 # detect OS
 #
 
-set(LINUX   False)
-set(FREEBSD False)
-set(MACOS   False)
+set(LINUX       False)
+set(FREEBSD     False)
+set(MACOS       False)
+set(WINDOWS     False)
+set(FOREIGN_OS  False)
 
-if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
         set(MACOS True)
         set(COMPILED_FOR_MACOS True)
-
         find_library(IOKIT IOKit)
         find_library(FOUNDATION Foundation)
-elseif(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
+        message(INFO " Compiling for MacOS... ")
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
         set(FREEBSD True)
         set(COMPILED_FOR_FREEBSD True)
-else()
+        message(INFO " Compiling for FreeBSD... ")
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
         set(LINUX True)
         set(COMPILED_FOR_LINUX True)
         add_definitions(-D_GNU_SOURCE)
+        message(INFO " Compiling for Linux... ")
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "CYGWIN" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "MSYS" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+        set(WINDOWS True)
+        set(COMPILED_FOR_WINDOWS True)
+        add_definitions(-D_GNU_SOURCE)
+
+        if($ENV{CLION_IDE})
+                # clion needs these to find the includes
+                if("${CMAKE_SYSTEM_NAME}" STREQUAL "MSYS" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+                        if("$ENV{MSYSTEM}" STREQUAL "MSYS")
+                                include_directories(c:/msys64/usr/include)
+                                include_directories(c:/msys64/usr/include/w32api)
+                        elseif("$ENV{MSYSTEM}" STREQUAL "MINGW64")
+                                include_directories(c:/msys64/mingw64/include)
+                        elseif("$ENV{MSYSTEM}" STREQUAL "UCRT64")
+                                include_directories(c:/msys64/ucrt64/include)
+                        endif()
+                endif()
+        endif()
+
+        message(INFO " Compiling for Windows (${CMAKE_SYSTEM_NAME}, MSYSTEM=$ENV{MSYSTEM})... ")
+else()
+        set(FOREIGN_OS True)
+        set(COMPILED_FOR_FOREIGN_OS True)
+        message(WARNING " Compiling for Unknown O/S... (${CMAKE_SYSTEM_NAME})")
 endif()
 
 if(ENABLE_PLUGIN_EBPF)
@@ -259,11 +307,6 @@ endif()
 #
 # Libm
 #
-
-# checks link with cmake required libs
-cmake_policy(SET CMP0075 NEW)
-
-include(CheckFunctionExists)
 
 check_function_exists(log10 HAVE_LOG10)
 if(NOT HAVE_LOG10)
@@ -326,6 +369,20 @@ check_include_file("sys/statvfs.h" HAVE_SYS_STATVFS_H)
 check_include_file("inttypes.h" HAVE_INTTYPES_H)
 check_include_file("stdint.h" HAVE_STDINT_H)
 check_include_file("sys/capability.h" HAVE_SYS_CAPABILITY_H)
+check_include_file("arpa/inet.h" HAVE_ARPA_INET_H)
+check_include_file("netinet/tcp.h" HAVE_NETINET_TCP_H)
+check_include_file("sys/ioctl.h" HAVE_SYS_IOCTL_H)
+check_include_file("grp.h" HAVE_GRP_H)
+check_include_file("pwd.h" HAVE_PWD_H)
+check_include_file("net/if.h" HAVE_NET_IF_H)
+check_include_file("poll.h" HAVE_POLL_H)
+check_include_file("syslog.h" HAVE_SYSLOG_H)
+check_include_file("sys/mman.h" HAVE_SYS_MMAN_H)
+check_include_file("sys/resource.h" HAVE_SYS_RESOURCE_H)
+check_include_file("sys/socket.h" HAVE_SYS_SOCKET_H)
+check_include_file("sys/wait.h" HAVE_SYS_WAIT_H)
+check_include_file("sys/un.h" HAVE_SYS_UN_H)
+check_include_file("spawn.h" HAVE_SPAWN_H)
 
 #
 # check symbols
@@ -340,9 +397,15 @@ check_symbol_exists(finite "math.h" HAVE_FINITE)
 check_symbol_exists(isfinite "math.h" HAVE_ISFINITE)
 check_symbol_exists(dlsym "dlfcn.h" HAVE_DLSYM)
 
+check_function_exists(pthread_getthreadid_np HAVE_PTHREAD_GETTHREADID_NP)
+check_function_exists(pthread_threadid_np HAVE_PTHREAD_THREADID_NP)
+check_function_exists(gettid HAVE_GETTID)
+check_function_exists(waitid HAVE_WAITID)
 check_function_exists(nice HAVE_NICE)
 check_function_exists(recvmmsg HAVE_RECVMMSG)
 check_function_exists(getpriority HAVE_GETPRIORITY)
+check_function_exists(setenv HAVE_SETENV)
+check_function_exists(strndup HAVE_STRNDUP)
 
 check_function_exists(sched_getscheduler HAVE_SCHED_GETSCHEDULER)
 check_function_exists(sched_setscheduler HAVE_SCHED_SETSCHEDULER)
@@ -493,11 +556,7 @@ if(FREEBSD OR MACOS)
         set(HAVE_BUILTIN_ATOMICS True)
 endif()
 
-# openssl/crypto
-set(ENABLE_OPENSSL True)
-pkg_check_modules(OPENSSL openssl)
-
-if(NOT OPENSSL_FOUND)
+if(NOT OPENSSL_FOUND AND ENABLE_OPENSSL)
         if(MACOS)
                 execute_process(COMMAND
                                 brew --prefix --installed openssl
@@ -517,7 +576,7 @@ if(NOT OPENSSL_FOUND)
         endif()
 endif()
 
-if(NOT MACOS)
+if(NOT MACOS AND ENABLE_OPENSSL)
         pkg_check_modules(CRYPTO libcrypto)
 endif()
 
@@ -624,10 +683,10 @@ set(LIBNETDATA_FILES
         src/libnetdata/log/journal.h
         src/libnetdata/log/log.c
         src/libnetdata/log/log.h
-        src/libnetdata/os.c
-        src/libnetdata/os.h
+        src/libnetdata/os/os.c
+        src/libnetdata/os/os.h
         src/libnetdata/simple_hashtable.h
-        src/libnetdata/byteorder.h
+        src/libnetdata/os/byteorder.h
         src/libnetdata/onewayalloc/onewayalloc.c
         src/libnetdata/onewayalloc/onewayalloc.h
         src/libnetdata/popen/popen.c
@@ -639,6 +698,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/required_dummies.h
         src/libnetdata/socket/security.c
         src/libnetdata/socket/security.h
+        src/libnetdata/ssl/ssl.h
         src/libnetdata/simple_pattern/simple_pattern.c
         src/libnetdata/simple_pattern/simple_pattern.h
         src/libnetdata/socket/socket.c
@@ -682,6 +742,34 @@ set(LIBNETDATA_FILES
         src/libnetdata/linked-lists.h
         src/libnetdata/storage-point.h
         src/libnetdata/bitmap64.h
+        src/libnetdata/os/waitid.c
+        src/libnetdata/os/waitid.h
+        src/libnetdata/os/gettid.c
+        src/libnetdata/os/gettid.h
+        src/libnetdata/os/adjtimex.c
+        src/libnetdata/os/adjtimex.h
+        src/libnetdata/os/setresuid.c
+        src/libnetdata/os/setresuid.h
+        src/libnetdata/os/setresgid.c
+        src/libnetdata/os/setresgid.h
+        src/libnetdata/os/getgrouplist.c
+        src/libnetdata/os/getgrouplist.h
+        src/libnetdata/os/get_pid_max.c
+        src/libnetdata/os/get_pid_max.h
+        src/libnetdata/os/os-freebsd-wrappers.c
+        src/libnetdata/os/os-freebsd-wrappers.h
+        src/libnetdata/os/os-macos-wrappers.c
+        src/libnetdata/os/os-macos-wrappers.h
+        src/libnetdata/os/get_system_cpus.c
+        src/libnetdata/os/get_system_cpus.h
+        src/libnetdata/os/tinysleep.c
+        src/libnetdata/os/tinysleep.h
+        src/libnetdata/os/uuid_generate.c
+        src/libnetdata/os/uuid_generate.h
+        src/libnetdata/os/setenv.c
+        src/libnetdata/os/setenv.h
+        src/libnetdata/os/strndup.c
+        src/libnetdata/os/strndup.h
 )
 
 if(ENABLE_PLUGIN_EBPF)
@@ -956,6 +1044,16 @@ else()
         )
 endif()
 
+set(INTERNAL_COLLECTORS_FILES
+        src/collectors/common-contexts/common-contexts.h
+        src/collectors/common-contexts/disk.io.h
+        src/collectors/common-contexts/system.io.h
+        src/collectors/common-contexts/system.ram.h
+        src/collectors/common-contexts/mem.swap.h
+        src/collectors/common-contexts/mem.pgfaults.h
+        src/collectors/common-contexts/mem.available.h
+)
+
 set(PLUGINSD_PLUGIN_FILES
         src/collectors/plugins.d/plugins_d.c
         src/collectors/plugins.d/plugins_d.h
@@ -1197,6 +1295,24 @@ set(FREEBSD_PLUGIN_FILES
         src/collectors/proc.plugin/zfs_common.h
 )
 
+set(WINDOWS_PLUGIN_FILES
+        src/collectors/windows.plugin/windows_plugin.c
+        src/collectors/windows.plugin/windows_plugin.h
+        src/collectors/windows.plugin/GetSystemUptime.c
+        src/collectors/windows.plugin/GetSystemRAM.c
+        src/collectors/windows.plugin/GetSystemCPU.c
+        src/collectors/windows.plugin/perflib.c
+        src/collectors/windows.plugin/perflib.h
+        src/collectors/windows.plugin/perflib-rrd.c
+        src/collectors/windows.plugin/perflib-rrd.h
+        src/collectors/windows.plugin/perflib-names.c
+        src/collectors/windows.plugin/perflib-dump.c
+        src/collectors/windows.plugin/perflib-storage.c
+        src/collectors/windows.plugin/perflib-processor.c
+        src/collectors/windows.plugin/perflib-network.c
+        src/collectors/windows.plugin/perflib-memory.c
+)
+
 set(PROC_PLUGIN_FILES
         src/collectors/proc.plugin/ipc.c
         src/collectors/proc.plugin/plugin_proc.c
@@ -1303,7 +1419,7 @@ set(NETDATA_FILES
         ${WEB_PLUGIN_FILES}
         ${CLAIM_PLUGIN_FILES}
         ${SPAWN_PLUGIN_FILES}
-        ${ACLK_ALWAYS_BUILD}
+        "$<$<BOOL:${ENABLE_OPENSSL}>:${ACLK_ALWAYS_BUILD}>"
         ${PROFILE_PLUGIN_FILES}
 )
 
@@ -1315,6 +1431,7 @@ if(LINUX)
                 ${PROC_PLUGIN_FILES}
                 ${TC_PLUGIN_FILES}
                 ${TIMEX_PLUGIN_FILES}
+                ${INTERNAL_COLLECTORS_FILES}
         )
 
         if(ENABLE_SENTRY)
@@ -1327,12 +1444,20 @@ elseif(MACOS)
                 src/daemon/static_threads_macos.c
                 ${MACOS_PLUGIN_FILES}
                 ${TIMEX_PLUGIN_FILES}
+                ${INTERNAL_COLLECTORS_FILES}
         )
 elseif(FREEBSD)
         list(APPEND NETDATA_FILES
                 src/daemon/static_threads_freebsd.c
                 ${FREEBSD_PLUGIN_FILES}
                 ${TIMEX_PLUGIN_FILES}
+                ${INTERNAL_COLLECTORS_FILES}
+        )
+elseif(WINDOWS)
+        list(APPEND NETDATA_FILES
+                src/daemon/static_threads_windows.c
+                ${WINDOWS_PLUGIN_FILES}
+                ${INTERNAL_COLLECTORS_FILES}
         )
 endif()
 
@@ -1518,6 +1643,7 @@ target_include_directories(libnetdata BEFORE PUBLIC ${CONFIG_H_DIR} ${CMAKE_SOUR
 target_link_libraries(libnetdata PUBLIC
         "$<$<NOT:$<BOOL:${HAVE_BUILTIN_ATOMICS}>>:atomic>"
         "$<$<OR:$<BOOL:${LINUX}>,$<BOOL:${FREEBSD}>>:pthread;rt>"
+        "$<$<BOOL:${WINDOWS}>:kernel32;advapi32;winmm;rpcrt4>"
         "$<$<BOOL:${LINK_LIBM}>:m>"
         "${SYSTEMD_LDFLAGS}")
 
@@ -1541,7 +1667,7 @@ if(MACOS)
 else()
         pkg_check_modules(ZLIB REQUIRED zlib)
         target_include_directories(libnetdata BEFORE PUBLIC ${ZLIB_INCLUDE_DIRS})
-        target_compile_definitions(libnetdata PUBLIC ${ZLIB_CFLAGS_OTHER})
+        target_compile_options(libnetdata PUBLIC ${ZLIB_CFLAGS_OTHER})
         target_link_libraries(libnetdata PUBLIC ${ZLIB_LDFLAGS})
 endif()
 
@@ -1556,7 +1682,7 @@ else()
 endif()
 
 target_include_directories(libnetdata BEFORE PUBLIC ${LIBLZ4_INCLUDE_DIRS})
-target_compile_definitions(libnetdata PUBLIC ${LIBLZ4_CFLAGS_OTHER})
+target_compile_options(libnetdata PUBLIC ${LIBLZ4_CFLAGS_OTHER})
 target_link_libraries(libnetdata PUBLIC ${LIBLZ4_LDFLAGS})
 
 # zstd
@@ -1564,7 +1690,7 @@ pkg_check_modules(LIBZSTD libzstd)
 if(LIBZSTD_FOUND)
         set(ENABLE_ZSTD On)
         target_include_directories(libnetdata BEFORE PUBLIC ${LIBZSTD_INCLUDE_DIRS})
-        target_compile_definitions(libnetdata PUBLIC ${LIBZSTD_CFLAGS_OTHER})
+        target_compile_options(libnetdata PUBLIC ${LIBZSTD_CFLAGS_OTHER})
         target_link_libraries(libnetdata PUBLIC ${LIBZSTD_LDFLAGS})
 endif()
 
@@ -1573,36 +1699,47 @@ pkg_check_modules(LIBBROTLI libbrotlidec libbrotlienc libbrotlicommon)
 if(LIBBROTLI_FOUND)
         set(ENABLE_BROTLI On)
         target_include_directories(libnetdata PUBLIC ${LIBBROTLI_INCLUDE_DIRS})
-        target_compile_definitions(libnetdata PUBLIC ${LIBBROTLI_CFLAGS_OTHER})
+        target_compile_options(libnetdata PUBLIC ${LIBBROTLI_CFLAGS_OTHER})
         target_link_libraries(libnetdata PUBLIC ${LIBBROTLI_LDFLAGS})
 endif()
 
 # uuid
-if(MACOS)
+if(MACOS OR WINDOWS)
         # UUID functionality is part of the system libraries here, so no extra
         # stuff needed.
 else()
         pkg_check_modules(UUID REQUIRED uuid)
         target_include_directories(libnetdata BEFORE PUBLIC ${UUID_INCLUDE_DIRS})
-        target_compile_definitions(libnetdata PUBLIC ${UUID_CFLAGS_OTHER})
+        target_compile_options(libnetdata PUBLIC ${UUID_CFLAGS_OTHER})
         target_link_libraries(libnetdata PUBLIC ${UUID_LDFLAGS})
 endif()
 
 # uv
 pkg_check_modules(LIBUV REQUIRED libuv)
 target_include_directories(libnetdata BEFORE PUBLIC ${LIBUV_INCLUDE_DIRS})
-target_compile_definitions(libnetdata PUBLIC ${LIBUV_CFLAGS_OTHER})
+target_compile_options(libnetdata PUBLIC ${LIBUV_CFLAGS_OTHER})
 target_link_libraries(libnetdata PUBLIC ${LIBUV_LDFLAGS})
 
-# crypto
-target_include_directories(libnetdata BEFORE PUBLIC ${CRYPTO_INCLUDE_DIRS})
-target_compile_options(libnetdata PUBLIC ${CRYPTO_CFLAGS_OTHER})
-target_link_libraries(libnetdata PUBLIC ${CRYPTO_LDFLAGS})
+if (ENABLE_OPENSSL)
+        message(STATUS "Compiling Netdata with OpenSSL")
+        # crypto
+        target_include_directories(libnetdata BEFORE PUBLIC ${CRYPTO_INCLUDE_DIRS})
+        target_compile_options(libnetdata PUBLIC ${CRYPTO_CFLAGS_OTHER})
+        target_link_libraries(libnetdata PUBLIC ${CRYPTO_LDFLAGS})
 
-# openssl
-target_include_directories(libnetdata BEFORE PUBLIC ${OPENSSL_INCLUDE_DIRS})
-target_compile_options(libnetdata PUBLIC ${OPENSSL_CFLAGS_OTHER})
-target_link_libraries(libnetdata PUBLIC ${OPENSSL_LDFLAGS})
+        # openssl
+        target_include_directories(libnetdata BEFORE PUBLIC ${OPENSSL_INCLUDE_DIRS})
+        target_compile_options(libnetdata PUBLIC ${OPENSSL_CFLAGS_OTHER})
+        target_link_libraries(libnetdata PUBLIC ${OPENSSL_LDFLAGS})
+endif()
+
+if (ENABLE_WOLFSSL)
+        message(STATUS "Compiling Netdata with WolfSSL")
+
+        target_include_directories(libnetdata BEFORE PUBLIC ${WOLFSSL_INCLUDE_DIRS})
+        target_compile_options(libnetdata PUBLIC ${WOLFSSL_CFLAGS_OTHER})
+        target_link_libraries(libnetdata PUBLIC ${WOLFSSL_LDFLAGS})
+endif()
 
 # mnl
 if(NOT MACOS)
@@ -1630,7 +1767,8 @@ if(ENABLE_MQTTWEBSOCKETS)
 
         target_compile_options(mqttwebsockets PUBLIC -DMQTT_WSS_CUSTOM_ALLOC
                                                      -DRBUF_CUSTOM_MALLOC
-                                                     -DMQTT_WSS_CPUSTATS)
+                                                     -DMQTT_WSS_CPUSTATS
+                )
 
         target_include_directories(mqttwebsockets PUBLIC ${CMAKE_SOURCE_DIR}/aclk/helpers
                                                          ${CMAKE_SOURCE_DIR}/src/web/server/h2o/libh2o/include)
@@ -1879,9 +2017,9 @@ endif()
 
 if(ENABLE_PLUGIN_CUPS)
     pkg_check_modules(CUPS libcups)
-    if(NOT CUPS_LIBRARIES)
+    if(NOT CUPS_FOUND)
         pkg_check_modules(CUPS cups)
-        if(NOT CUPS_LIBRARIES)
+        if(NOT CUPS_FOUND)
                 find_program(CUPS_CONFIG cups-config)
                 if(CUPS_CONFIG)
                         execute_process(COMMAND ${CUPS_CONFIG} --api-version OUTPUT_VARIABLE CUPS_API_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE)
@@ -2153,6 +2291,9 @@ add_executable(netdata
 
 target_compile_definitions(netdata PRIVATE
         "$<$<BOOL:${ENABLE_ML}>:DLIB_NO_GUI_SUPPORT>"
+)
+
+target_compile_options(netdata PRIVATE
         "$<$<BOOL:${ENABLE_EXPORTER_MONGODB}>:${MONGOC_CFLAGS_OTHER}>"
         "$<$<BOOL:${ENABLE_EXPORTER_PROMETHEUS_REMOTE_WRITE}>:${SNAPPY_CFLAGS_OTHER}>"
 )
@@ -2219,7 +2360,7 @@ if(PCRE2_FOUND)
 
         add_executable(log2journal ${LOG2JOURNAL_FILES})
         target_include_directories(log2journal BEFORE PUBLIC ${CONFIG_H_DIR} ${CMAKE_SOURCE_DIR}/src ${PCRE2_INCLUDE_DIRS})
-        target_compile_definitions(log2journal PUBLIC ${PCRE2_CFLAGS_OTHER})
+        target_compile_options(log2journal PUBLIC ${PCRE2_CFLAGS_OTHER})
         target_link_libraries(log2journal PUBLIC "${PCRE2_LDFLAGS}")
 
         netdata_add_libyaml_to_target(log2journal)
@@ -2914,10 +3055,12 @@ install(FILES
         COMPONENT netdata
         DESTINATION ${WEB_DEST}/.well-known/dnt)
 
-# v0 dashboard
-install(FILES
-        src/web/gui/v0/index.html
-        COMPONENT netdata
-        DESTINATION ${WEB_DEST}/v0)
+if(NOT WINDOWS)
+        # v0 dashboard
+        install(FILES
+                src/web/gui/v0/index.html
+                COMPONENT netdata
+                DESTINATION ${WEB_DEST}/v0)
+endif()
 
 include(Packaging)

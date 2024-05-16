@@ -14,24 +14,7 @@ typedef enum __attribute__((packed)) {
 
 # ifdef ENABLE_HTTPS
 
-#define OPENSSL_VERSION_095 0x00905100L
-#define OPENSSL_VERSION_097 0x0907000L
-#define OPENSSL_VERSION_110 0x10100000L
-#define OPENSSL_VERSION_111 0x10101000L
-#define OPENSSL_VERSION_300 0x30000000L
-
-#  include <openssl/ssl.h>
-#  include <openssl/err.h>
-#  include <openssl/evp.h>
-#  include <openssl/pem.h>
-#  if (SSLEAY_VERSION_NUMBER >= OPENSSL_VERSION_097) && (OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_110)
-#   include <openssl/conf.h>
-#  endif
-
-#if OPENSSL_VERSION_NUMBER >= OPENSSL_VERSION_300
-#include <openssl/core_names.h>
-#include <openssl/decoder.h>
-#endif
+#include "../ssl/ssl.h"
 
 typedef struct netdata_ssl {
     SSL *conn;               // SSL connection
@@ -39,7 +22,7 @@ typedef struct netdata_ssl {
     unsigned long ssl_errno; // The SSL errno of the last SSL call
 } NETDATA_SSL;
 
-#define NETDATA_SSL_UNSET_CONNECTION (NETDATA_SSL){ .conn = NULL, .state = NETDATA_SSL_STATE_NOT_SSL }
+#define NETDATA_SSL_UNSET_CONNECTION (NETDATA_SSL){ .conn = NULL, .state = NETDATA_SSL_STATE_NOT_SSL, .ssl_errno = 0 }
 
 #define SSL_connection(ssl) ((ssl)->conn && (ssl)->state != NETDATA_SSL_STATE_NOT_SSL)
 
@@ -69,6 +52,9 @@ void netdata_ssl_close(NETDATA_SSL *ssl);
 
 ssize_t netdata_ssl_read(NETDATA_SSL *ssl, void *buf, size_t num);
 ssize_t netdata_ssl_write(NETDATA_SSL *ssl, const void *buf, size_t num);
+
+ssize_t netdata_ssl_pending(NETDATA_SSL *ssl);
+bool netdata_ssl_has_pending(NETDATA_SSL *ssl);
 
 # endif //ENABLE_HTTPS
 #endif //NETDATA_SECURITY_H

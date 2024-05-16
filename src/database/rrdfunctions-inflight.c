@@ -10,7 +10,7 @@ struct rrd_function_inflight {
     bool used;
 
     RRDHOST *host;
-    uuid_t transaction_uuid;
+    nd_uuid_t transaction_uuid;
     const char *transaction;
     const char *cmd;
     const char *sanitized_cmd;
@@ -438,6 +438,7 @@ int rrd_function_run(RRDHOST *host, BUFFER *result_wb, int timeout_s,
 
     if(!http_access_user_has_enough_access_level_for_endpoint(user_access, rdcf->access)) {
 
+#ifdef ENABLE_ACLK
         if(!aclk_connected)
             code = rrd_call_function_error(result_wb,
                                            "This Netdata must be connected to Netdata Cloud for Single-Sign-On (SSO) "
@@ -445,6 +446,9 @@ int rrd_function_run(RRDHOST *host, BUFFER *result_wb, int timeout_s,
                                            HTTP_ACCESS_PERMISSION_DENIED_HTTP_CODE(user_access));
 
         else if((rdcf->access & HTTP_ACCESS_SIGNED_ID) && !(user_access & HTTP_ACCESS_SIGNED_ID))
+#else
+        if((rdcf->access & HTTP_ACCESS_SIGNED_ID) && !(user_access & HTTP_ACCESS_SIGNED_ID))
+#endif
             code = rrd_call_function_error(result_wb,
                                            "You need to be authenticated via Netdata Cloud Single-Sign-On (SSO) "
                                            "to access this feature. Sign-in on this dashboard, "
@@ -491,7 +495,7 @@ int rrd_function_run(RRDHOST *host, BUFFER *result_wb, int timeout_s,
     // validate and parse the transaction, or generate a new transaction id
 
     char uuid_str[UUID_COMPACT_STR_LEN];
-    uuid_t uuid;
+    nd_uuid_t uuid;
 
     if(!transaction || !*transaction || uuid_parse_flexi(transaction, uuid) != 0)
         uuid_generate_random(uuid);
@@ -597,7 +601,7 @@ int rrd_function_run(RRDHOST *host, BUFFER *result_wb, int timeout_s,
     return rrd_call_function_async(r, wait);
 }
 
-bool rrd_function_has_this_original_result_callback(uuid_t *transaction, rrd_function_result_callback_t cb) {
+bool rrd_function_has_this_original_result_callback(nd_uuid_t *transaction, rrd_function_result_callback_t cb) {
     bool ret = false;
     char str[UUID_COMPACT_STR_LEN];
     uuid_unparse_lower_compact(*transaction, str);
@@ -684,7 +688,7 @@ cleanup:
     dictionary_acquired_item_release(rrd_functions_inflight_requests, item);
 }
 
-void rrd_function_call_progresser(uuid_t *transaction) {
+void rrd_function_call_progresser(nd_uuid_t *transaction) {
     char str[UUID_COMPACT_STR_LEN];
     uuid_unparse_lower_compact(*transaction, str);
     rrd_function_progress(str);
