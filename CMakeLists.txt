@@ -487,9 +487,14 @@ int main() {
 " HAVE_BUILTIN_ATOMICS)
 
 check_c_source_compiles("
+void my_printf(char const *s, ...) __attribute__((format(gnu_printf, 1, 2)));
+int main() { return 0; }
+" HAVE_FUNC_ATTRIBUTE_FORMAT_GNU_PRINTF FAIL_REGEX "warning:")
+
+check_c_source_compiles("
 void my_printf(char const *s, ...) __attribute__((format(printf, 1, 2)));
 int main() { return 0; }
-" HAVE_FUNC_ATTRIBUTE_FORMAT)
+" HAVE_FUNC_ATTRIBUTE_FORMAT_PRINTF FAIL_REGEX "warning:")
 
 check_c_source_compiles("
 #include <stdio.h>
@@ -1251,6 +1256,12 @@ set(ACLK_ALWAYS_BUILD
         src/aclk/aclk_util.h
         src/aclk/https_client.c
         src/aclk/https_client.h
+        src/aclk/mqtt_websockets/c-rbuf/cringbuffer.c
+        src/aclk/mqtt_websockets/c-rbuf/cringbuffer.h
+        src/aclk/mqtt_websockets/c-rbuf/cringbuffer_internal.h
+        src/aclk/mqtt_websockets/c_rhash/c_rhash.c
+        src/aclk/mqtt_websockets/c_rhash/c_rhash.h
+        src/aclk/mqtt_websockets/c_rhash/c_rhash_internal.h
 )
 
 set(TIMEX_PLUGIN_FILES
@@ -1473,12 +1484,6 @@ set(MQTT_WEBSOCKETS_FILES
         src/aclk/mqtt_websockets/common_public.c
         src/aclk/mqtt_websockets/common_public.h
         src/aclk/mqtt_websockets/common_internal.h
-        src/aclk/mqtt_websockets/c-rbuf/cringbuffer.c
-        src/aclk/mqtt_websockets/c-rbuf/cringbuffer.h
-        src/aclk/mqtt_websockets/c-rbuf/cringbuffer_internal.h
-        src/aclk/mqtt_websockets/c_rhash/c_rhash.c
-        src/aclk/mqtt_websockets/c_rhash/c_rhash.h
-        src/aclk/mqtt_websockets/c_rhash/c_rhash_internal.h
 )
 
 set(ACLK_PROTO_DEFS
