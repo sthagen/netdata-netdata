@@ -66,7 +66,22 @@ project(netdata
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/packaging/cmake/Modules")
 include(CMakeDependentOption)
 
+if(DEFINED BUILD_SHARED_LIBS)
+    if(NOT BUILD_SHARED_LIBS)
+        set(STATIC_BUILD TRUE)
+    endif()
+endif()
+
+if(STATIC_BUILD)
+    set(CMAKE_FIND_LIBRARY_PREFIXES "${CMAKE_STATIC_LIBRARY_PREFIX}")
+    set(CMAKE_FIND_LIBRARY_SUFFIXES "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif()
+
 find_package(PkgConfig REQUIRED)
+
+if(STATIC_BUILD)
+    list(APPEND PKG_CONFIG_EXECUTABLE "--static")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 14)
@@ -120,6 +135,57 @@ endif()
 set(CONFIG_H_DIR ${CMAKE_BINARY_DIR})
 set(CONFIG_H ${CONFIG_H_DIR}/config.h)
 
+#
+# detect OS
+#
+
+set(LINUX       False)
+set(FREEBSD     False)
+set(MACOS       False)
+set(WINDOWS     False)
+set(FOREIGN_OS  False)
+
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
+        set(MACOS True)
+        set(COMPILED_FOR_MACOS True)
+        find_library(IOKIT IOKit)
+        find_library(FOUNDATION Foundation)
+        message(INFO " Compiling for MacOS... ")
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
+        set(FREEBSD True)
+        set(COMPILED_FOR_FREEBSD True)
+        message(INFO " Compiling for FreeBSD... ")
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+        set(LINUX True)
+        set(COMPILED_FOR_LINUX True)
+        add_definitions(-D_GNU_SOURCE)
+        message(INFO " Compiling for Linux... ")
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "CYGWIN" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "MSYS" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+        set(WINDOWS True)
+        set(COMPILED_FOR_WINDOWS True)
+        add_definitions(-D_GNU_SOURCE)
+
+        if($ENV{CLION_IDE})
+                # clion needs these to find the includes
+                if("${CMAKE_SYSTEM_NAME}" STREQUAL "MSYS" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+                        if("$ENV{MSYSTEM}" STREQUAL "MSYS")
+                                include_directories(c:/msys64/usr/include)
+                                include_directories(c:/msys64/usr/include/w32api)
+                        elseif("$ENV{MSYSTEM}" STREQUAL "MINGW64")
+                                include_directories(c:/msys64/mingw64/include)
+                        elseif("$ENV{MSYSTEM}" STREQUAL "UCRT64")
+                                include_directories(c:/msys64/ucrt64/include)
+                        endif()
+                endif()
+        endif()
+
+        message(INFO " Compiling for Windows (${CMAKE_SYSTEM_NAME}, MSYSTEM=$ENV{MSYSTEM})... ")
+else()
+        set(FOREIGN_OS True)
+        set(COMPILED_FOR_FOREIGN_OS True)
+        message(WARNING " Compiling for Unknown O/S... (${CMAKE_SYSTEM_NAME})")
+endif()
+
 # This is intended to make life easier for developers who are working on one
 # specific feature.
 option(DEFAULT_FEATURE_STATE "Specify the default state for most optional features" True)
@@ -133,22 +199,25 @@ option(ENABLE_DBENGINE "Enable dbengine metrics storage" True)
 
 # Data collection plugins
 option(ENABLE_PLUGIN_APPS "Enable per-process resource usage monitoring" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_CGROUP_NETWORK "Enable Linux CGroup network usage monitoring" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_CUPS "Enable CUPS monitoring" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_DEBUGFS "Enable Linux DebugFS metric collection" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_EBPF "Enable Linux eBPF metric collection" ${DEFAULT_FEATURE_STATE})
-cmake_dependent_option(ENABLE_LEGACY_EBPF_PROGRAMS "Enable eBPF programs for kernels without BTF support" True ENABLE_PLUGIN_EBPF False)
-mark_as_advanced(ENABLE_LEGACY_EBPF_PROGRAMS)
-option(ENABLE_PLUGIN_FREEIPMI "Enable IPMI monitoring" ${DEFAULT_FEATURE_STATE})
 option(ENABLE_PLUGIN_GO "Enable metric collectors written in Go" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_LOCAL_LISTENERS "Enable local listening socket tracking (including service auto-discovery support)" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_LOGS_MANAGEMENT "Enable log collection and monitoring based on Fluent Bit" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_NETWORK_VIEWER "Enable network viewer functionality" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_NFACCT "Enable Linux NFACCT metric collection" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_PERF "Enable Linux performance counter monitoring" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_SLABINFO "Enable Linux kernel SLAB allocator monitoring" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_SYSTEMD_JOURNAL "Enable systemd journal log collection" ${DEFAULT_FEATURE_STATE})
-option(ENABLE_PLUGIN_XENSTAT "Enable Xen domain monitoring" ${DEFAULT_FEATURE_STATE})
+
+cmake_dependent_option(ENABLE_PLUGIN_CUPS "Enable CUPS monitoring" ${DEFAULT_FEATURE_STATE} "LINUX OR FREEBSD OR MACOS" False)
+
+cmake_dependent_option(ENABLE_PLUGIN_FREEIPMI "Enable IPMI monitoring" ${DEFAULT_FEATURE_STATE} "LINUX OR FREEBSD" False)
+
+cmake_dependent_option(ENABLE_PLUGIN_CGROUP_NETWORK "Enable Linux CGroup network usage monitoring" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_DEBUGFS "Enable Linux DebugFS metric collection" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_EBPF "Enable Linux eBPF metric collection" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_LEGACY_EBPF_PROGRAMS "Enable eBPF programs for kernels without BTF support" True "ENABLE_PLUGIN_EBPF" False)
+mark_as_advanced(ENABLE_LEGACY_EBPF_PROGRAMS)
+cmake_dependent_option(ENABLE_PLUGIN_LOCAL_LISTENERS "Enable local listening socket tracking (including service auto-discovery support)" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_LOGS_MANAGEMENT "Enable log collection and monitoring based on Fluent Bit" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_NETWORK_VIEWER "Enable network viewer functionality" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_NFACCT "Enable Linux NFACCT metric collection" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_PERF "Enable Linux performance counter monitoring" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_SLABINFO "Enable Linux kernel SLAB allocator monitoring" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_SYSTEMD_JOURNAL "Enable systemd journal log collection" ${DEFAULT_FEATURE_STATE} "LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_XENSTAT "Enable Xen domain monitoring" ${DEFAULT_FEATURE_STATE} "LINUX" False)
 
 # Metrics exporters
 option(ENABLE_EXPORTER_PROMETHEUS_REMOTE_WRITE "Enable exporting to Prometheus via remote write API" ${DEFAULT_FEATURE_STATE})
@@ -160,7 +229,7 @@ option(ENABLE_BUNDLED_YAML "Force use of a vendored copy of libyaml" False)
 option(ENABLE_BUNDLED_PROTOBUF "Use a vendored copy of protobuf" False)
 
 # Optional test code
-cmake_dependent_option(ENABLE_LOGS_MANAGEMENT_TESTS "Enable test code for logs-management plugin." True "NOT ENABLE_PLUGIN_LOGS_MANAGEMENT" False)
+cmake_dependent_option(ENABLE_LOGS_MANAGEMENT_TESTS "Enable test code for logs-management plugin." True "ENABLE_PLUGIN_LOGS_MANAGEMENT" False)
 mark_as_advanced(ENABLE_LOGS_MANAGEMENT_TESTS)
 
 # Experimental features
@@ -220,64 +289,9 @@ if(NEED_PROTOBUF)
         endif()
 endif()
 
-#
-# detect OS
-#
-
-set(LINUX       False)
-set(FREEBSD     False)
-set(MACOS       False)
-set(WINDOWS     False)
-set(FOREIGN_OS  False)
-
-if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
-        set(MACOS True)
-        set(COMPILED_FOR_MACOS True)
-        find_library(IOKIT IOKit)
-        find_library(FOUNDATION Foundation)
-        message(INFO " Compiling for MacOS... ")
-elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
-        set(FREEBSD True)
-        set(COMPILED_FOR_FREEBSD True)
-        message(INFO " Compiling for FreeBSD... ")
-elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
-        set(LINUX True)
-        set(COMPILED_FOR_LINUX True)
-        add_definitions(-D_GNU_SOURCE)
-        message(INFO " Compiling for Linux... ")
-elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "CYGWIN" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "MSYS" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
-        set(WINDOWS True)
-        set(COMPILED_FOR_WINDOWS True)
-        add_definitions(-D_GNU_SOURCE)
-
-        if($ENV{CLION_IDE})
-                # clion needs these to find the includes
-                if("${CMAKE_SYSTEM_NAME}" STREQUAL "MSYS" OR "${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
-                        if("$ENV{MSYSTEM}" STREQUAL "MSYS")
-                                include_directories(c:/msys64/usr/include)
-                                include_directories(c:/msys64/usr/include/w32api)
-                        elseif("$ENV{MSYSTEM}" STREQUAL "MINGW64")
-                                include_directories(c:/msys64/mingw64/include)
-                        elseif("$ENV{MSYSTEM}" STREQUAL "UCRT64")
-                                include_directories(c:/msys64/ucrt64/include)
-                        endif()
-                endif()
-        endif()
-
-        message(INFO " Compiling for Windows (${CMAKE_SYSTEM_NAME}, MSYSTEM=$ENV{MSYSTEM})... ")
-else()
-        set(FOREIGN_OS True)
-        set(COMPILED_FOR_FOREIGN_OS True)
-        message(WARNING " Compiling for Unknown O/S... (${CMAKE_SYSTEM_NAME})")
-endif()
-
 if(ENABLE_PLUGIN_EBPF)
         include(NetdataLibBPF)
         include(NetdataEBPFCORE)
-
-        if(NOT LINUX)
-            message(FATAL_ERROR "The eBPF plugin is not supported on non-Linux systems")
-        endif()
 
         netdata_bundle_libbpf()
         netdata_fetch_ebpf_co_re()
@@ -547,9 +561,9 @@ endif()
 
 # openssl/crypto
 set(ENABLE_OPENSSL True)
-pkg_check_modules(OPENSSL openssl)
+pkg_check_modules(TLS IMPORTED_TARGET openssl)
 
-if(NOT OPENSSL_FOUND)
+if(NOT TARGET PkgConfig::TLS)
         if(MACOS)
                 execute_process(COMMAND
                                 brew --prefix --installed openssl
@@ -561,17 +575,23 @@ if(NOT OPENSSL_FOUND)
                         message(FATAL_ERROR "OpenSSL (or LibreSSL) is required for building Netdata, but could not be found.")
                 endif()
 
-                set(OPENSSL_INCLUDE_DIRS "${BREW_OPENSSL_PREFIX}/include")
-                set(OPENSSL_CFLAGS_OTHER "")
-                set(OPENSSL_LDFLAGS "-L${BREW_OPENSSL_PREFIX}/lib;-lssl;-lcrypto")
+                add_library(PkgConfig::CRYPTO IMPORTED)
+                set_target_properties(PkgConfig::CRYPTO
+                        IMPORTED_LOCATION ${BREW_OPENSSL_PREFIX}/lib/libcrypto.dylib
+                        INTERFACE_INCLUDE_DIRECTORIES ${BREW_OPENSSL_PREFIX}/include)
+
+                add_library(PkgConfig::TLS IMPORTED)
+                set_target_properties(PkgConfig::TLS
+                        IMPORTED_LOCATION ${BREW_OPENSSL_PREFIX}/lib/libssl.dylib
+                        INTERFACE_LINK_LIBRARIES PkgConfig::CRYPTO
+                        INTERFACE_INCLUDE_DIRECTORIES ${BREW_OPENSSL_PREFIX}/include)
         else()
             message(FATAL_ERROR "OpenSSL (or LibreSSL) is required for building Netdata, but could not be found.")
         endif()
+else()
+        pkg_check_modules(CRYPTO IMPORTED_TARGET REQUIRED libcrypto)
 endif()
 
-if(NOT MACOS)
-        pkg_check_modules(CRYPTO libcrypto)
-endif()
 
 #
 # figure out if we need protoc/protobuf
@@ -1576,10 +1596,7 @@ if(ENABLE_H2O)
         )
 
         target_compile_options(h2o PUBLIC -DH2O_USE_LIBUV=0)
-
-        target_include_directories(h2o BEFORE PRIVATE ${OPENSSL_INCLUDE_DIRS})
-        target_compile_options(h2o PRIVATE ${OPENSSL_CFLAGS_OTHER})
-        target_link_libraries(h2o PRIVATE ${OPENSSL_LIBRARIES})
+        target_link_libraries(h2o PRIVATE PkgConfig::TLS)
 endif()
 
 #
@@ -1713,14 +1730,10 @@ target_compile_options(libnetdata PUBLIC ${LIBUV_CFLAGS_OTHER})
 target_link_libraries(libnetdata PUBLIC ${LIBUV_LDFLAGS})
 
 # crypto
-target_include_directories(libnetdata BEFORE PUBLIC ${CRYPTO_INCLUDE_DIRS})
-target_compile_options(libnetdata PUBLIC ${CRYPTO_CFLAGS_OTHER})
-target_link_libraries(libnetdata PUBLIC ${CRYPTO_LDFLAGS})
+target_link_libraries(libnetdata PUBLIC PkgConfig::CRYPTO)
 
 # openssl
-target_include_directories(libnetdata BEFORE PUBLIC ${OPENSSL_INCLUDE_DIRS})
-target_compile_options(libnetdata PUBLIC ${OPENSSL_CFLAGS_OTHER})
-target_link_libraries(libnetdata PUBLIC ${OPENSSL_LDFLAGS})
+target_link_libraries(libnetdata PUBLIC PkgConfig::TLS)
 
 # mnl
 if(NOT MACOS)
