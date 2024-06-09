@@ -1644,11 +1644,17 @@ bool rrdeng_ctx_tier_cap_exceeded(struct rrdengine_instance *ctx)
 
 void retention_timer_cb(uv_timer_t *handle)
 {
+    if (!localhost)
+        return;
+
     worker_is_busy(RRDENG_TIMER_CB);
     uv_stop(handle->loop);
     uv_update_time(handle->loop);
 
     for (size_t tier = 0; tier < storage_tiers; tier++) {
+        STORAGE_ENGINE *eng = localhost->db[tier].eng;
+        if (!eng || eng->seb != STORAGE_ENGINE_BACKEND_DBENGINE)
+            continue;
         bool cleanup = rrdeng_ctx_tier_cap_exceeded(multidb_ctx[tier]);
         if (cleanup)
             rrdeng_enq_cmd(multidb_ctx[tier], RRDENG_OPCODE_DATABASE_ROTATE, NULL, NULL, STORAGE_PRIORITY_INTERNAL_DBENGINE, NULL, NULL);
@@ -1807,13 +1813,13 @@ void dbengine_retention_statistics(void)
                 "netdata",
                 id,
                 NULL,
-                "dbengine",
+                "dbengine retention",
                 "netdata.dbengine_tier_retention",
                 "dbengine space and time retention",
                 "%",
                 "netdata",
                 "stats",
-                200000,
+                134900, // before "dbengine memory" (dbengine2_statistics_charts)
                 10,
                 RRDSET_TYPE_LINE);
 
