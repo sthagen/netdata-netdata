@@ -1017,6 +1017,7 @@ set(INTERNAL_COLLECTORS_FILES
         src/collectors/common-contexts/common-contexts.h
         src/collectors/common-contexts/disk.io.h
         src/collectors/common-contexts/system.io.h
+        src/collectors/common-contexts/system.interrupts.h
         src/collectors/common-contexts/system.processes.h
         src/collectors/common-contexts/system.ram.h
         src/collectors/common-contexts/mem.swap.h
@@ -2844,7 +2845,6 @@ install(FILES
         src/collectors/python.d.plugin/openldap/openldap.conf
         src/collectors/python.d.plugin/oracledb/oracledb.conf
         src/collectors/python.d.plugin/pandas/pandas.conf
-        src/collectors/python.d.plugin/postfix/postfix.conf
         src/collectors/python.d.plugin/puppet/puppet.conf
         src/collectors/python.d.plugin/rethinkdbs/rethinkdbs.conf
         src/collectors/python.d.plugin/retroshare/retroshare.conf
@@ -2885,7 +2885,6 @@ install(FILES
         src/collectors/python.d.plugin/openldap/openldap.chart.py
         src/collectors/python.d.plugin/oracledb/oracledb.chart.py
         src/collectors/python.d.plugin/pandas/pandas.chart.py
-        src/collectors/python.d.plugin/postfix/postfix.chart.py
         src/collectors/python.d.plugin/puppet/puppet.chart.py
         src/collectors/python.d.plugin/rethinkdbs/rethinkdbs.chart.py
         src/collectors/python.d.plugin/retroshare/retroshare.chart.py
