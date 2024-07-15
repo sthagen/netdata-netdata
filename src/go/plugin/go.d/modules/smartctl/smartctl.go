@@ -38,6 +38,7 @@ func New() *Smartctl {
 			DeviceSelector:   "*",
 		},
 		charts:      &module.Charts{},
+		forceScan:   true,
 		deviceSr:    matcher.TRUE(),
 		seenDevices: make(map[string]bool),
 	}
@@ -82,6 +83,7 @@ type (
 	}
 	smartctlCli interface {
 		scan() (*gjson.Result, error)
+		scanOpen() (*gjson.Result, error)
 		deviceInfo(deviceName, deviceType, powerMode string) (*gjson.Result, error)
 	}
 )
