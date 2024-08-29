@@ -615,6 +615,8 @@ set(LIBNETDATA_FILES
         src/libnetdata/avl/avl.h
         src/libnetdata/buffer/buffer.c
         src/libnetdata/buffer/buffer.h
+        src/libnetdata/ringbuffer/ringbuffer.c
+        src/libnetdata/ringbuffer/ringbuffer.h
         src/libnetdata/circular_buffer/circular_buffer.c
         src/libnetdata/circular_buffer/circular_buffer.h
         src/libnetdata/clocks/clocks.c
@@ -1298,12 +1300,9 @@ set(ACLK_ALWAYS_BUILD
         src/aclk/aclk_util.h
         src/aclk/https_client.c
         src/aclk/https_client.h
-        src/aclk/mqtt_websockets/c-rbuf/cringbuffer.c
-        src/aclk/mqtt_websockets/c-rbuf/cringbuffer.h
-        src/aclk/mqtt_websockets/c-rbuf/cringbuffer_internal.h
-        src/aclk/mqtt_websockets/c_rhash/c_rhash.c
-        src/aclk/mqtt_websockets/c_rhash/c_rhash.h
-        src/aclk/mqtt_websockets/c_rhash/c_rhash_internal.h
+        src/libnetdata/c_rhash/c_rhash.c
+        src/libnetdata/c_rhash/c_rhash.h
+        src/libnetdata/c_rhash/c_rhash_internal.h
 )
 
 set(TIMEX_PLUGIN_FILES
@@ -1546,8 +1545,6 @@ set(ACLK_FILES
         src/aclk/schema-wrappers/schema_wrapper_utils.h
         src/aclk/schema-wrappers/agent_cmds.cc
         src/aclk/schema-wrappers/agent_cmds.h
-        src/aclk/helpers/mqtt_wss_pal.h
-        src/aclk/helpers/ringbuffer_pal.h
 )
 
 
@@ -2772,7 +2769,6 @@ install(PROGRAMS
         src/collectors/charts.d.plugin/example/example.chart.sh
         src/collectors/charts.d.plugin/libreswan/libreswan.chart.sh
         src/collectors/charts.d.plugin/opensips/opensips.chart.sh
-        src/collectors/charts.d.plugin/sensors/sensors.chart.sh
         COMPONENT plugin-chartsd
         DESTINATION usr/libexec/netdata/charts.d)
 
@@ -2781,7 +2777,6 @@ install(FILES
         src/collectors/charts.d.plugin/example/example.conf
         src/collectors/charts.d.plugin/libreswan/libreswan.conf
         src/collectors/charts.d.plugin/opensips/opensips.conf
-        src/collectors/charts.d.plugin/sensors/sensors.conf
         COMPONENT plugin-chartsd
         DESTINATION usr/lib/netdata/conf.d/charts.d)
 
