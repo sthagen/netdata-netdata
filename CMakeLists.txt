@@ -118,6 +118,10 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "CYGWIN" OR "${CMAKE_SYSTEM_NAME}" STREQU
         endif()
 
         set(BINDIR usr/bin)
+        set(CMAKE_RC_COMPILER_INIT windres)
+        ENABLE_LANGUAGE(RC)
+
+        SET(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <FLAGS> -O coff <DEFINES> -i <SOURCE> -o <OBJECT>")
         add_definitions(-D_GNU_SOURCE)
 
         if($ENV{CLION_IDE})
@@ -1264,6 +1268,14 @@ set(STREAMING_PLUGIN_FILES
         src/streaming/protocol/commands.c
         src/streaming/protocol/commands.h
         src/streaming/protocol/command-claimed_id.c
+        src/streaming/stream_path.c
+        src/streaming/stream_path.h
+        src/streaming/stream_capabilities.c
+        src/streaming/stream_capabilities.h
+        src/streaming/sender_connect.c
+        src/streaming/sender_internals.h
+        src/streaming/sender_execute.c
+        src/streaming/sender_commit.c
 )
 
 set(WEB_PLUGIN_FILES
@@ -1286,6 +1298,13 @@ set(CLAIM_PLUGIN_FILES
         src/claim/claim-with-api.c
         src/claim/cloud-status.c
         src/claim/cloud-status.h
+)
+
+set(CLAIM_WINDOWS_FILES
+        src/claim/netdata_claim.c
+        src/claim/netdata_claim.h
+        src/claim/netdata_claim_window.c
+        src/claim/netdata_claim_window.h
 )
 
 set(ACLK_ALWAYS_BUILD
@@ -2230,6 +2249,13 @@ add_executable(netdata
         "$<$<BOOL:${ENABLE_EXPORTER_PROMETHEUS_REMOTE_WRITE}>:${PROMETHEUS_REMOTE_WRITE_EXPORTING_FILES}>"
 )
 
+if(OS_WINDOWS)
+        set(NETDATA_CLAIM_RES_FILES "packaging/windows/resources/netdata_claim.rc")
+
+        add_executable(netdata_claim ${CLAIM_WINDOWS_FILES} ${NETDATA_CLAIM_RES_FILES})
+        target_link_libraries(netdata_claim shell32;gdi32;msftedit)
+endif()
+
 target_compile_definitions(netdata PRIVATE
         "$<$<BOOL:${ENABLE_ML}>:DLIB_NO_GUI_SUPPORT>"
 )
@@ -2417,6 +2443,13 @@ install(PROGRAMS
         ${CMAKE_BINARY_DIR}/src/claim/netdata-claim.sh
         COMPONENT netdata
         DESTINATION "${BINDIR}")
+
+if(OS_WINDOWS)
+        install(PROGRAMS
+                ${CMAKE_BINARY_DIR}/netdata_claim.exe
+                COMPONENT netdata
+                DESTINATION "${BINDIR}")
+endif()
 
 #
 # We don't check ENABLE_PLUGIN_CGROUP_NETWORK because rpm builds assume
