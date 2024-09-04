@@ -6,7 +6,7 @@
 // it is used by all netdata web servers
 
 int respect_web_browser_do_not_track_policy = 0;
-char *web_x_frame_options = NULL;
+const char *web_x_frame_options = NULL;
 
 int web_enable_gzip = 1, web_gzip_level = 3, web_gzip_strategy = Z_DEFAULT_STRATEGY;
 
@@ -903,8 +903,8 @@ void web_client_build_http_header(struct web_client *w) {
 
     if(w->mode == HTTP_REQUEST_MODE_OPTIONS) {
         buffer_strcat(w->response.header_output,
-                "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
-                        "Access-Control-Allow-Headers: accept, x-requested-with, origin, content-type, cookie, pragma, cache-control, x-auth-token\r\n"
+                "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+                        "Access-Control-Allow-Headers: accept, x-requested-with, origin, content-type, cookie, pragma, cache-control, x-auth-token, x-netdata-auth, x-transaction-id\r\n"
                         "Access-Control-Max-Age: 1209600\r\n" // 86400 * 14
         );
     }
