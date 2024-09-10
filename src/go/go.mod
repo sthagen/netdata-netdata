@@ -19,7 +19,6 @@ require (
 	github.com/docker/docker v27.2.1+incompatible
 	github.com/facebook/time v0.0.0-20240626113945-18207c5d8ddc
 	github.com/fsnotify/fsnotify v1.7.0
-	github.com/go-redis/redis/v8 v8.11.5
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gofrs/flock v0.12.1
@@ -27,7 +26,7 @@ require (
 	github.com/gosnmp/gosnmp v1.38.0
 	github.com/ilyam8/hashstructure v1.1.0
 	github.com/jackc/pgx/v4 v4.18.3
-	github.com/jackc/pgx/v5 v5.7.0
+	github.com/jackc/pgx/v5 v5.7.1
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/kanocz/fcgi_client v0.0.0-20210113082628-fff85c8adfb7
 	github.com/likexian/whois v1.15.5
@@ -40,6 +39,7 @@ require (
 	github.com/prometheus-community/pro-bing v0.4.1
 	github.com/prometheus/common v0.59.1
 	github.com/prometheus/prometheus v2.5.0+incompatible
+	github.com/redis/go-redis/v9 v9.6.1
 	github.com/stretchr/testify v1.9.0
 	github.com/tidwall/gjson v1.17.3
 	github.com/valyala/fastjson v1.6.4
@@ -98,7 +98,7 @@ require (
 	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgtype v1.14.0 // indirect
-	github.com/jackc/puddle/v2 v2.2.1 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/josharian/native v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
