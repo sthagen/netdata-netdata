@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/agent/module"
+	"github.com/netdata/netdata/go/plugins/plugin/go.d/agent/vnodes"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/pkg/matcher"
 
 	"github.com/gosnmp/gosnmp"
@@ -57,6 +58,8 @@ type SNMP struct {
 	module.Base
 	Config `yaml:",inline" json:""`
 
+	vnode *vnodes.VirtualNode
+
 	charts *module.Charts
 
 	newSnmpClient func() gosnmp.Handler
@@ -65,12 +68,14 @@ type SNMP struct {
 	netIfaceFilterByName matcher.Matcher
 	netIfaceFilterByType matcher.Matcher
 
-	checkMaxReps  bool
-	collectIfMib  bool
-	netInterfaces map[string]*netInterface
-	sysName       string
+	checkMaxReps bool
+	collectIfMib bool
 
-	oids []string
+	netInterfaces map[string]*netInterface
+
+	sysInfo *sysInfo
+
+	customOids []string
 }
 
 func (s *SNMP) Configuration() any {
@@ -112,7 +117,7 @@ func (s *SNMP) Init() error {
 	}
 	s.charts = charts
 
-	s.oids = s.initOIDs()
+	s.customOids = s.initOIDs()
 
 	return nil
 }
@@ -152,4 +157,8 @@ func (s *SNMP) Cleanup() {
 	if s.snmpClient != nil {
 		_ = s.snmpClient.Close()
 	}
+}
+
+func (s *SNMP) VirtualNode() *vnodes.VirtualNode {
+	return s.vnode
 }
