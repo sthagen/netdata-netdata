@@ -107,7 +107,7 @@ struct ml_metrics_statistics {
 #include "streaming/stream_capabilities.h"
 #include "streaming/stream_path.h"
 #include "streaming/rrdpush.h"
-#include "aclk/aclk_rrdhost_state.h"
+//#include "aclk/aclk_rrdhost_state.h"
 #include "sqlite/sqlite_health.h"
 
 typedef struct storage_query_handle STORAGE_QUERY_HANDLE;
@@ -1125,6 +1125,7 @@ struct rrdhost_system_info {
     char *host_os_detection;
     char *host_cores;
     char *host_cpu_freq;
+    char *host_cpu_model;
     char *host_ram_total;
     char *host_disk_space;
     char *container_os_name;
