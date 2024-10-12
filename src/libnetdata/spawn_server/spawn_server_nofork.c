@@ -40,7 +40,7 @@ static int connect_to_spawn_server(const char *path, bool log) {
 
     if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         if(log)
-            nd_log(NDLS_COLLECTORS, NDLP_ERR, "SPAWN PARENT: Cannot connect() to spawn server.");
+            nd_log(NDLS_COLLECTORS, NDLP_ERR, "SPAWN PARENT: Cannot connect() to spawn server on path '%s'.", path);
         close(sock);
         return -1;
     }
@@ -56,6 +56,9 @@ static void spawn_server_run_child(SPAWN_SERVER *server, SPAWN_REQUEST *rq) {
     close(server->sock); server->sock = -1;
     if(server->pipe[0] != -1) { close(server->pipe[0]); server->pipe[0] = -1; }
     if(server->pipe[1] != -1) { close(server->pipe[1]); server->pipe[1] = -1; }
+
+    // close all open file descriptors of the parent, but keep ours
+    os_close_all_non_std_open_fds_except(rq->fds, 4, 0);
 
     // set the process name
     os_setproctitle("spawn-child", server->argc, server->argv);
@@ -360,6 +363,7 @@ static bool spawn_server_run_callback(SPAWN_SERVER *server __maybe_unused, SPAWN
     else if (pid == 0) {
         // the child
 
+        gettid_uncached(); // make sure the logger logs valid pids
         spawn_server_run_child(server, rq);
         exit(63);
     }
@@ -1066,6 +1070,7 @@ SPAWN_SERVER* spawn_server_create(SPAWN_SERVER_OPTIONS options, const char *name
     pid_t pid = fork();
     if (pid == 0) {
         // the child - the spawn server
+        gettid_uncached(); // make sure the logger logs valid pids
 
         {
             char buf[15];
