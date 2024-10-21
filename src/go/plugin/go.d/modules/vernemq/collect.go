@@ -45,6 +45,9 @@ func (v *VerneMQ) collectMetrics(mx map[string]int64, mfs prometheus.MetricFamil
 
 		st.stats["open_sockets"] = st.stats[metricSocketOpen] - st.stats[metricSocketClose]
 		st.stats["netsplit_unresolved"] = st.stats[metricNetSplitDetected] - st.stats[metricNetSplitResolved]
+		// https://github.com/vernemq/vernemq/blob/a55ada8dfb6051362fcc468d888194bdcd6eb346/apps/vmq_server/priv/static/js/status.js#L167
+		queued := st.stats[metricQueueMessageIn] - (st.stats[metricQueueMessageOut] + st.stats[metricQueueMessageDrop] + st.stats[metricQueueMessageUnhandled])
+		st.stats["queued_messages"] = max(0, queued)
 
 		px := join("node", node)
 
@@ -78,17 +81,6 @@ func (v *VerneMQ) getNodesStats(mfs prometheus.MetricFamilies) map[string]*nodeS
 		}
 
 		for _, m := range mf.Metrics() {
-			node := m.Labels().Get("node")
-			if node == "" {
-				continue
-			}
-
-			if _, ok := nodes[node]; !ok {
-				nodes[node] = newNodeStats()
-			}
-
-			nst := nodes[node]
-
 			var value float64
 
 			switch mf.Type() {
@@ -99,6 +91,17 @@ func (v *VerneMQ) getNodesStats(mfs prometheus.MetricFamilies) map[string]*nodeS
 			default:
 				continue
 			}
+
+			node := m.Labels().Get("node")
+			if node == "" {
+				continue
+			}
+
+			if _, ok := nodes[node]; !ok {
+				nodes[node] = newNodeStats()
+			}
+
+			nst := nodes[node]
 
 			if len(m.Labels()) == 1 {
 				nst.stats[name] += int64(value)
