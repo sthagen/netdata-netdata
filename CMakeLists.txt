@@ -339,7 +339,6 @@ check_include_file("sys/mount.h" HAVE_SYS_MOUNT_H)
 check_include_file("sys/statvfs.h" HAVE_SYS_STATVFS_H)
 check_include_file("inttypes.h" HAVE_INTTYPES_H)
 check_include_file("stdint.h" HAVE_STDINT_H)
-check_include_file("sys/capability.h" HAVE_SYS_CAPABILITY_H)
 check_include_file("arpa/inet.h" HAVE_ARPA_INET_H)
 check_include_file("netinet/tcp.h" HAVE_NETINET_TCP_H)
 check_include_file("sys/ioctl.h" HAVE_SYS_IOCTL_H)
@@ -354,6 +353,9 @@ check_include_file("sys/socket.h" HAVE_SYS_SOCKET_H)
 check_include_file("sys/wait.h" HAVE_SYS_WAIT_H)
 check_include_file("sys/un.h" HAVE_SYS_UN_H)
 check_include_file("spawn.h" HAVE_SPAWN_H)
+if(OS_LINUX)
+    check_include_file("sys/capability.h" HAVE_SYS_CAPABILITY_H)
+endif()
 
 #
 # check symbols
@@ -634,6 +636,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/aral/aral.h
         src/libnetdata/avl/avl.c
         src/libnetdata/avl/avl.h
+        src/libnetdata/bitmap/bitmap64.h
         src/libnetdata/buffer/buffer.c
         src/libnetdata/buffer/buffer.h
         src/libnetdata/ringbuffer/ringbuffer.c
@@ -672,6 +675,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/line_splitter/line_splitter.c
         src/libnetdata/line_splitter/line_splitter.h
         src/libnetdata/libnetdata.h
+        src/libnetdata/linked_lists/linked_lists.h
         src/libnetdata/locks/locks.c
         src/libnetdata/locks/locks.h
         src/libnetdata/log/systemd-journal-helpers.c
@@ -680,7 +684,6 @@ set(LIBNETDATA_FILES
         src/libnetdata/log/nd_log.h
         src/libnetdata/os/os.c
         src/libnetdata/os/os.h
-        src/libnetdata/simple_hashtable.h
         src/libnetdata/os/byteorder.h
         src/libnetdata/onewayalloc/onewayalloc.c
         src/libnetdata/onewayalloc/onewayalloc.h
@@ -691,6 +694,8 @@ set(LIBNETDATA_FILES
         src/libnetdata/required_dummies.h
         src/libnetdata/socket/security.c
         src/libnetdata/socket/security.h
+        src/libnetdata/simple_hashtable/simple_hashtable.h
+        src/libnetdata/simple_hashtable/simple_hashtable_undef.h
         src/libnetdata/simple_pattern/simple_pattern.c
         src/libnetdata/simple_pattern/simple_pattern.h
         src/libnetdata/socket/socket.c
@@ -731,11 +736,9 @@ set(LIBNETDATA_FILES
         src/libnetdata/dictionary/dictionary-hashtable.h
         src/libnetdata/dictionary/dictionary-item.h
         src/libnetdata/dictionary/dictionary-callbacks.h
-        src/libnetdata/linked-lists.h
         src/libnetdata/storage-point.h
         src/libnetdata/parsers/parsers.h
         src/libnetdata/parsers/duration.c
-        src/libnetdata/bitmap64.h
         src/libnetdata/os/gettid.c
         src/libnetdata/os/gettid.h
         src/libnetdata/os/adjtimex.c
@@ -858,6 +861,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/log/nd_log-common.h
         src/libnetdata/log/nd_log-to-windows-common.h
         src/libnetdata/common.h
+        src/libnetdata/xxHash/xxhash.h
 )
 
 if(ENABLE_PLUGIN_EBPF)
