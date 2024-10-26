@@ -2,10 +2,21 @@
 
 ## [**Next release**](https://github.com/netdata/netdata/tree/HEAD)
 
-[Full Changelog](https://github.com/netdata/netdata/compare/v1.47.4...HEAD)
+[Full Changelog](https://github.com/netdata/netdata/compare/v1.47.5...HEAD)
 
 **Merged pull requests:**
 
+- build\(deps\): bump github.com/prometheus/common from 0.60.0 to 0.60.1 in /src/go [\#18874](https://github.com/netdata/netdata/pull/18874) ([dependabot[bot]](https://github.com/apps/dependabot))
+- build\(deps\): bump k8s.io/client-go from 0.31.1 to 0.31.2 in /src/go [\#18873](https://github.com/netdata/netdata/pull/18873) ([dependabot[bot]](https://github.com/apps/dependabot))
+- build\(deps\): bump github.com/vmware/govmomi from 0.45.0 to 0.45.1 in /src/go [\#18872](https://github.com/netdata/netdata/pull/18872) ([dependabot[bot]](https://github.com/apps/dependabot))
+- fix: correct health schema typo preventing Action alert rendering. [\#18871](https://github.com/netdata/netdata/pull/18871) ([ilyam8](https://github.com/ilyam8))
+- Regenerate integrations.js [\#18869](https://github.com/netdata/netdata/pull/18869) ([netdatabot](https://github.com/netdatabot))
+- docs\(go.d/ping\): clarify permissions [\#18868](https://github.com/netdata/netdata/pull/18868) ([ilyam8](https://github.com/ilyam8))
+- Fix corruption in expression value replacement [\#18865](https://github.com/netdata/netdata/pull/18865) ([stelfrag](https://github.com/stelfrag))
+- Prevent memory corruption during ACLK OTP decode [\#18863](https://github.com/netdata/netdata/pull/18863) ([stelfrag](https://github.com/stelfrag))
+- Do not build H2O by default. [\#18861](https://github.com/netdata/netdata/pull/18861) ([vkalintiris](https://github.com/vkalintiris))
+- Regenerate integrations.js [\#18860](https://github.com/netdata/netdata/pull/18860) ([netdatabot](https://github.com/netdatabot))
+- feat\(go.d.plugin\): add MaxScale collector [\#18859](https://github.com/netdata/netdata/pull/18859) ([ilyam8](https://github.com/ilyam8))
 - fix\(apps.plugin\): add tini to Linux managers [\#18856](https://github.com/netdata/netdata/pull/18856) ([ilyam8](https://github.com/ilyam8))
 - feat\(proc/numa\): add numa node mem activity [\#18855](https://github.com/netdata/netdata/pull/18855) ([ilyam8](https://github.com/ilyam8))
 - build\(deps\): bump github.com/vmware/govmomi from 0.44.1 to 0.45.0 in /src/go [\#18854](https://github.com/netdata/netdata/pull/18854) ([dependabot[bot]](https://github.com/apps/dependabot))
@@ -355,6 +366,10 @@
 - remove python.d/boinc [\#18397](https://github.com/netdata/netdata/pull/18397) ([ilyam8](https://github.com/ilyam8))
 - fix warnings in Dockerfile [\#18395](https://github.com/netdata/netdata/pull/18395) ([NicolasCARPi](https://github.com/NicolasCARPi))
 
+## [v1.47.5](https://github.com/netdata/netdata/tree/v1.47.5) (2024-10-24)
+
+[Full Changelog](https://github.com/netdata/netdata/compare/v1.47.4...v1.47.5)
+
 ## [v1.47.4](https://github.com/netdata/netdata/tree/v1.47.4) (2024-10-09)
 
 [Full Changelog](https://github.com/netdata/netdata/compare/v1.47.3...v1.47.4)
@@ -431,16 +446,6 @@
 - add go.d/uwsgi [\#18326](https://github.com/netdata/netdata/pull/18326) ([ilyam8](https://github.com/ilyam8))
 - remove python.d/uwsgi [\#18325](https://github.com/netdata/netdata/pull/18325) ([ilyam8](https://github.com/ilyam8))
 - Regenerate integrations.js [\#18324](https://github.com/netdata/netdata/pull/18324) ([netdatabot](https://github.com/netdatabot))
-- remove python.d/dovecot [\#18322](https://github.com/netdata/netdata/pull/18322) ([ilyam8](https://github.com/ilyam8))
-- add go.d dovecot [\#18321](https://github.com/netdata/netdata/pull/18321) ([ilyam8](https://github.com/ilyam8))
-- go.d redis: fix default "address" in config\_schema.json [\#18320](https://github.com/netdata/netdata/pull/18320) ([ilyam8](https://github.com/ilyam8))
-- Ensure files in /usr/lib/netdata/system are not executable. [\#18318](https://github.com/netdata/netdata/pull/18318) ([Ferroin](https://github.com/Ferroin))
-- Regenerate integrations.js [\#18317](https://github.com/netdata/netdata/pull/18317) ([netdatabot](https://github.com/netdatabot))
-- remove python.d/nvidia\_smi [\#18316](https://github.com/netdata/netdata/pull/18316) ([ilyam8](https://github.com/ilyam8))
-- go.d nvidia\_smi: enable by default [\#18315](https://github.com/netdata/netdata/pull/18315) ([ilyam8](https://github.com/ilyam8))
-- go.d nvidia\_smi: add loop mode [\#18313](https://github.com/netdata/netdata/pull/18313) ([ilyam8](https://github.com/ilyam8))
-- Regenerate integrations.js [\#18312](https://github.com/netdata/netdata/pull/18312) ([netdatabot](https://github.com/netdatabot))
-- go.d nvidia\_smi remove "csv" mode [\#18311](https://github.com/netdata/netdata/pull/18311) ([ilyam8](https://github.com/ilyam8))
 
 ## [v1.46.3](https://github.com/netdata/netdata/tree/v1.46.3) (2024-07-23)
 
