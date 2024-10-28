@@ -19,9 +19,8 @@ func newKubeState() *kubeState {
 
 func newNodeState() *nodeState {
 	return &nodeState{
-		new:        true,
-		labels:     make(map[string]string),
-		conditions: make(map[string]*nodeStateCondition),
+		new:    true,
+		labels: make(map[string]string),
 	}
 }
 
@@ -36,9 +35,7 @@ func newPodState() *podState {
 
 func newContainerState() *containerState {
 	return &containerState{
-		new:                    true,
-		stateWaitingReasons:    make(map[string]*containerStateReason),
-		stateTerminatedReasons: make(map[string]*containerStateReason),
+		new: true,
 	}
 }
 
@@ -60,15 +57,9 @@ type (
 		allocatableCPU  int64
 		allocatableMem  int64
 		allocatablePods int64
-		conditions      map[string]*nodeStateCondition
+		conditions      []corev1.NodeCondition
 
 		stats nodeStateStats
-	}
-	nodeStateCondition struct {
-		new bool
-		// https://kubernetes.io/docs/concepts/architecture/nodes/#condition
-		//typ    corev1.NodeConditionType
-		status corev1.ConditionStatus
 	}
 	nodeStateStats struct {
 		reqCPU   int64
@@ -129,7 +120,8 @@ type (
 		condPodInitialized  corev1.ConditionStatus
 		condPodReady        corev1.ConditionStatus
 		// https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-phase
-		phase corev1.PodPhase
+		phase        corev1.PodPhase
+		statusReason string
 
 		initContainers map[string]*containerState
 		containers     map[string]*containerState
@@ -138,28 +130,22 @@ type (
 
 func (ps podState) id() string { return ps.namespace + "_" + ps.name }
 
-type (
-	containerState struct {
-		new bool
+type containerState struct {
+	new bool
 
-		name string
-		uid  string
+	name string
+	uid  string
 
-		podName   string
-		nodeName  string
-		namespace string
+	podName   string
+	nodeName  string
+	namespace string
 
-		ready                  bool
-		restarts               int64
-		stateRunning           bool
-		stateWaiting           bool
-		stateTerminated        bool
-		stateWaitingReasons    map[string]*containerStateReason
-		stateTerminatedReasons map[string]*containerStateReason
-	}
-	containerStateReason struct {
-		new    bool
-		reason string
-		active bool
-	}
-)
+	ready           bool
+	restarts        int64
+	stateRunning    bool
+	stateWaiting    bool
+	stateTerminated bool
+
+	waitingReason    string
+	terminatedReason string
+}
