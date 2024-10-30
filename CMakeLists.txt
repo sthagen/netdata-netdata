@@ -2467,6 +2467,8 @@ if(OS_WINDOWS)
 
         set(NETDATA_RES_FILES "packaging/windows/resources/netdata.rc")
         configure_file(packaging/windows/resources/netdata.manifest.in ${CMAKE_SOURCE_DIR}/packaging/windows/resources/netdata.manifest @ONLY)
+
+        configure_file(packaging/windows/netdata.wxs.in ${CMAKE_SOURCE_DIR}/packaging/windows/netdata.wxs @ONLY)
 endif()
 
 add_executable(netdata
@@ -3096,7 +3098,6 @@ if(ENABLE_PLUGIN_PYTHON)
           src/collectors/python.d.plugin/haproxy/haproxy.conf
           src/collectors/python.d.plugin/pandas/pandas.conf
           src/collectors/python.d.plugin/traefik/traefik.conf
-          src/collectors/python.d.plugin/zscores/zscores.conf
           COMPONENT plugin-pythond
           DESTINATION usr/lib/netdata/conf.d/python.d)
 
@@ -3106,7 +3107,6 @@ if(ENABLE_PLUGIN_PYTHON)
           src/collectors/python.d.plugin/haproxy/haproxy.chart.py
           src/collectors/python.d.plugin/pandas/pandas.chart.py
           src/collectors/python.d.plugin/traefik/traefik.chart.py
-          src/collectors/python.d.plugin/zscores/zscores.chart.py
           COMPONENT plugin-pythond
           DESTINATION usr/libexec/netdata/python.d)
 
