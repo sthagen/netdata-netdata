@@ -219,7 +219,10 @@ static inline PARSER_RC pluginsd_host_define_end(char **words __maybe_unused, si
 
     rrdhost_flag_clear(host, RRDHOST_FLAG_ORPHAN);
     rrdcontext_host_child_connected(host);
-    schedule_node_state_update(host, 100);
+    if (host->aclk_config)
+        aclk_queue_node_info(host, true);
+    else
+        schedule_node_state_update(host, 100);
 
     return PARSER_RC_OK;
 }
@@ -1232,8 +1235,9 @@ inline size_t pluginsd_process(RRDHOST *host, struct plugind *cd, int fd_input, 
                     2 * 60 * MSEC_PER_SEC, true);
 
             if(unlikely(ret != BUFFERED_READER_READ_OK)) {
-                nd_log(NDLS_COLLECTORS, NDLP_INFO, "Buffered reader not OK");
-                send_quit = false;
+                nd_log(NDLS_COLLECTORS, NDLP_INFO, "PLUGINSD: buffered reader not OK (%u)", (unsigned)ret);
+                if(ret == BUFFERED_READER_READ_POLLERR || ret == BUFFERED_READER_READ_POLLHUP)
+                    send_quit = false;
                 break;
             }
 
@@ -1247,8 +1251,13 @@ inline size_t pluginsd_process(RRDHOST *host, struct plugind *cd, int fd_input, 
         buffer->buffer[0] = '\0';
     }
 
-    if(send_quit)
+    if(send_quit) {
+        nd_log(NDLS_COLLECTORS, NDLP_DEBUG,
+               "PLUGINSD: sending '"PLUGINSD_CALL_QUIT"'  to plugin: %s",
+               string2str(cd->filename));
+        
         send_to_plugin(PLUGINSD_CALL_QUIT, parser, STREAM_TRAFFIC_TYPE_METADATA);
+    }
 
     cd->unsafe.enabled = parser->user.enabled;
     count = parser->user.data_collections_count;
