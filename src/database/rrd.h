@@ -11,6 +11,7 @@ extern "C" {
 #include "rrd-database-mode.h"
 #include "streaming/stream-traffic-types.h"
 #include "streaming/stream-sender-commit.h"
+#include "rrdhost-state-id.h"
 
 // non-existing structs instead of voids
 // to enable type checking at compile time
@@ -278,7 +279,7 @@ struct rrddim_tier {
     STORAGE_COLLECT_HANDLE *sch;   // the data collection handle
 };
 
-void backfill_tier_from_smaller_tiers(RRDDIM *rd, size_t tier, time_t now_s);
+bool backfill_tier_from_smaller_tiers(RRDDIM *rd, size_t tier, time_t now_s);
 
 // ----------------------------------------------------------------------------
 // RRD DIMENSION - this is a metric
@@ -360,7 +361,7 @@ struct rrddim {
 
     // ------------------------------------------------------------------------
 
-    struct rrddim_tier tiers[];                     // our tiers of databases
+    struct rrddim_tier tiers[];                         // our tiers of databases
 };
 
 size_t rrddim_size(void);
@@ -1160,6 +1161,11 @@ struct rrdhost {
     STRING *abbrev_timezone;                        // the abbriviated timezone of the host
     STRING *program_name;                           // the program name that collects metrics for this host
     STRING *program_version;                        // the program version that collects metrics for this host
+
+    REFCOUNT state_refcount;
+    RRDHOST_STATE state_id;                         // every time data collection (stream receiver) (dis)connects,
+                                                    // this gets incremented - it is used to detect stale functions,
+                                                    // stale backfilling requests, etc.
 
     int32_t utc_offset;                             // the offset in seconds from utc
 

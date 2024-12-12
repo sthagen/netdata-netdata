@@ -728,8 +728,6 @@ set(LIBNETDATA_FILES
         src/libnetdata/functions_evloop/functions_evloop.h
         src/libnetdata/gorilla/gorilla.cc
         src/libnetdata/gorilla/gorilla.h
-        src/libnetdata/july/july.c
-        src/libnetdata/july/july.h
         src/libnetdata/inlined.h
         src/libnetdata/json/json.c
         src/libnetdata/json/json.h
@@ -1431,6 +1429,8 @@ set(RRD_PLUGIN_FILES
         src/database/rrdcollector-internals.h
         src/database/rrd-database-mode.h
         src/database/rrd-database-mode.c
+        src/database/rrdhost-state-id.c
+        src/database/rrdhost-state-id.h
 )
 
 if(ENABLE_DBENGINE)
@@ -1551,6 +1551,8 @@ set(STREAMING_PLUGIN_FILES
         src/streaming/stream-circular-buffer.h
         src/streaming/stream-control.c
         src/streaming/stream-control.h
+        src/streaming/stream-waiting-list.c
+        src/streaming/stream-waiting-list.h
 )
 
 set(WEB_PLUGIN_FILES
@@ -1564,6 +1566,8 @@ set(WEB_PLUGIN_FILES
         src/web/server/web_client_cache.h
         src/web/api/v3/api_v3_stream_info.c
         src/web/api/v3/api_v3_stream_path.c
+        src/web/api/queries/backfill.c
+        src/web/api/queries/backfill.h
 )
 
 set(CLAIM_PLUGIN_FILES
