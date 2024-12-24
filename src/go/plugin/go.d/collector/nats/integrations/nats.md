@@ -63,7 +63,11 @@ The scope defines the instance that the metric belongs to. An instance is unique
 
 These metrics refer to NATS servers.
 
-This scope has no labels.
+Labels:
+
+| Label      | Description     |
+|:-----------|:----------------|
+| server_id | A unique identifier for a server within the NATS cluster. |
 
 Metrics:
 
@@ -86,6 +90,7 @@ Labels:
 
 | Label      | Description     |
 |:-----------|:----------------|
+| server_id | A unique identifier for a server within the NATS cluster. |
 | http_endpoint | HTTP endpoint path. |
 
 Metrics:
@@ -102,6 +107,7 @@ Labels:
 
 | Label      | Description     |
 |:-----------|:----------------|
+| server_id | A unique identifier for a server within the NATS cluster. |
 | account | Account name. |
 
 Metrics:
@@ -124,6 +130,7 @@ Labels:
 
 | Label      | Description     |
 |:-----------|:----------------|
+| server_id | A unique identifier for a server within the NATS cluster. |
 | route_id | A unique identifier for a route within the NATS cluster. |
 | remote_id | he unique identifier of the remote server connected via the route. |
 
@@ -143,6 +150,7 @@ Labels:
 
 | Label      | Description     |
 |:-----------|:----------------|
+| server_id | A unique identifier for a server within the NATS cluster. |
 | gateway | The name of the local gateway. |
 | remote_gateway | The name of the remote gateway. |
 | cid | A unique identifier for the connection. |
@@ -164,6 +172,7 @@ Labels:
 
 | Label      | Description     |
 |:-----------|:----------------|
+| server_id | A unique identifier for a server within the NATS cluster. |
 | gateway | The name of the local gateway. |
 | remote_gateway | The name of the remote gateway. |
 | cid | A unique identifier for the connection. |
@@ -176,6 +185,28 @@ Metrics:
 | nats.outbound_gateway_conn_messages | in, out | messages/s |
 | nats.outbound_gateway_conn_subscriptions | active | subscriptions |
 | nats.outbound_gateway_conn_uptime | uptime | seconds |
+
+### Per leaf node connection
+
+These metrics refer to [Leaf Node Connections](https://docs.nats.io/running-a-nats-service/nats_admin/monitoring#leaf-node-information).
+
+Labels:
+
+| Label      | Description     |
+|:-----------|:----------------|
+| remote_name | Unique identifier of the remote leaf node server, either its configured name or automatically assigned ID. |
+| account | Name of the associated account. |
+| ip | IP address of the remote server. |
+| port | Port used for the connection to the remote server. |
+
+Metrics:
+
+| Metric | Dimensions | Unit |
+|:------|:----------|:----|
+| nats.leaf_node_conn_traffic | in, out | bytes/s |
+| nats.leaf_node_conn_messages | in, out | messages/s |
+| nats.leaf_node_conn_subscriptions | active | subscriptions |
+| nats.leaf_node_conn_rtt | rtt | microseconds |
 
 
 
