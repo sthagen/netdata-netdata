@@ -562,6 +562,7 @@ void my_function() { ; }
 " HAVE_FUNC_ATTRIBUTE_NOINLINE)
 
 check_c_source_compiles("
+#include <stdlib.h>
 void my_exit_function() __attribute__((noreturn));
 int main() {
         my_exit_function(); // Call the noreturn function
@@ -946,6 +947,12 @@ set(LIBNETDATA_FILES
         src/libnetdata/locks/spinlock.h
         src/libnetdata/locks/rw-spinlock.c
         src/libnetdata/locks/rw-spinlock.h
+        src/libnetdata/atomics/atomic_flags.h
+        src/libnetdata/atomics/atomics.h
+        src/libnetdata/waiting-queue/waiting-queue.c
+        src/libnetdata/waiting-queue/waiting-queue.h
+        src/libnetdata/object-state/object-state.c
+        src/libnetdata/object-state/object-state.h
 )
 
 set(LIBH2O_FILES
@@ -1122,6 +1129,8 @@ set(DAEMON_FILES
         src/daemon/pulse/pulse-db-rrd.h
         src/daemon/config/netdata-conf-cloud.c
         src/daemon/config/netdata-conf-cloud.h
+        src/daemon/config/netdata-conf-profile.c
+        src/daemon/config/netdata-conf-profile.h
 )
 
 set(H2O_FILES
@@ -1439,8 +1448,6 @@ set(RRD_PLUGIN_FILES
         src/database/rrdcollector-internals.h
         src/database/rrd-database-mode.h
         src/database/rrd-database-mode.c
-        src/database/rrdhost-state-id.c
-        src/database/rrdhost-state-id.h
         src/database/rrdhost-system-info.c
         src/database/rrdhost-system-info.h
 )
@@ -1523,8 +1530,8 @@ set(STREAMING_PLUGIN_FILES
         src/streaming/stream-compression/zstd.h
         src/streaming/stream-receiver.c
         src/streaming/stream-sender.c
-        src/streaming/replication.c
-        src/streaming/replication.h
+        src/streaming/stream-replication-sender.c
+        src/streaming/stream-replication-sender.h
         src/streaming/h2o-common.h
         src/streaming/protocol/command-nodeid.c
         src/streaming/protocol/commands.c
@@ -1565,6 +1572,10 @@ set(STREAMING_PLUGIN_FILES
         src/streaming/stream-control.h
         src/streaming/stream-waiting-list.c
         src/streaming/stream-waiting-list.h
+        src/streaming/stream-replication-receiver.c
+        src/streaming/stream-replication-receiver.h
+        src/streaming/stream-replication-tracking.c
+        src/streaming/stream-replication-tracking.h
 )
 
 set(WEB_PLUGIN_FILES
@@ -2186,23 +2197,51 @@ list(APPEND ACLK_FILES ${ACLK_PROTO_BUILT_SRCS}
 #
 
 if(ENABLE_PLUGIN_DEBUGFS)
+    # Check for libcap (optional)
     pkg_check_modules(CAP QUIET libcap)
 
-    set(DEBUGFS_PLUGIN_FILES src/collectors/debugfs.plugin/debugfs_plugin.c
-                             src/collectors/debugfs.plugin/debugfs_plugin.h
-                             src/collectors/debugfs.plugin/debugfs_extfrag.c
-                             src/collectors/debugfs.plugin/debugfs_zswap.c
-                             src/collectors/debugfs.plugin/sys_devices_virtual_powercap.c)
+    # Define debugfs.plugin source files
+    set(DEBUGFS_PLUGIN_FILES
+            src/collectors/debugfs.plugin/debugfs_plugin.c
+            src/collectors/debugfs.plugin/debugfs_plugin.h
+            src/collectors/debugfs.plugin/module-numa-extfrag.c
+            src/collectors/debugfs.plugin/module-zswap.c
+            src/collectors/debugfs.plugin/module-devices-powercap.c
+            src/collectors/debugfs.plugin/module-libsensors.c
+    )
 
+    # Add executable for debugfs.plugin
     add_executable(debugfs.plugin ${DEBUGFS_PLUGIN_FILES})
-    target_link_libraries(debugfs.plugin libnetdata ${CAP_LIBRARIES})
+
+    # Add vendored libsensors library
+    add_subdirectory(src/collectors/debugfs.plugin/libsensors)
+
+    # Link debugfs.plugin with vendored libsensors
+    target_link_libraries(debugfs.plugin PRIVATE vendored_libsensors)
+
+    # Include vendored libsensors headers
+    target_include_directories(debugfs.plugin PRIVATE
+            src/collectors/debugfs.plugin/libsensors/vendored/lib
+            ${CMAKE_CURRENT_BINARY_DIR}/src/collectors/debugfs.plugin/libsensors # For generated headers
+    )
+
+    # Link against libnetdata and optionally libcap
+    target_link_libraries(debugfs.plugin PRIVATE libnetdata ${CAP_LIBRARIES})
     target_include_directories(debugfs.plugin PRIVATE ${CAP_INCLUDE_DIRS})
     target_compile_options(debugfs.plugin PRIVATE ${CAP_CFLAGS_OTHER})
 
+    # Install the debugfs.plugin binary
     install(TARGETS debugfs.plugin
             COMPONENT plugin-debugfs
             DESTINATION usr/libexec/netdata/plugins.d)
 
+    install(FILES
+            src/collectors/debugfs.plugin/libsensors/vendored/etc/sensors.conf.default
+            COMPONENT plugin-debugfs
+            DESTINATION usr/lib/netdata/conf.d
+            RENAME sensors3.conf)
+
+    # Install additional packaging files if building for packaging
     if(BUILD_FOR_PACKAGING)
         install(FILES
                 ${PKG_FILES_PATH}/copyright

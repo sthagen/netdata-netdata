@@ -472,8 +472,8 @@ static inline const char *local_sockets_protocol_name(LOCAL_SOCKET *n) {
 static inline void local_listeners_print_socket(LS_STATE *ls __maybe_unused, const LOCAL_SOCKET *nn, void *data __maybe_unused) {
     LOCAL_SOCKET *n = (LOCAL_SOCKET *)nn;
 
-    char local_address[INET6_ADDRSTRLEN];
-    char remote_address[INET6_ADDRSTRLEN];
+    char local_address[INET6_ADDRSTRLEN] = "";
+    char remote_address[INET6_ADDRSTRLEN] = "";
 
     if(n->local.family == AF_INET) {
         ipv4_address_to_txt(n->local.ip.ipv4, local_address);
@@ -1192,14 +1192,14 @@ static inline void local_sockets_init(LS_STATE *ls) {
         sizeof(LOCAL_SOCKET),
         65536 / sizeof(LOCAL_SOCKET),
         65536,
-        NULL, NULL, NULL, false, true);
+        NULL, NULL, NULL, false, true, true);
 
     ls->pid_socket_aral = aral_create(
         "pid-sockets",
         sizeof(struct pid_socket),
         65536 / sizeof(struct pid_socket),
         65536,
-        NULL, NULL, NULL, false, true);
+        NULL, NULL, NULL, false, true, true);
 
     memset(&ls->stats, 0, sizeof(ls->stats));
 
