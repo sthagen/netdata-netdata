@@ -9,117 +9,7 @@
 
 struct netdata_buffers_statistics netdata_buffers_statistics = { 0 };
 
-#if defined(HAVE_C_MALLOC_INFO) || defined(HAVE_C_MALLINFO2)
-#include <malloc.h>
-#endif
-
-#ifdef HAVE_C_MALLOC_INFO
-// Helper function to find the last occurrence of a substring in a string
-static char *find_last(const char *haystack, const char *needle, size_t *found) {
-    *found = 0;
-
-    char *last = NULL;
-    char *current = strstr(haystack, needle);
-    while (current) {
-        (*found)++;
-        last = current;
-        current = strstr(current + 1, needle);
-    }
-    return last;
-}
-
-static bool parse_malloc_info(size_t *arenas, size_t *allocated_memory, size_t *used_fast, size_t *used_rest, size_t *used_mmap, size_t *unused_memory) {
-    int found = 0;
-
-    *arenas = 0;
-    *allocated_memory = 0;
-    *used_fast = 0;
-    *used_rest = 0;
-    *used_mmap = 0;
-    *unused_memory = 0;
-
-    // Buffer for malloc_info XML
-    char *buffer = NULL;
-    size_t size = 0;
-    FILE *meminfo = open_memstream(&buffer, &size);
-    if (!meminfo)
-        goto cleanup;
-
-    char *t = malloc(1024);
-
-    // Generate malloc_info XML
-    if(malloc_info(0, meminfo) != 0)
-        goto cleanup;
-
-    fflush(meminfo);
-    fclose(meminfo);
-    meminfo = NULL;
-
-    free(t);
-
-    if(!size || !buffer)
-        goto cleanup;
-
-    // make sure it is terminated
-    buffer[size - 1] = '\0';
-
-    // Find the last </heap>
-    char *last_heap_end = find_last(buffer, "</heap>", arenas);
-    if (!last_heap_end)
-        goto cleanup;
-
-    // Move past the last </heap>
-    char *summary_section = last_heap_end + strlen("</heap>");
-
-    // Parse the summary section using strstr
-    const char *fast_key = "<total type=\"fast\"";
-    const char *rest_key = "<total type=\"rest\"";
-    const char *mmap_key = "<total type=\"mmap\"";
-    const char *system_key = "<system type=\"current\"";
-    char *size_pos;
-
-    // Extract Used Fast
-    char *fast_pos = strstr(summary_section, fast_key);
-    if(!fast_pos || !(size_pos = strstr(fast_pos, "size=\"")))
-        goto cleanup;
-
-    *used_fast = strtoull(size_pos + 6, NULL, 10);
-    found++;
-
-    // Extract Used Rest
-    char *rest_pos = strstr(summary_section, rest_key);
-    if (!rest_pos || !(size_pos = strstr(rest_pos, "size=\"")))
-        goto cleanup;
-
-    *used_rest = strtoull(size_pos + 6, NULL, 10);
-    found++;
-
-    // Extract Used Mmap
-    char *mmap_pos = strstr(summary_section, mmap_key);
-    if (!mmap_pos || !(size_pos = strstr(mmap_pos, "size=\"")))
-        goto cleanup;
-
-    *used_mmap = strtoull(size_pos + 6, NULL, 10);
-    found++;
-
-    // Extract Allocated Memory
-    char *system_pos = strstr(summary_section, system_key);
-    if (!system_pos || !(size_pos = strstr(system_pos, "size=\"")))
-        goto cleanup;
-
-    *allocated_memory = strtoull(size_pos + 6, NULL, 10);
-    found++;
-
-    // Calculate Unused Memory
-    *unused_memory = *allocated_memory > (*used_fast + *used_rest + *used_mmap) ?
-                         *allocated_memory - (*used_fast + *used_rest + *used_mmap) : 0;
-
-cleanup:
-    if(meminfo) fclose(meminfo);
-    if(buffer) free(buffer);
-    return found == 4;
-}
-#endif // HAVE_C_MALLOC_INFO
+void pulse_daemon_memory_system_do(bool extended);
 
 void pulse_daemon_memory_do(bool extended) {
     {
@@ -290,44 +180,6 @@ void pulse_daemon_memory_do(bool extended) {
 
     // ----------------------------------------------------------------------------------------------------------------
 
-    OS_SYSTEM_MEMORY sm = os_system_memory(true);
-    if (sm.ram_total_bytes && dbengine_out_of_memory_protection) {
-        static RRDSET *st_memory_available = NULL;
-        static RRDDIM *rd_available = NULL;
-
-        if (unlikely(!st_memory_available)) {
-            st_memory_available = rrdset_create_localhost(
-                "netdata",
-                "out_of_memory_protection",
-                NULL,
-                "Memory Usage",
-                NULL,
-                "Out of Memory Protection",
-                "bytes",
-                "netdata",
-                "pulse",
-                130102,
-                localhost->rrd_update_every,
-                RRDSET_TYPE_AREA);
-
-            rd_available = rrddim_add(st_memory_available, "available", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-        }
-
-        // the sum of all these needs to be above at the total buffers calculation
-        rrddim_set_by_pointer(
-            st_memory_available, rd_available,
-            (collected_number)sm.ram_available_bytes);
-
-        rrdset_done(st_memory_available);
-    }
-
-    // ----------------------------------------------------------------------------------------------------------------
-
-    if(!extended)
-        return;
-
-    // ----------------------------------------------------------------------------------------------------------------
-
     {
         static RRDSET *st_memory_buffers = NULL;
         static RRDDIM *rd_queries = NULL;
@@ -356,7 +208,7 @@ void pulse_daemon_memory_do(bool extended) {
                 "bytes",
                 "netdata",
                 "pulse",
-                130103,
+                130102,
                 localhost->rrd_update_every,
                 RRDSET_TYPE_STACKED);
 
@@ -397,126 +249,38 @@ void pulse_daemon_memory_do(bool extended) {
 
     // ----------------------------------------------------------------------------------------------------------------
 
-#ifdef HAVE_C_MALLOC_INFO
-    size_t glibc_arenas, glibc_allocated_memory, glibc_used_fast, glibc_used_rest, glibc_used_mmap, glibc_unused_memory;
-    if(parse_malloc_info(&glibc_arenas, &glibc_allocated_memory, &glibc_used_fast, &glibc_used_rest, &glibc_used_mmap, &glibc_unused_memory)) {
-        if (glibc_arenas) {
-            static RRDSET *st_arenas = NULL;
-            static RRDDIM *rd_arenas = NULL;
+    OS_SYSTEM_MEMORY sm = os_system_memory(true);
+    if (sm.ram_total_bytes && dbengine_out_of_memory_protection) {
+        static RRDSET *st_memory_available = NULL;
+        static RRDDIM *rd_available = NULL;
 
-            if (unlikely(!st_arenas)) {
-                st_arenas = rrdset_create_localhost(
-                    "netdata",
-                    "glibc_arenas",
-                    NULL,
-                    "Memory Usage",
-                    NULL,
-                    "Glibc Memory Arenas",
-                    "arenas",
-                    "netdata",
-                    "pulse",
-                    130104,
-                    localhost->rrd_update_every,
-                    RRDSET_TYPE_LINE);
-
-                rd_arenas = rrddim_add(st_arenas, "arenas", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-            }
-
-            // the sum of all these needs to be above at the total buffers calculation
-            rrddim_set_by_pointer(st_arenas, rd_arenas, (collected_number)glibc_arenas);
-            rrdset_done(st_arenas);
-        }
-
-        if (glibc_allocated_memory > 0 && glibc_used_fast + glibc_used_rest + glibc_used_mmap + glibc_unused_memory > 0) {
-            static RRDSET *st_malloc = NULL;
-            static RRDDIM *rd_unused = NULL;
-            static RRDDIM *rd_fast = NULL;
-            static RRDDIM *rd_rest = NULL;
-            static RRDDIM *rd_mmap = NULL;
-
-            if (unlikely(!st_malloc)) {
-                st_malloc = rrdset_create_localhost(
-                    "netdata",
-                    "glibc_malloc_info",
-                    NULL,
-                    "Memory Usage",
-                    NULL,
-                    "Glibc Malloc Info",
-                    "bytes",
-                    "netdata",
-                    "pulse",
-                    130105,
-                    localhost->rrd_update_every,
-                    RRDSET_TYPE_STACKED);
-
-                rd_unused = rrddim_add(st_malloc, "unused", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-                rd_fast = rrddim_add(st_malloc, "fast", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-                rd_rest = rrddim_add(st_malloc, "rest", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-                rd_mmap = rrddim_add(st_malloc, "mmap", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-            }
-
-            // the sum of all these needs to be above at the total buffers calculation
-            rrddim_set_by_pointer(st_malloc, rd_unused, (collected_number)glibc_unused_memory);
-            rrddim_set_by_pointer(st_malloc, rd_fast, (collected_number)glibc_used_fast);
-            rrddim_set_by_pointer(st_malloc, rd_rest, (collected_number)glibc_used_rest);
-            rrddim_set_by_pointer(st_malloc, rd_mmap, (collected_number)glibc_used_mmap);
-            rrdset_done(st_malloc);
-        }
-    }
-#endif
-
-#ifdef HAVE_C_MALLINFO2
-    {
-        static RRDSET *st_mallinfo = NULL;
-        static RRDDIM *rd_used_mmap = NULL;
-        static RRDDIM *rd_used_arena = NULL;
-        static RRDDIM *rd_unused_fragments = NULL;
-        static RRDDIM *rd_unused_releasable = NULL;
-
-        if (unlikely(!st_mallinfo)) {
-            st_mallinfo = rrdset_create_localhost(
+        if (unlikely(!st_memory_available)) {
+            st_memory_available = rrdset_create_localhost(
                 "netdata",
-                "glibc_mallinfo2",
+                "out_of_memory_protection",
                 NULL,
                 "Memory Usage",
                 NULL,
-                "Glibc Mallinfo2 Memory Distribution",
+                "Out of Memory Protection",
                 "bytes",
                 "netdata",
                 "pulse",
-                130106,
+                130103,
                 localhost->rrd_update_every,
-                RRDSET_TYPE_STACKED);
+                RRDSET_TYPE_AREA);
 
-            rd_unused_releasable = rrddim_add(st_mallinfo, "unused releasable", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-            rd_unused_fragments = rrddim_add(st_mallinfo, "unused fragments", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-            rd_used_arena = rrddim_add(st_mallinfo, "used arena", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
-            rd_used_mmap = rrddim_add(st_mallinfo, "used mmap", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
+            rd_available = rrddim_add(st_memory_available, "available", NULL, 1, 1, RRD_ALGORITHM_ABSOLUTE);
         }
 
-        struct mallinfo2 mi = mallinfo2();
+        // the sum of all these needs to be above at the total buffers calculation
+        rrddim_set_by_pointer(
+            st_memory_available, rd_available,
+            (collected_number)sm.ram_available_bytes);
 
-        // Memory used in mmapped regions
-        size_t used_mmap = mi.hblkhd;
-
-        // Memory used in arena (non-mmapped allocations)
-        // uordblks includes both arena and mmap allocations, so we subtract mmap
-        size_t used_arena = (mi.uordblks > mi.hblkhd) ? mi.uordblks - mi.hblkhd : 0;
-
-        // Releasable memory (can be released via malloc_trim())
-        size_t unused_releasable = mi.keepcost;
-
-        // Fragmentation (remaining free space that's not easily releasable)
-        // This includes free chunks (fordblks) minus the releasable space
-        size_t unused_fragments = (mi.fordblks > mi.keepcost) ? mi.fordblks - mi.keepcost : 0;
-
-        rrddim_set_by_pointer(st_mallinfo, rd_unused_releasable, (collected_number)unused_releasable);
-        rrddim_set_by_pointer(st_mallinfo, rd_unused_fragments, (collected_number)unused_fragments);
-        rrddim_set_by_pointer(st_mallinfo, rd_used_arena, (collected_number)used_arena);
-        rrddim_set_by_pointer(st_mallinfo, rd_used_mmap, (collected_number)used_mmap);
-
-        rrdset_done(st_mallinfo);
+        rrdset_done(st_memory_available);
     }
-#endif // HAVE_C_MALLINFO2
 
+    // ----------------------------------------------------------------------------------------------------------------
+
+    pulse_daemon_memory_system_do(extended);
 }
