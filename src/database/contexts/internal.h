@@ -8,7 +8,7 @@
 #include "../../aclk/schema-wrappers/context.h"
 #include "../../aclk/aclk_contexts_api.h"
 #include "../../aclk/aclk.h"
-#include "../storage_engine.h"
+#include "../storage-engine.h"
 
 #define MESSAGES_PER_BUNDLE_TO_SEND_TO_HUB_PER_HOST         5000
 #define FULL_RETENTION_SCAN_DELAY_AFTER_DB_ROTATION_SECS    120
@@ -470,5 +470,7 @@ void rrdcontext_message_send_unsafe(RRDCONTEXT *rc, bool snapshot __maybe_unused
 void rrdcontext_update_from_collected_rrdinstance(RRDINSTANCE *ri);
 
 void rrdcontext_garbage_collect_single_host(RRDHOST *host, bool worker_jobs);
+
+void get_metric_retention_by_id(RRDHOST *host, UUIDMAP_ID id, time_t *min_first_time_t, time_t *max_last_time_t);
 
 #endif //NETDATA_RRDCONTEXT_INTERNAL_H

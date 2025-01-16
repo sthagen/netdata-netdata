@@ -6,7 +6,18 @@
 
 **Merged pull requests:**
 
+- REFCOUNT: use only compare-and-exchange [\#19411](https://github.com/netdata/netdata/pull/19411) ([ktsaou](https://github.com/ktsaou))
+- Alert prototypes: use r/w spinlock instead of spinlock [\#19410](https://github.com/netdata/netdata/pull/19410) ([ktsaou](https://github.com/ktsaou))
+- build\(deps\): bump github.com/docker/docker from 27.4.1+incompatible to 27.5.0+incompatible in /src/go [\#19408](https://github.com/netdata/netdata/pull/19408) ([dependabot[bot]](https://github.com/apps/dependabot))
+- build\(deps\): bump github.com/bmatcuk/doublestar/v4 from 4.7.1 to 4.8.0 in /src/go [\#19407](https://github.com/netdata/netdata/pull/19407) ([dependabot[bot]](https://github.com/apps/dependabot))
+- fixed http clients accounting [\#19406](https://github.com/netdata/netdata/pull/19406) ([ktsaou](https://github.com/ktsaou))
+- RRD files split, renames, cleanup Part 2 [\#19405](https://github.com/netdata/netdata/pull/19405) ([ktsaou](https://github.com/ktsaou))
+- fix loading contexts [\#19404](https://github.com/netdata/netdata/pull/19404) ([ktsaou](https://github.com/ktsaou))
+- Delay context cleanup checks after startup [\#19403](https://github.com/netdata/netdata/pull/19403) ([stelfrag](https://github.com/stelfrag))
+- system memory calculation for cgroups v1 fix [\#19402](https://github.com/netdata/netdata/pull/19402) ([ktsaou](https://github.com/ktsaou))
+- do not process contexts before they are loaded [\#19401](https://github.com/netdata/netdata/pull/19401) ([ktsaou](https://github.com/ktsaou))
 - Revert "Update kickstart script to use new repository host." [\#19400](https://github.com/netdata/netdata/pull/19400) ([Ferroin](https://github.com/Ferroin))
+- split rrdhost/rrdset/rrddim and rrd.h [\#19399](https://github.com/netdata/netdata/pull/19399) ([ktsaou](https://github.com/ktsaou))
 - fix nodes staying in initializing status [\#19398](https://github.com/netdata/netdata/pull/19398) ([ktsaou](https://github.com/ktsaou))
 - Use worker when dispatching alert transitions to the cloud [\#19397](https://github.com/netdata/netdata/pull/19397) ([stelfrag](https://github.com/stelfrag))
 - Unified memory API [\#19396](https://github.com/netdata/netdata/pull/19396) ([ktsaou](https://github.com/ktsaou))
@@ -460,16 +471,6 @@
 - Adjust text\_sanitizer to accept the default value [\#18870](https://github.com/netdata/netdata/pull/18870) ([stelfrag](https://github.com/stelfrag))
 - Regenerate integrations.js [\#18869](https://github.com/netdata/netdata/pull/18869) ([netdatabot](https://github.com/netdatabot))
 - docs\(go.d/ping\): clarify permissions [\#18868](https://github.com/netdata/netdata/pull/18868) ([ilyam8](https://github.com/ilyam8))
-- Fix corruption in expression value replacement [\#18865](https://github.com/netdata/netdata/pull/18865) ([stelfrag](https://github.com/stelfrag))
-- Prevent memory corruption during ACLK OTP decode [\#18863](https://github.com/netdata/netdata/pull/18863) ([stelfrag](https://github.com/stelfrag))
-- Do not build H2O by default. [\#18861](https://github.com/netdata/netdata/pull/18861) ([vkalintiris](https://github.com/vkalintiris))
-- Regenerate integrations.js [\#18860](https://github.com/netdata/netdata/pull/18860) ([netdatabot](https://github.com/netdatabot))
-- feat\(go.d.plugin\): add MaxScale collector [\#18859](https://github.com/netdata/netdata/pull/18859) ([ilyam8](https://github.com/ilyam8))
-- fix\(apps.plugin\): add tini to Linux managers [\#18856](https://github.com/netdata/netdata/pull/18856) ([ilyam8](https://github.com/ilyam8))
-- feat\(proc/numa\): add numa node mem activity [\#18855](https://github.com/netdata/netdata/pull/18855) ([ilyam8](https://github.com/ilyam8))
-- build\(deps\): bump github.com/vmware/govmomi from 0.44.1 to 0.45.0 in /src/go [\#18854](https://github.com/netdata/netdata/pull/18854) ([dependabot[bot]](https://github.com/apps/dependabot))
-- chore\(ci\): print versions in check\_successful\_update [\#18853](https://github.com/netdata/netdata/pull/18853) ([ilyam8](https://github.com/ilyam8))
-- Regenerate integrations.js [\#18852](https://github.com/netdata/netdata/pull/18852) ([netdatabot](https://github.com/netdatabot))
 
 ## [v1.47.5](https://github.com/netdata/netdata/tree/v1.47.5) (2024-10-24)
 

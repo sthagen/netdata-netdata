@@ -137,6 +137,24 @@ static void rrdcontext_recalculate_retention_all_hosts(void) {
 // ----------------------------------------------------------------------------
 // garbage collector
 
+void get_metric_retention_by_id(RRDHOST *host, UUIDMAP_ID id, time_t *min_first_time_t, time_t *max_last_time_t) {
+    *min_first_time_t = LONG_MAX;
+    *max_last_time_t = 0;
+
+    for (size_t tier = 0; tier < nd_profile.storage_tiers; tier++) {
+        STORAGE_ENGINE *eng = host->db[tier].eng;
+
+        time_t first_time_t = 0, last_time_t = 0;
+        if (eng->api.metric_retention_by_id(host->db[tier].si, id, &first_time_t, &last_time_t)) {
+            if (first_time_t > 0 && first_time_t < *min_first_time_t)
+                *min_first_time_t = first_time_t;
+
+            if (last_time_t > *max_last_time_t)
+                *max_last_time_t = last_time_t;
+        }
+    }
+}
+
 bool rrdmetric_update_retention(RRDMETRIC *rm) {
     time_t min_first_time_t = LONG_MAX, max_last_time_t = 0;
 
@@ -144,21 +162,8 @@ bool rrdmetric_update_retention(RRDMETRIC *rm) {
         min_first_time_t = rrddim_first_entry_s(rm->rrddim);
         max_last_time_t = rrddim_last_entry_s(rm->rrddim);
     }
-    else {
-        RRDHOST *rrdhost = rm->ri->rc->rrdhost;
-        for (size_t tier = 0; tier < nd_profile.storage_tiers; tier++) {
-            STORAGE_ENGINE *eng = rrdhost->db[tier].eng;
-
-            time_t first_time_t = 0, last_time_t = 0;
-            if (eng->api.metric_retention_by_id(rrdhost->db[tier].si, rm->uuid, &first_time_t, &last_time_t)) {
-                if (first_time_t > 0 && first_time_t < min_first_time_t)
-                    min_first_time_t = first_time_t;
-
-                if (last_time_t > max_last_time_t)
-                    max_last_time_t = last_time_t;
-            }
-        }
-    }
+    else
+        get_metric_retention_by_id(rm->ri->rc->rrdhost, rm->uuid, &min_first_time_t, &max_last_time_t);
 
     if((min_first_time_t == LONG_MAX || min_first_time_t == 0) && max_last_time_t == 0)
         return false;
@@ -259,7 +264,7 @@ void rrdcontext_delete_from_sql_unsafe(RRDCONTEXT *rc) {
     rc->hub.units = string2str(rc->units);
     rc->hub.family = string2str(rc->family);
 
-    if (rc->rrdhost->rrd_memory_mode != RRD_MEMORY_MODE_DBENGINE)
+    if (rc->rrdhost->rrd_memory_mode != RRD_DB_MODE_DBENGINE)
         return;
 
     // delete it from SQL
@@ -757,7 +762,7 @@ void rrdcontext_message_send_unsafe(RRDCONTEXT *rc, bool snapshot __maybe_unused
         rrdcontext_delete_from_sql_unsafe(rc);
 
     else {
-        if (rc->rrdhost->rrd_memory_mode != RRD_MEMORY_MODE_DBENGINE)
+        if (rc->rrdhost->rrd_memory_mode != RRD_DB_MODE_DBENGINE)
             return;
         if (ctx_store_context(&rc->rrdhost->host_id.uuid, &rc->hub) != 0)
             netdata_log_error(
@@ -1016,6 +1021,9 @@ void *rrdcontext_main(void *ptr) {
         RRDHOST *host;
         dfe_start_reentrant(rrdhost_root_index, host) {
             if(unlikely(!service_running(SERVICE_CONTEXT))) break;
+
+            if(rrdhost_flag_check(host, RRDHOST_FLAG_PENDING_CONTEXT_LOAD))
+                continue;
 
             worker_is_busy(WORKER_JOB_HOSTS);
 

@@ -21,7 +21,7 @@ void stream_sender_start_host(struct rrdhost *host);
 void stream_sender_signal_to_stop_and_wait(struct rrdhost *host, STREAM_HANDSHAKE reason, bool wait);
 
 // managing host sender structures
-void stream_sender_structures_init(RRDHOST *host, bool stream, STRING *parents, STRING *api_key, STRING *send_charts_matching);
+void stream_sender_structures_init(struct rrdhost *host, bool stream, STRING *parents, STRING *api_key, STRING *send_charts_matching);
 void stream_sender_structures_free(struct rrdhost *host);
 
 // querying host sender information
@@ -38,7 +38,7 @@ void stream_receiver_free(struct receiver_state *rpt);
 bool stream_receiver_signal_to_stop_and_wait(struct rrdhost *host, STREAM_HANDSHAKE reason);
 char *stream_receiver_program_version_strdupz(struct rrdhost *host);
 
-#include "rrdhost-status.h"
+#include "database/rrdhost-status.h"
 #include "protocol/commands.h"
 #include "stream-path.h"
 #include "stream-control.h"
