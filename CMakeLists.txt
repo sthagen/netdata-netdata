@@ -987,6 +987,8 @@ set(LIBNETDATA_FILES
         src/libnetdata/memory/alignment.h
         src/libnetdata/os/get_system_pagesize.c
         src/libnetdata/os/get_system_pagesize.h
+        src/libnetdata/os/hostname.c
+        src/libnetdata/os/hostname.h
 )
 
 set(LIBH2O_FILES
@@ -1166,6 +1168,8 @@ set(DAEMON_FILES
         src/daemon/config/netdata-conf-profile.c
         src/daemon/config/netdata-conf-profile.h
         src/daemon/pulse/pulse-daemon-memory-system.c
+        src/daemon/pulse/pulse-network.c
+        src/daemon/pulse/pulse-network.h
 )
 
 set(H2O_FILES
