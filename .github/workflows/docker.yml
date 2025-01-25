@@ -129,8 +129,7 @@ jobs:
           - linux/arm/v7
           - linux/arm64
           - linux/ppc64le
-      # Fail fast on releases, but run everything to completion on other triggers.
-      fail-fast: ${{ github.event_name == 'workflow_dispatch' }}
+      fail-fast: false
     steps:
       - name: Skip Check
         id: skip
@@ -154,7 +153,10 @@ jobs:
       - name: Setup QEMU
         id: qemu
         if: matrix.platform != 'linux/i386' && matrix.platform != 'linux/amd64' && needs.file-check.outputs.run == 'true'
-        uses: docker/setup-qemu-action@v3
+        run: |
+          sudo apt-get update
+          sudo apt-get upgrade -y
+          sudo apt-get install -y qemu-user-static
       - name: Setup Buildx
         id: prepare
         if: needs.file-check.outputs.run == 'true'
