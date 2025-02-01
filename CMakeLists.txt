@@ -54,8 +54,6 @@ if(NOT CMAKE_BUILD_TYPE)
         set(CMAKE_BUILD_TYPE "Release")
 endif()
 
-include(NetdataCompilerFlags)
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS On)
 
 # Check for the mold linker and try to use it if available
@@ -81,11 +79,6 @@ if(USE_MOLD)
         else()
                 message(CHECK_FAIL "failed")
         endif()
-endif()
-
-check_c_compiler_flag("-fexceptions" HAVE_FEXCEPTIONS)
-if (NOT HAVE_FEXCEPTIONS)
-    message(FATAL_ERROR "Missing required compiler flag: -fexceptions.")
 endif()
 
 set(CONFIG_H_DIR ${CMAKE_BINARY_DIR})
@@ -152,6 +145,13 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "CYGWIN" OR "${CMAKE_SYSTEM_NAME}" STREQU
         message(STATUS " Compiling for Windows (${CMAKE_SYSTEM_NAME}, MSYSTEM=$ENV{MSYSTEM})... ")
 else()
         message(FATAL_ERROR "Unknown/unsupported platform: ${CMAKE_SYSTEM_NAME} (Supported platforms: FreeBSD, Linux, macOS, Windows)")
+endif()
+
+include(NetdataCompilerFlags)
+
+check_c_compiler_flag("-fexceptions" HAVE_FEXCEPTIONS)
+if (NOT HAVE_FEXCEPTIONS)
+    message(FATAL_ERROR "Missing required compiler flag: -fexceptions.")
 endif()
 
 # This is intended to make life easier for developers who are working on one
@@ -1775,6 +1775,7 @@ set(WINDOWS_PLUGIN_FILES
         src/collectors/windows.plugin/GetSystemUptime.c
         src/collectors/windows.plugin/GetSystemRAM.c
         src/collectors/windows.plugin/GetSystemCPU.c
+        src/collectors/windows.plugin/perflib-adcs.c
         src/collectors/windows.plugin/perflib-rrd.c
         src/collectors/windows.plugin/perflib-rrd.h
         src/collectors/windows.plugin/perflib-ad.c
@@ -2998,6 +2999,9 @@ if (NOT NETDATA_USER)
         set(NETDATA_USER "netdata")
 endif()
 
+set(BUILD_INFO_CMAKE_CACHE_ARCHIVE_NAME "build-info-cmake-cache.gz")
+set(BUILD_INFO_CMAKE_CACHE_ARCHIVE_PATH "usr/share/netdata")
+
 configure_file(packaging/cmake/config.cmake.h.in config.h)
 
 #
@@ -3545,6 +3549,27 @@ if(ENABLE_DASHBOARD)
 
 endif()
 
+#
+# Ship CMakeCache.txt as an archive
+#
+
+install(CODE "
+        execute_process(COMMAND gzip -c \"${CMAKE_BINARY_DIR}/CMakeCache.txt\"
+                        OUTPUT_FILE \"${BUILD_INFO_CMAKE_CACHE_ARCHIVE_NAME}\"
+                        WORKING_DIRECTORY \"${CMAKE_BINARY_DIR}\"
+                        RESULT_VARIABLE result)
+        if(NOT result EQUAL 0)
+                message(WARNING \"Failed to compress CMakeCache.txt\")
+        endif()
+
+        file(INSTALL \"${CMAKE_BINARY_DIR}/${BUILD_INFO_CMAKE_CACHE_ARCHIVE_NAME}\"
+             DESTINATION \"\${CMAKE_INSTALL_PREFIX}/${BUILD_INFO_CMAKE_CACHE_ARCHIVE_PATH}\")
+")
+
+#
+# vendor msys stuff on Windows
+#
+
 if(OS_WINDOWS)
         install(FILES /usr/bin/msys-protobuf-32.dll
                       /usr/bin/msys-uv-1.dll
@@ -3556,5 +3581,9 @@ if(OS_WINDOWS)
         # Make curl work with ssl
         install(DIRECTORY /usr/ssl DESTINATION usr)
 endif()
+
+#
+# Include packaging logic
+#
 
 include(Packaging)
