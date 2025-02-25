@@ -263,7 +263,7 @@ static DAEMON_STATUS_FILE daemon_status_file_get(DAEMON_STATUS status) {
     else if(!UUIDiszero(last_session_status.host_id))
         session_status.host_id = last_session_status.host_id;
     else {
-        const char *machine_guid = registry_get_this_machine_guid();
+        const char *machine_guid = registry_get_this_machine_guid(false);
         if(machine_guid && *machine_guid) {
             if (uuid_parse_flexi(machine_guid, session_status.host_id.uuid) != 0)
                 session_status.host_id = UUID_ZERO;
@@ -296,8 +296,7 @@ static DAEMON_STATUS_FILE daemon_status_file_get(DAEMON_STATUS status) {
     if(!session_status.os_id_like && last_session_status.os_id_like)
         session_status.os_id_like = strdupz(last_session_status.os_id_like);
 
-    if((session_status.status == DAEMON_STATUS_NONE && !session_status.architecture) || status == DAEMON_STATUS_RUNNING)
-        get_daemon_status_fields_from_system_info(&session_status);
+    get_daemon_status_fields_from_system_info(&session_status);
 
     session_status.exit_reason = exit_initiated;
     session_status.profile = nd_profile_detect_and_configure(false);
@@ -373,7 +372,7 @@ DAEMON_STATUS_FILE daemon_status_file_load(void) {
     char current_filename[FILENAME_MAX];
     time_t newest_mtime = 0, current_mtime;
 
-    // Check primary directory first
+    // Check the primary directory first
     if(check_status_file(netdata_configured_cache_dir, current_filename, sizeof(current_filename), &current_mtime)) {
         strncpyz(newest_filename, current_filename, sizeof(newest_filename) - 1);
         newest_mtime = current_mtime;
@@ -529,7 +528,7 @@ void *post_status_file_thread(void *ptr) {
 }
 
 // --------------------------------------------------------------------------------------------------------------------
-// check last status on startup and post crash report
+// check last status on startup and post-crash report
 
 void daemon_status_file_check_crash(void) {
     last_session_status = daemon_status_file_load();
@@ -583,8 +582,20 @@ void daemon_status_file_check_crash(void) {
             break;
 
         case DAEMON_STATUS_INITIALIZING:
-            cause = "crashed on start";
-            msg = "Netdata was last killed/crashed while starting";
+            if (OS_SYSTEM_DISK_SPACE_OK(last_session_status.var_cache) &&
+                last_session_status.var_cache.is_read_only) {
+                cause = "disk read-only";
+                msg = "Netdata couldn't start because the disk is readonly";
+            }
+            else if (OS_SYSTEM_DISK_SPACE_OK(last_session_status.var_cache) &&
+                last_session_status.var_cache.free_bytes == 0) {
+                cause = "disk full";
+                msg = "Netdata couldn't start because the disk is full";
+            }
+            else {
+                cause = "crashed on start";
+                msg = "Netdata was last killed/crashed while starting";
+            }
             pri = NDLP_ERR;
             post_crash_report = true;
             break;
@@ -663,6 +674,13 @@ bool daemon_status_file_was_incomplete_shutdown(void) {
     return last_session_status.status == DAEMON_STATUS_EXITING;
 }
 
+void daemon_status_file_startup_step(const char *step) {
+    freez((char *)session_status.fatal.function);
+    session_status.fatal.function = step ? strdupz(step) : NULL;
+    if(step != NULL)
+        daemon_status_file_save(DAEMON_STATUS_NONE);
+}
+
 // --------------------------------------------------------------------------------------------------------------------
 // ng_log() hook for receiving fatal message information
 
@@ -670,7 +688,8 @@ void daemon_status_file_register_fatal(const char *filename, const char *functio
     static SPINLOCK spinlock = SPINLOCK_INITIALIZER;
     spinlock_lock(&spinlock);
 
-    if(session_status.fatal.filename || session_status.fatal.function || session_status.fatal.message || session_status.fatal.stack_trace) {
+    // do not check the function, because it may have a startup step in it
+    if(session_status.fatal.filename || session_status.fatal.message || session_status.fatal.stack_trace) {
         spinlock_unlock(&spinlock);
         freez((void *)filename);
         freez((void *)function);
@@ -680,6 +699,7 @@ void daemon_status_file_register_fatal(const char *filename, const char *functio
     }
 
     session_status.fatal.filename = filename;
+    freez((char *)session_status.fatal.function); // it may have a startup step
     session_status.fatal.function = function;
     session_status.fatal.message = message;
     session_status.fatal.stack_trace = stack_trace;
