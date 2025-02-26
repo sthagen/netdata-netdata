@@ -2,14 +2,16 @@
 
 #include "common.h"
 #include "daemon-status-file.h"
+#include "buildinfo.h"
 
 #include <curl/curl.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
 
+#define STATUS_FILE_VERSION 3
+
 #define STATUS_FILENAME "status-netdata.json"
-#define STATUS_FILENAME_TMP "status-netdata.json.tmp"
 
 ENUM_STR_MAP_DEFINE(DAEMON_STATUS) = {
     { DAEMON_STATUS_NONE, "none"},
@@ -42,9 +44,32 @@ static SPINLOCK dsf_spinlock = SPINLOCK_INITIALIZER;
 // --------------------------------------------------------------------------------------------------------------------
 // json generation
 
+static XXH64_hash_t daemon_status_file_hash(DAEMON_STATUS_FILE *ds, const char *msg, const char *cause) {
+    CLEAN_BUFFER *wb = buffer_create(0, NULL);
+    buffer_json_initialize(wb, "\"", "\"", 0, true, BUFFER_JSON_OPTIONS_MINIFY);
+    buffer_json_member_add_uint64(wb, "version", STATUS_FILE_VERSION);
+    buffer_json_member_add_uuid(wb, "host_id", ds->host_id.uuid);
+    buffer_json_member_add_uuid(wb, "node_id", ds->node_id.uuid);
+    buffer_json_member_add_uuid(wb, "claim_id", ds->claim_id.uuid);
+    buffer_json_member_add_string(wb, "agent_version", ds->version);
+    buffer_json_member_add_uint64(wb, "fatal_line", ds->fatal.line);
+    buffer_json_member_add_string_or_empty(wb, "fatal_filename", ds->fatal.filename);
+    buffer_json_member_add_string_or_empty(wb, "fatal_errno", ds->fatal.errno_str);
+    buffer_json_member_add_string_or_empty(wb, "fatal_function", ds->fatal.function);
+    buffer_json_member_add_string_or_empty(wb, "fatal_stack_trace", ds->fatal.stack_trace);
+    buffer_json_member_add_string(wb, "message", msg);
+    buffer_json_member_add_string(wb, "cause", cause);
+    buffer_json_member_add_string(wb, "status", DAEMON_STATUS_2str(ds->status));
+    EXIT_REASON_2json(wb, "exit_reason", ds->exit_reason);
+    ND_PROFILE_2json(wb, "profile", ds->profile);
+    buffer_json_finalize(wb);
+    XXH64_hash_t hash = XXH3_64bits((const void *)buffer_tostring(wb), buffer_strlen(wb));
+    return hash;
+}
+
 static void daemon_status_file_to_json(BUFFER *wb, DAEMON_STATUS_FILE *ds) {
     buffer_json_member_add_datetime_rfc3339(wb, "@timestamp", ds->timestamp_ut, true); // ECS
-    buffer_json_member_add_uint64(wb, "version", 2); // custom
+    buffer_json_member_add_uint64(wb, "version", STATUS_FILE_VERSION); // custom
 
     buffer_json_member_add_object(wb, "agent"); // ECS
     {
@@ -60,6 +85,8 @@ static void daemon_status_file_to_json(BUFFER *wb, DAEMON_STATUS_FILE *ds) {
         ND_PROFILE_2json(wb, "ND_profile", ds->profile); // custom
         buffer_json_member_add_string(wb, "ND_status", DAEMON_STATUS_2str(ds->status)); // custom
         EXIT_REASON_2json(wb, "ND_exit_reason", ds->exit_reason); // custom
+
+        buffer_json_member_add_string_or_empty(wb, "ND_install_type", ds->install_type); // custom
 
         buffer_json_member_add_object(wb, "ND_timings"); // custom
         {
@@ -123,15 +150,16 @@ static void daemon_status_file_to_json(BUFFER *wb, DAEMON_STATUS_FILE *ds) {
         buffer_json_member_add_string_or_empty(wb, "filename", ds->fatal.filename);
         buffer_json_member_add_string_or_empty(wb, "function", ds->fatal.function);
         buffer_json_member_add_string_or_empty(wb, "message", ds->fatal.message);
+        buffer_json_member_add_string_or_empty(wb, "errno", ds->fatal.errno_str);
         buffer_json_member_add_string_or_empty(wb, "stack_trace", ds->fatal.stack_trace);
     }
     buffer_json_object_close(wb);
 
     buffer_json_member_add_object(wb, "dedup"); // custom
     {
-        buffer_json_member_add_time_t(wb, "timestamp", ds->dedup.timestamp); // custom
-        buffer_json_member_add_string(wb, "status", DAEMON_STATUS_2str(ds->dedup.status)); // custom
-        EXIT_REASON_2json(wb, "exit_reason", ds->dedup.exit_reason); // custom
+        buffer_json_member_add_datetime_rfc3339(wb, "@timestamp", ds->dedup.timestamp_ut, true); // custom
+        buffer_json_member_add_uint64(wb, "hash", ds->dedup.hash); // custom
+        buffer_json_member_add_uint64(wb, "restarts", ds->dedup.restarts); // custom
     }
     buffer_json_object_close(wb);
 }
@@ -149,52 +177,54 @@ static bool daemon_status_file_from_json(json_object *jobj, void *data, BUFFER *
     uint64_t version = 0;
     JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "version", version, error, true);
 
-    bool required = false; // allow missing fields and values
-    bool required_v2 = false; // allow missing fields and values for version 2
+    bool strict = false; // allow missing fields and values
+    bool required_v1 = version >= 1 ? strict : false;
+    bool required_v3 = version >= 3 ? strict : false;
 
     // Parse timestamp
-    JSONC_PARSE_TXT2CHAR_OR_ERROR_AND_RETURN(jobj, path, "@timestamp", datetime, error, required);
+    JSONC_PARSE_TXT2CHAR_OR_ERROR_AND_RETURN(jobj, path, "@timestamp", datetime, error, required_v1);
     if(datetime[0])
         ds->timestamp_ut = rfc3339_parse_ut(datetime, NULL);
 
     // Parse agent object
-    JSONC_PARSE_SUBOBJECT(jobj, path, "agent", error, required, {
-        JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "id", ds->host_id.uuid, error, required);
-        JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "ephemeral_id", ds->invocation.uuid, error, required);
-        JSONC_PARSE_TXT2CHAR_OR_ERROR_AND_RETURN(jobj, path, "version", ds->version, error, required);
-        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "uptime", ds->uptime, error, required);
-        JSONC_PARSE_ARRAY_OF_TXT2BITMAP_OR_ERROR_AND_RETURN(jobj, path, "ND_profile", ND_PROFILE_2id_one, ds->profile, error, required);
-        JSONC_PARSE_TXT2ENUM_OR_ERROR_AND_RETURN(jobj, path, "ND_status", DAEMON_STATUS_2id, ds->status, error, required);
-        JSONC_PARSE_ARRAY_OF_TXT2BITMAP_OR_ERROR_AND_RETURN(jobj, path, "ND_exit_reason", EXIT_REASON_2id_one, ds->exit_reason, error, required);
-        JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "ND_node_id", ds->node_id.uuid, error, required);
-        JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "ND_claim_id", ds->claim_id.uuid, error, required);
+    JSONC_PARSE_SUBOBJECT(jobj, path, "agent", error, required_v1, {
+        JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "id", ds->host_id.uuid, error, required_v1);
+        JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "ephemeral_id", ds->invocation.uuid, error, required_v1);
+        JSONC_PARSE_TXT2CHAR_OR_ERROR_AND_RETURN(jobj, path, "version", ds->version, error, required_v1);
+        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "uptime", ds->uptime, error, required_v1);
+        JSONC_PARSE_ARRAY_OF_TXT2BITMAP_OR_ERROR_AND_RETURN(jobj, path, "ND_profile", ND_PROFILE_2id_one, ds->profile, error, required_v1);
+        JSONC_PARSE_TXT2ENUM_OR_ERROR_AND_RETURN(jobj, path, "ND_status", DAEMON_STATUS_2id, ds->status, error, required_v1);
+        JSONC_PARSE_ARRAY_OF_TXT2BITMAP_OR_ERROR_AND_RETURN(jobj, path, "ND_exit_reason", EXIT_REASON_2id_one, ds->exit_reason, error, required_v1);
+        JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "ND_node_id", ds->node_id.uuid, error, required_v1);
+        JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "ND_claim_id", ds->claim_id.uuid, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "ND_install_type", ds->install_type, error, required_v3);
 
-        JSONC_PARSE_SUBOBJECT(jobj, path, "ND_timings", error, required, {
-            JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "init", ds->timings.init, error, required);
-            JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "exit", ds->timings.exit, error, required);
+        JSONC_PARSE_SUBOBJECT(jobj, path, "ND_timings", error, required_v1, {
+            JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "init", ds->timings.init, error, required_v1);
+            JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "exit", ds->timings.exit, error, required_v1);
         });
     });
 
     // Parse host object
-    JSONC_PARSE_SUBOBJECT(jobj, path, "host", error, required, {
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "architecture", ds->architecture, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "virtualization", ds->virtualization, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "container", ds->container, error, required);
-        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "uptime", ds->boottime, error, required);
+    JSONC_PARSE_SUBOBJECT(jobj, path, "host", error, required_v1, {
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "architecture", ds->architecture, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "virtualization", ds->virtualization, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "container", ds->container, error, required_v1);
+        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "uptime", ds->boottime, error, required_v1);
 
-        JSONC_PARSE_SUBOBJECT(jobj, path, "boot", error, required, {
-            JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "id", ds->boot_id.uuid, error, required);
+        JSONC_PARSE_SUBOBJECT(jobj, path, "boot", error, required_v1, {
+            JSONC_PARSE_TXT2UUID_OR_ERROR_AND_RETURN(jobj, path, "id", ds->boot_id.uuid, error, required_v1);
         });
 
-        JSONC_PARSE_SUBOBJECT(jobj, path, "memory", error, required, {
-            JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "total", ds->memory.ram_total_bytes, error, required);
-            JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "free", ds->memory.ram_available_bytes, error, required);
+        JSONC_PARSE_SUBOBJECT(jobj, path, "memory", error, required_v1, {
+            JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "total", ds->memory.ram_total_bytes, error, false);
+            JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "free", ds->memory.ram_available_bytes, error, false);
             if(!OS_SYSTEM_MEMORY_OK(ds->memory))
                 ds->memory = OS_SYSTEM_MEMORY_EMPTY;
         });
 
-        JSONC_PARSE_SUBOBJECT(jobj, path, "disk", error, required, {
-            JSONC_PARSE_SUBOBJECT(jobj, path, "db", error, required, {
+        JSONC_PARSE_SUBOBJECT(jobj, path, "disk", error, required_v1, {
+            JSONC_PARSE_SUBOBJECT(jobj, path, "db", error, required_v1, {
                 JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "total", ds->var_cache.total_bytes, error, false);
                 JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "free", ds->var_cache.free_bytes, error, false);
                 JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "inodes_total", ds->var_cache.total_inodes, error, false);
@@ -207,29 +237,34 @@ static bool daemon_status_file_from_json(json_object *jobj, void *data, BUFFER *
     });
 
     // Parse os object
-    JSONC_PARSE_SUBOBJECT(jobj, path, "os", error, required, {
-        JSONC_PARSE_TXT2ENUM_OR_ERROR_AND_RETURN(jobj, path, "type", DAEMON_OS_TYPE_2id, ds->os_type, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "kernel", ds->kernel_version, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "name", ds->os_name, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "version", ds->os_version, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "family", ds->os_id, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "platform", ds->os_id_like, error, required);
+    JSONC_PARSE_SUBOBJECT(jobj, path, "os", error, required_v1, {
+        JSONC_PARSE_TXT2ENUM_OR_ERROR_AND_RETURN(jobj, path, "type", DAEMON_OS_TYPE_2id, ds->os_type, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "kernel", ds->kernel_version, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "name", ds->os_name, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "version", ds->os_version, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "family", ds->os_id, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "platform", ds->os_id_like, error, required_v1);
     });
 
     // Parse fatal object
-    JSONC_PARSE_SUBOBJECT(jobj, path, "fatal", error, required, {
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "filename", ds->fatal.filename, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "function", ds->fatal.function, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "message", ds->fatal.message, error, required);
-        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "stack_trace", ds->fatal.stack_trace, error, required);
-        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "line", ds->fatal.line, error, required);
+    JSONC_PARSE_SUBOBJECT(jobj, path, "fatal", error, required_v1, {
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "filename", ds->fatal.filename, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "function", ds->fatal.function, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "message", ds->fatal.message, error, required_v1);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "errno", ds->fatal.errno_str, error, required_v3);
+        JSONC_PARSE_TXT2STRDUPZ_OR_ERROR_AND_RETURN(jobj, path, "stack_trace", ds->fatal.stack_trace, error, required_v1);
+        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "line", ds->fatal.line, error, required_v1);
     });
 
     // Parse the last posted object
-    JSONC_PARSE_SUBOBJECT(jobj, path, "dedup", error, required_v2, {
-        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "timestamp", ds->dedup.timestamp, error, required_v2);
-        JSONC_PARSE_TXT2ENUM_OR_ERROR_AND_RETURN(jobj, path, "status", DAEMON_STATUS_2id, ds->dedup.status, error, required_v2);
-        JSONC_PARSE_ARRAY_OF_TXT2BITMAP_OR_ERROR_AND_RETURN(jobj, path, "exit_reason", EXIT_REASON_2id_one, ds->dedup.exit_reason, error, required_v2);
+    JSONC_PARSE_SUBOBJECT(jobj, path, "dedup", error, required_v3, {
+        datetime[0] = '\0';
+        JSONC_PARSE_TXT2CHAR_OR_ERROR_AND_RETURN(jobj, path, "@timestamp", datetime, error, required_v1);
+        if(datetime[0])
+            ds->dedup.timestamp_ut = rfc3339_parse_ut(datetime, NULL);
+
+        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "hash", ds->dedup.hash, error, required_v3);
+        JSONC_PARSE_UINT64_OR_ERROR_AND_RETURN(jobj, path, "restarts", ds->dedup.restarts, error, required_v3);
     });
 
     return true;
@@ -314,10 +349,19 @@ static void daemon_status_file_refresh(DAEMON_STATUS status) {
         session_status.os_id = strdupz(last_session_status.os_id);
     if(!session_status.os_id_like && last_session_status.os_id_like)
         session_status.os_id_like = strdupz(last_session_status.os_id_like);
-    if(!session_status.dedup.timestamp) {
-        session_status.dedup.timestamp = last_session_status.dedup.timestamp;
-        session_status.dedup.status = last_session_status.dedup.status;
-        session_status.dedup.exit_reason = last_session_status.dedup.exit_reason;
+    if(!session_status.dedup.restarts)
+        session_status.dedup.restarts = last_session_status.dedup.restarts + 1;
+    if(!session_status.dedup.timestamp_ut || !session_status.dedup.hash) {
+        session_status.dedup.timestamp_ut = last_session_status.dedup.timestamp_ut;
+        session_status.dedup.hash = last_session_status.dedup.hash;
+    }
+
+    if(!session_status.install_type) {
+        char *install_type = NULL, *prebuilt_arch = NULL, *prebuilt_dist = NULL;
+        get_install_type_internal(&install_type, &prebuilt_arch, &prebuilt_dist);
+        freez(prebuilt_arch);
+        freez(prebuilt_dist);
+        session_status.install_type = install_type;
     }
 
     get_daemon_status_fields_from_system_info(&session_status);
@@ -433,7 +477,7 @@ static bool save_status_file(const char *directory, const char *content, size_t 
     char temp_filename[FILENAME_MAX];
 
     snprintfz(filename, sizeof(filename), "%s/%s", directory, STATUS_FILENAME);
-    snprintfz(temp_filename, sizeof(temp_filename), "%s/%s", directory, STATUS_FILENAME_TMP);
+    snprintfz(temp_filename, sizeof(temp_filename), "%s/%s-%08x", directory, STATUS_FILENAME, (unsigned)gettid_cached());
 
     FILE *fp = fopen(temp_filename, "w");
     if (!fp)
@@ -443,7 +487,6 @@ static bool save_status_file(const char *directory, const char *content, size_t 
     fclose(fp);
 
     if (!ok) {
-        unlink(filename);
         unlink(temp_filename);
         return false;
     }
@@ -466,8 +509,11 @@ static bool save_status_file(const char *directory, const char *content, size_t 
 static void daemon_status_file_save(DAEMON_STATUS_FILE *ds) {
     spinlock_lock(&dsf_spinlock);
 
-    // Prepare JSON content
-    CLEAN_BUFFER *wb = buffer_create(0, NULL);
+    static BUFFER *wb = NULL;
+    if (!wb)
+        wb = buffer_create(16384, NULL);
+
+    buffer_flush(wb);
     buffer_json_initialize(wb, "\"", "\"", 0, true, BUFFER_JSON_OPTIONS_DEFAULT);
     daemon_status_file_to_json(wb, ds);
     buffer_json_finalize(wb);
@@ -485,7 +531,7 @@ static void daemon_status_file_save(DAEMON_STATUS_FILE *ds) {
 
         // Try each fallback directory until successful
         for(size_t i = 0; i < _countof(status_file_fallbacks); i++) {
-            if(save_status_file(status_file_fallbacks[i], content, content_size)) {
+            if (save_status_file(status_file_fallbacks[i], content, content_size)) {
                 nd_log(NDLS_DAEMON, NDLP_DEBUG, "Saved status file in fallback %s", status_file_fallbacks[i]);
                 saved = true;
                 break;
@@ -502,6 +548,17 @@ static void daemon_status_file_save(DAEMON_STATUS_FILE *ds) {
 void daemon_status_file_update_status(DAEMON_STATUS status) {
     daemon_status_file_refresh(status);
     daemon_status_file_save(&session_status);
+}
+
+void daemon_status_file_exit_reason_save(EXIT_REASON reason) {
+    spinlock_lock(&dsf_spinlock);
+    session_status.exit_reason |= reason;
+    spinlock_unlock(&dsf_spinlock);
+    daemon_status_file_save(&session_status);
+}
+
+static void daemon_status_file_out_of_memory(void) {
+    daemon_status_file_exit_reason_save(EXIT_REASON_OUT_OF_MEMORY);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -538,10 +595,10 @@ void post_status_file(struct post_status_file_thread_data *d) {
 
     CURLcode rc = curl_easy_perform(curl);
     if(rc == CURLE_OK) {
+        XXH64_hash_t hash = daemon_status_file_hash(&d->status, d->msg, d->cause);
         spinlock_lock(&dsf_spinlock);
-        session_status.dedup.timestamp = now_realtime_sec();
-        session_status.dedup.status = d->status.status;
-        session_status.dedup.exit_reason = d->status.exit_reason;
+        session_status.dedup.timestamp_ut = now_realtime_usec();
+        session_status.dedup.hash = hash;
         spinlock_unlock(&dsf_spinlock);
         daemon_status_file_save(&session_status);
     }
@@ -562,10 +619,24 @@ void *post_status_file_thread(void *ptr) {
 // --------------------------------------------------------------------------------------------------------------------
 // check last status on startup and post-crash report
 
+struct log_priority {
+    ND_LOG_FIELD_PRIORITY user;
+    ND_LOG_FIELD_PRIORITY post;
+};
+
+struct log_priority PRI_ALL_NORMAL          = { NDLP_NOTICE, NDLP_DEBUG };
+struct log_priority PRI_USER_SHOULD_FIX     = { NDLP_WARNING, NDLP_INFO };
+struct log_priority PRI_NETDATA_BUG         = { NDLP_CRIT, NDLP_ERR };
+struct log_priority PRI_BAD_BUT_NO_REASON   = { NDLP_ERR, NDLP_WARNING };
+
 void daemon_status_file_check_crash(void) {
+    FUNCTION_RUN_ONCE();
+
+    mallocz_register_out_of_memory_cb(daemon_status_file_out_of_memory);
+
     last_session_status = daemon_status_file_load();
     daemon_status_file_update_status(DAEMON_STATUS_INITIALIZING);
-    ND_LOG_FIELD_PRIORITY pri = NDLP_NOTICE;
+    struct log_priority pri = PRI_ALL_NORMAL;
 
     bool new_version = strcmp(last_session_status.version, session_status.version) != 0;
     bool post_crash_report = false;
@@ -591,7 +662,7 @@ void daemon_status_file_check_crash(void) {
             else if(!is_exit_reason_normal(last_session_status.exit_reason)) {
                 cause = "exit on fatal";
                 msg = "Netdata was last stopped gracefully (encountered an error)";
-                pri = NDLP_ERR;
+                pri = PRI_NETDATA_BUG;
                 post_crash_report = true;
             }
             else if(last_session_status.exit_reason & EXIT_REASON_SYSTEM_SHUTDOWN) {
@@ -618,29 +689,44 @@ void daemon_status_file_check_crash(void) {
                 last_session_status.var_cache.is_read_only) {
                 cause = "disk read-only";
                 msg = "Netdata couldn't start because the disk is readonly";
+                pri = PRI_USER_SHOULD_FIX;
             }
             else if (OS_SYSTEM_DISK_SPACE_OK(last_session_status.var_cache) &&
                 last_session_status.var_cache.free_bytes == 0) {
                 cause = "disk full";
                 msg = "Netdata couldn't start because the disk is full";
+                pri = PRI_USER_SHOULD_FIX;
             }
             else if (OS_SYSTEM_DISK_SPACE_OK(last_session_status.var_cache) &&
                      last_session_status.var_cache.free_bytes < 1 * 1024 * 1024) {
                 cause = "disk almost full";
                 msg = "Netdata couldn't start while the disk is almost full";
+                pri = PRI_USER_SHOULD_FIX;
+            }
+            else if (last_session_status.exit_reason == EXIT_REASON_NONE &&
+                !UUIDiszero(session_status.boot_id) &&
+                !UUIDiszero(last_session_status.boot_id) &&
+                !UUIDeq(session_status.boot_id, last_session_status.boot_id)) {
+                cause = "abnormal power off";
+                msg = "The system was abnormally powered off while Netdata was starting";
+                pri = PRI_USER_SHOULD_FIX;
+            }
+            else if (last_session_status.exit_reason &= (EXIT_REASON_SIGBUS|EXIT_REASON_SIGFPE|EXIT_REASON_SIGILL|EXIT_REASON_SIGSEGV)) {
+                cause = "killed signal";
+                msg = "Netdata was last crashed while starting, with a signal indicating a bug";
+                pri = PRI_NETDATA_BUG;
+            }
+            else if (last_session_status.exit_reason &= EXIT_REASON_OUT_OF_MEMORY) {
+                cause = "out of memory";
+                msg = "Netdata was last crashed while starting, because it couldn't allocate memory";
+                pri = PRI_USER_SHOULD_FIX;
             }
             else {
                 cause = "crashed on start";
                 msg = "Netdata was last killed/crashed while starting";
+                pri = PRI_BAD_BUT_NO_REASON;
             }
-            pri = NDLP_ERR;
             post_crash_report = true;
-
-            if(session_status.dedup.status == DAEMON_STATUS_INITIALIZING &&
-                now_realtime_sec() - last_session_status.dedup.timestamp < 86400) {
-                // we have already posted this crash
-                disable_crash_report = true;
-            }
 
             break;
 
@@ -661,20 +747,33 @@ void daemon_status_file_check_crash(void) {
                 cause = "crashed on exit";
                 msg = "Netdata was last killed/crashed while exiting (instructed to do so)";
             }
-            pri = NDLP_ERR;
+            pri = PRI_NETDATA_BUG;
             post_crash_report = true;
             break;
 
         case DAEMON_STATUS_RUNNING: {
-            if (!UUIDeq(session_status.boot_id, last_session_status.boot_id)) {
+            if (last_session_status.exit_reason == EXIT_REASON_NONE &&
+                !UUIDiszero(session_status.boot_id) &&
+                !UUIDiszero(last_session_status.boot_id) &&
+                !UUIDeq(session_status.boot_id, last_session_status.boot_id)) {
                 cause = "abnormal power off";
                 msg = "The system was abnormally powered off while Netdata was running";
-                pri = NDLP_CRIT;
+                pri = PRI_USER_SHOULD_FIX;
+            }
+            else if (last_session_status.exit_reason &= (EXIT_REASON_SIGBUS|EXIT_REASON_SIGFPE|EXIT_REASON_SIGILL|EXIT_REASON_SIGSEGV)) {
+                cause = "killed signal";
+                msg = "Netdata was last crashed with a signal indicating a bug";
+                pri = PRI_NETDATA_BUG;
+            }
+            else if (last_session_status.exit_reason &= EXIT_REASON_OUT_OF_MEMORY) {
+                cause = "out of memory";
+                msg = "Netdata was last crashed because it couldn't allocate memory";
+                pri = PRI_USER_SHOULD_FIX;
             }
             else {
                 cause = "killed hard";
                 msg = "Netdata was last killed/crashed while operating normally";
-                pri = NDLP_CRIT;
+                pri = PRI_BAD_BUT_NO_REASON;
                 post_crash_report = true;
             }
             break;
@@ -693,10 +792,19 @@ void daemon_status_file_check_crash(void) {
     };
     ND_LOG_STACK_PUSH(lgs);
 
-    nd_log(NDLS_DAEMON, pri,
+    nd_log(NDLS_DAEMON, pri.user,
            "Netdata Agent version '%s' is starting...\n"
            "Last exit status: %s (%s):\n\n%s",
            NETDATA_VERSION, msg, cause, buffer_tostring(wb));
+
+    if(last_session_status.dedup.timestamp_ut && last_session_status.dedup.hash) {
+        XXH64_hash_t hash = daemon_status_file_hash(&last_session_status, msg, cause);
+        if(hash == last_session_status.dedup.hash &&
+            now_realtime_usec() - last_session_status.dedup.timestamp_ut < 86400 * USEC_PER_SEC) {
+            // we have already posted this crash
+            disable_crash_report = true;
+        }
+    }
 
     if(!disable_crash_report && (analytics_check_enabled() || post_crash_report)) {
         netdata_conf_ssl();
@@ -705,7 +813,7 @@ void daemon_status_file_check_crash(void) {
         d->cause = strdupz(cause);
         d->msg = strdupz(msg);
         d->status = last_session_status;
-        d->priority = pri;
+        d->priority = pri.post;
         nd_thread_create("post_status_file", NETDATA_THREAD_OPTION_DONT_LOG | NETDATA_THREAD_OPTION_DEFAULT, post_status_file_thread, d);
     }
 }
@@ -728,15 +836,16 @@ void daemon_status_file_startup_step(const char *step) {
 // --------------------------------------------------------------------------------------------------------------------
 // ng_log() hook for receiving fatal message information
 
-void daemon_status_file_register_fatal(const char *filename, const char *function, const char *message, const char *stack_trace, long line) {
+void daemon_status_file_register_fatal(const char *filename, const char *function, const char *message, const char *errno_str, const char *stack_trace, long line) {
     spinlock_lock(&dsf_spinlock);
 
     // do not check the function, because it may have a startup step in it
-    if(session_status.fatal.filename || session_status.fatal.message || session_status.fatal.stack_trace) {
+    if(session_status.fatal.filename || session_status.fatal.message || session_status.fatal.errno_str || session_status.fatal.stack_trace) {
         spinlock_unlock(&dsf_spinlock);
         freez((void *)filename);
         freez((void *)function);
         freez((void *)message);
+        freez((void *)errno_str);
         freez((void *)stack_trace);
         return;
     }
@@ -745,6 +854,7 @@ void daemon_status_file_register_fatal(const char *filename, const char *functio
     freez((char *)session_status.fatal.function); // it may have a startup step
     session_status.fatal.function = function;
     session_status.fatal.message = message;
+    session_status.fatal.errno_str = errno_str;
     session_status.fatal.stack_trace = stack_trace;
     session_status.fatal.line = line;
 
