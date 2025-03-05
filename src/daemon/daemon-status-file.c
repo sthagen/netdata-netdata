@@ -778,6 +778,7 @@ void post_status_file(struct post_status_file_thread_data *d) {
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
 
     CURLcode rc = curl_easy_perform(curl);
     if(rc == CURLE_OK) {
@@ -788,15 +789,6 @@ void post_status_file(struct post_status_file_thread_data *d) {
 
     curl_easy_cleanup(curl);
     curl_slist_free_all(headers);
-}
-
-void *post_status_file_thread(void *ptr) {
-    struct post_status_file_thread_data *d = (struct post_status_file_thread_data *)ptr;
-    post_status_file(d);
-    freez((void *)d->cause);
-    freez((void *)d->msg);
-    freez(d);
-    return NULL;
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -820,14 +812,14 @@ void daemon_status_file_check_crash(void) {
     mallocz_register_out_of_memory_cb(daemon_status_file_out_of_memory);
 
     daemon_status_file_load(&last_session_status);
-    daemon_status_file_update_status(DAEMON_STATUS_INITIALIZING);
+    daemon_status_file_startup_step("startup(read status file)");
     struct log_priority pri = PRI_ALL_NORMAL;
 
     bool new_version = strcmp(last_session_status.version, session_status.version) != 0;
     bool post_crash_report = false;
     bool disable_crash_report = false;
     bool dump_json = true;
-    const char *msg, *cause;
+    const char *msg = "", *cause = "";
     switch(last_session_status.status) {
         default:
         case DAEMON_STATUS_NONE:
@@ -1023,12 +1015,18 @@ void daemon_status_file_check_crash(void) {
     if(!disable_crash_report && (analytics_check_enabled() || post_crash_report)) {
         netdata_conf_ssl();
 
-        struct post_status_file_thread_data *d = calloc(1, sizeof(*d));
-        d->cause = strdupz(cause);
-        d->msg = strdupz(msg);
-        d->status = &last_session_status;
-        d->priority = pri.post;
-        nd_thread_create("post_status_file", NETDATA_THREAD_OPTION_DONT_LOG | NETDATA_THREAD_OPTION_DEFAULT, post_status_file_thread, d);
+        daemon_status_file_startup_step("startup(post status file)");
+
+        struct post_status_file_thread_data d = {
+            .cause = cause,
+            .msg = msg,
+            .status = &last_session_status,
+            .priority = pri.post,
+        };
+        post_status_file(&d);
+
+        // MacOS crashes when starting under launchctl, when we create a thread to post the status file,
+        // so we post the status file synchronously, with a timeout of 10 seconds.
     }
 }
 
@@ -1044,19 +1042,19 @@ void daemon_status_file_register_fatal(const char *filename, const char *functio
     exit_initiated_add(EXIT_REASON_FATAL);
     strncpyz(session_status.fatal.thread, nd_thread_tag(), sizeof(session_status.fatal.thread) - 1);
 
-    if(!session_status.fatal.filename[0])
+    if(!session_status.fatal.filename[0] && filename)
         strncpyz(session_status.fatal.filename, filename, sizeof(session_status.fatal.filename) - 1);
 
-    if(!session_status.fatal.function[0])
+    if(!session_status.fatal.function[0] && function)
         strncpyz(session_status.fatal.function, function, sizeof(session_status.fatal.function) - 1);
 
-    if(!session_status.fatal.message[0])
+    if(!session_status.fatal.message[0] && message)
         strncpyz(session_status.fatal.message, message, sizeof(session_status.fatal.message) - 1);
 
-    if(!session_status.fatal.errno_str[0])
+    if(!session_status.fatal.errno_str[0] && errno_str)
         strncpyz(session_status.fatal.errno_str, errno_str, sizeof(session_status.fatal.errno_str) - 1);
 
-    if(!session_status.fatal.stack_trace[0])
+    if(!session_status.fatal.stack_trace[0] && stack_trace)
         strncpyz(session_status.fatal.stack_trace, stack_trace, sizeof(session_status.fatal.stack_trace) - 1);
 
     if(!session_status.fatal.line)
@@ -1119,7 +1117,8 @@ void daemon_status_file_deadly_signal_received(EXIT_REASON reason) {
     // save what we know already
     daemon_status_file_save(static_save_buffer, &session_status, false);
 
-    if(!session_status.fatal.stack_trace[0]) {
+    // we cannot get a stack trace on SIGABRT - it may deadlock forever
+    if(reason != EXIT_REASON_SIGABRT && !session_status.fatal.stack_trace[0]) {
         buffer_flush(static_save_buffer);
         capture_stack_trace(static_save_buffer);
         strncpyz(session_status.fatal.stack_trace, buffer_tostring(static_save_buffer), sizeof(session_status.fatal.stack_trace) - 1);
@@ -1148,7 +1147,7 @@ void daemon_status_file_startup_step(const char *step) {
     else
         session_status.fatal.function[0] = '\0';
 
-    daemon_status_file_update_status(DAEMON_STATUS_NONE);
+    daemon_status_file_update_status(DAEMON_STATUS_INITIALIZING);
 }
 
 void daemon_status_file_shutdown_step(const char *step) {
@@ -1161,5 +1160,5 @@ void daemon_status_file_shutdown_step(const char *step) {
     else
         session_status.fatal.function[0] = '\0';
 
-    daemon_status_file_update_status(DAEMON_STATUS_NONE);
+    daemon_status_file_update_status(DAEMON_STATUS_EXITING);
 }
