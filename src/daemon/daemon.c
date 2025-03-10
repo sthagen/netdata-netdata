@@ -115,6 +115,7 @@ static int become_user(const char *username, int pid_fd) {
     if(supplementary_groups)
         freez(supplementary_groups);
 
+#if !defined(FSANITIZE_ADDRESS)
     if(os_setresgid(gid, gid, gid) != 0) {
         netdata_log_error("Cannot switch to user's %s group (gid: %u).", username, gid);
         return -1;
@@ -129,10 +130,12 @@ static int become_user(const char *username, int pid_fd) {
         netdata_log_error("Cannot switch to user's %s group (gid: %u).", username, gid);
         return -1;
     }
+
     if(setegid(gid) != 0) {
         netdata_log_error("Cannot effectively switch to user's %s group (gid: %u).", username, gid);
         return -1;
     }
+
     if(setuid(uid) != 0) {
         netdata_log_error("Cannot switch to user %s (uid: %u).", username, uid);
         return -1;
@@ -141,6 +144,9 @@ static int become_user(const char *username, int pid_fd) {
         netdata_log_error("Cannot effectively switch to user %s (uid: %u).", username, uid);
         return -1;
     }
+#else
+    fprintf(stderr, "Running with a Sanitizer, skipping setuid/setgid\n");
+#endif
 
     return(0);
 }
@@ -254,6 +260,10 @@ struct sched_def {
         // the available members are important too!
         // these are all the possible scheduling policies supported by netdata
 
+    // do not change the scheduling priority
+    { "keep", 0, 0, SCHED_FLAG_KEEP_AS_IS },
+    { "none", 0, 0, SCHED_FLAG_KEEP_AS_IS },
+
 #ifdef SCHED_BATCH
         { "batch", SCHED_BATCH, 0, SCHED_FLAG_USE_NICE },
 #endif
@@ -274,10 +284,6 @@ struct sched_def {
 #ifdef SCHED_FIFO
         { "fifo", SCHED_FIFO, 0, SCHED_FLAG_PRIORITY_CONFIGURABLE },
 #endif
-
-        // do not change the scheduling priority
-        { "keep", 0, 0, SCHED_FLAG_KEEP_AS_IS },
-        { "none", 0, 0, SCHED_FLAG_KEEP_AS_IS },
 
         // array termination
         { NULL, 0, 0, 0 }
