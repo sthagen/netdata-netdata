@@ -531,11 +531,14 @@ static void *stream_connector_thread(void *ptr) {
     worker_register_job_custom_metric(WORKER_SENDER_CONNECTOR_JOB_CANCELLED_NODES, "cancelled nodes", "nodes", WORKER_METRIC_ABSOLUTE);
 
     unsigned job_id = 0;
-    while(service_running(SERVICE_STREAMING)) {
-
+    size_t exiting = 0;
+    while(exiting <= 5) {
         worker_is_idle();
         job_id = completion_wait_for_a_job_with_timeout(&sc->completion, job_id, 1000);
         size_t nodes = 0, connected_nodes = 0, failed_nodes = 0, cancelled_nodes = 0;
+
+        if(!service_running(SERVICE_STREAMING_CONNECTOR))
+            exiting++;
 
         spinlock_lock(&sc->queue.spinlock);
         Word_t idx = 0;
@@ -557,6 +560,7 @@ static void *stream_connector_thread(void *ptr) {
                 spinlock_unlock(&sc->queue.spinlock);
 
                 // do not have the connector lock when calling these
+                stream_sender_on_disconnect(s);
                 stream_connector_remove(s);
 
                 spinlock_lock(&sc->queue.spinlock);
@@ -564,6 +568,9 @@ static void *stream_connector_thread(void *ptr) {
             }
 
             STRCNT_CMD cmd = idx & (STRCNT_CMD_CONNECT| STRCNT_CMD_REMOVE);
+            if(unlikely(exiting))
+                cmd = STRCNT_CMD_REMOVE;
+
             switch(cmd) {
                 case STRCNT_CMD_CONNECT:
                     spinlock_unlock(&sc->queue.spinlock);
@@ -619,16 +626,30 @@ static void *stream_connector_thread(void *ptr) {
         worker_set_metric(WORKER_SENDER_CONNECTOR_JOB_CANCELLED_NODES, (NETDATA_DOUBLE)cancelled_nodes);
     }
 
-#if defined(FSANITIZE_ADDRESS)
-    // sometimes this thread exits, with localhost still in the queue
-    sleep(3);
-#endif
+    return NULL;
+}
+
+void stream_connector_remove_host(RRDHOST *host) {
+    if(!host || !host->sender) return;
+
+    struct connector *sc = stream_connector_get(host->sender);
 
     spinlock_lock(&sc->queue.spinlock);
     Word_t idx = 0;
     for(struct sender_state *s = SENDERS_FIRST(&sc->queue.senders, &idx);
          s;
          s = SENDERS_NEXT(&sc->queue.senders, &idx)) {
+
+        if(s != host->sender)
+            continue;
+
+        ND_LOG_STACK lgs[] = {
+            ND_LOG_FIELD_STR(NDF_NIDL_NODE, s->host->hostname),
+            ND_LOG_FIELD_UUID(NDF_MESSAGE_ID, &streaming_to_parent_msgid),
+            ND_LOG_FIELD_END(),
+        };
+        ND_LOG_STACK_PUSH(lgs);
+
         SENDERS_DEL(&sc->queue.senders, idx);
         spinlock_unlock(&sc->queue.spinlock);
 
@@ -637,10 +658,10 @@ static void *stream_connector_thread(void *ptr) {
         stream_sender_remove(s, s->exit.reason);
 
         spinlock_lock(&sc->queue.spinlock);
+        break;
     }
-    spinlock_unlock(&sc->queue.spinlock);
 
-    return NULL;
+    spinlock_unlock(&sc->queue.spinlock);
 }
 
 bool stream_connector_init(struct sender_state *s) {
