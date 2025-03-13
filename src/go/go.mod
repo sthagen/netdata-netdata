@@ -48,7 +48,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/valyala/fastjson v1.6.4
-	github.com/vmware/govmomi v0.48.1
+	github.com/vmware/govmomi v0.49.0
 	go.mongodb.org/mongo-driver v1.17.3
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/net v0.37.0
@@ -57,9 +57,9 @@ require (
 	gopkg.in/ini.v1 v1.67.0
 	gopkg.in/rethinkdb/rethinkdb-go.v6 v6.2.2
 	gopkg.in/yaml.v2 v2.4.0
-	k8s.io/api v0.32.2
-	k8s.io/apimachinery v0.32.2
-	k8s.io/client-go v0.32.2
+	k8s.io/api v0.32.3
+	k8s.io/apimachinery v0.32.3
+	k8s.io/client-go v0.32.3
 	layeh.com/radius v0.0.0-20190322222518-890bc1058917
 )
 
