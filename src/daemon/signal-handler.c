@@ -65,7 +65,13 @@ void nd_signal_handler(int signo, siginfo_t *info, void *context __maybe_unused)
 
             // Update the status file
             SIGNAL_CODE sc = info ? signal_code(signo, info->si_code) : 0;
-            if(daemon_status_file_deadly_signal_received(signals_waiting[i].reason, sc, chained_handler)) {
+
+            // Get fault address based on signal type
+            void *fault_address = NULL;
+            if (info && (signo == SIGSEGV || signo == SIGBUS || signo == SIGILL || signo == SIGFPE))
+                fault_address = info->si_addr;
+
+            if(daemon_status_file_deadly_signal_received(signals_waiting[i].reason, sc, fault_address, chained_handler)) {
                 // this is a duplicate event, do not send it to sentry
 #ifdef ENABLE_SENTRY
                 nd_sentry_crash_report(false);
@@ -138,7 +144,7 @@ static void posix_unmask_my_signals(void) {
         netdata_log_error("SIGNAL: cannot unmask netdata signals");
 }
 
-void nd_cleanup_fatal_signals(void) {
+void nd_cleanup_deadly_signals(void) {
     struct sigaction act;
     memset(&act, 0, sizeof(struct sigaction));
 
