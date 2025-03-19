@@ -111,7 +111,6 @@ static uint64_t daemon_status_file_hash(DAEMON_STATUS_FILE *ds, const char *msg,
         char version[sizeof(ds->version)];
         char filename[sizeof(ds->fatal.filename)];
         char function[sizeof(ds->fatal.function)];
-        char errno_str[sizeof(ds->fatal.errno_str)];
         char stack_trace[sizeof(ds->fatal.stack_trace)];
         char thread[sizeof(ds->fatal.thread)];
         char msg[128];
@@ -139,7 +138,6 @@ static uint64_t daemon_status_file_hash(DAEMON_STATUS_FILE *ds, const char *msg,
     strncpyz(to_hash.version, ds->version, sizeof(to_hash.version) - 1);
     strncpyz(to_hash.filename, ds->fatal.filename, sizeof(to_hash.filename) - 1);
     strncpyz(to_hash.filename, ds->fatal.function, sizeof(to_hash.function) - 1);
-    strncpyz(to_hash.errno_str, ds->fatal.errno_str, sizeof(to_hash.errno_str) - 1);
     strncpyz(to_hash.stack_trace, ds->fatal.stack_trace, sizeof(to_hash.stack_trace) - 1);
     strncpyz(to_hash.thread, ds->fatal.thread, sizeof(to_hash.thread) - 1);
 
@@ -678,7 +676,7 @@ static bool load_status_file(const char *filename, DAEMON_STATUS_FILE *status) {
 
     // Read the file
     buffer_need_bytes(wb, file_size + 1);
-    size_t read_bytes = fread(wb->buffer, 1, file_size, fp);
+    ssize_t read_bytes = fread(wb->buffer, 1, file_size, fp);
     fclose(fp);
 
     if (read_bytes == 0)
@@ -771,13 +769,12 @@ static bool save_status_file(const char *directory, const char *content, size_t 
         return false;
 
     /* Write content to file using write() */
-    ssize_t bytes_written = 0;
     size_t total_written = 0;
 
     while (total_written < content_size) {
-        bytes_written = write(fd, content + total_written, content_size - total_written);
+        ssize_t bytes_written = write(fd, content + total_written, content_size - total_written);
 
-        if (bytes_written == -1) {
+        if (bytes_written <= 0) {
             if (errno == EINTR)
                 continue; /* Retry if interrupted by signal */
 
