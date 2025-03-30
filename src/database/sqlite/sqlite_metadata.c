@@ -2076,7 +2076,7 @@ size_t populate_metrics_from_database(void *mrg, void (*populate_cb)(void *mrg, 
     }
 
     if (local_meta_db)
-        db_execute(local_meta_db, "PRAGMA cache_size=10000");
+        (void) db_execute(local_meta_db, "PRAGMA cache_size=10000");
 
     if (!PREPARE_STATEMENT(local_meta_db ? local_meta_db : db_meta, GET_UUID_LIST, &res)) {
         sqlite3_close(local_meta_db);
@@ -2088,6 +2088,8 @@ size_t populate_metrics_from_database(void *mrg, void (*populate_cb)(void *mrg, 
     usec_t started_ut = now_monotonic_usec();
     while (sqlite3_step(res) == SQLITE_ROW) {
         nd_uuid_t *uuid = (nd_uuid_t *)sqlite3_column_blob(res, 0);
+        if (!uuid || sqlite3_column_bytes(res, 0) != sizeof(nd_uuid_t))
+            continue;
 
         for (size_t tier = 0; tier < nd_profile.storage_tiers ; tier++) {
             if (unlikely(!multidb_ctx[tier]))
