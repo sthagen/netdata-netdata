@@ -1293,7 +1293,7 @@ static void *journalfile_v2_write_descriptors(struct journal_v2_header *j2_heade
 // startup  : if the migration is done during agent startup
 //            this will allow us to optimize certain things
 
-void journalfile_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno __maybe_unused, uint8_t type __maybe_unused,
+bool journalfile_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno __maybe_unused, uint8_t type __maybe_unused,
                                         Pvoid_t JudyL_metrics, Pvoid_t JudyL_extents_pos,
                                         size_t number_of_extents, size_t number_of_metrics, size_t number_of_pages, void *user_data)
 {
@@ -1346,9 +1346,12 @@ void journalfile_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno
 
     int fd_v2;
     uint8_t *data_start = nd_mmap_advanced(path, total_file_size, MAP_SHARED, 0, false, true, &fd_v2);
-    if(!data_start)
-        out_of_memory(__FUNCTION__, total_file_size, path);
+    if(!data_start) {
+        nd_log_daemon(NDLP_WARNING, "DBENGINE: Failed to allocate %"PRIu64" bytes of memory for journal file '%s'. Will retry later", total_file_size, path);
+        return false;
+    }
 
+    fatal_assert(extent_offset <= total_file_size);
     memset(data_start, 0, extent_offset);
 
     // Write header
@@ -1400,11 +1403,14 @@ void journalfile_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno
     while ((PValue = JudyLFirstThenNext(JudyL_metrics, &Index, &first_then_next))) {
         metric_info = *PValue;
 
+        fatal_assert(metric_info != NULL);
         fatal_assert(count < number_of_metrics);
         uuid_list[count++].metric_info = metric_info;
         min_time_s = MIN(min_time_s, metric_info->first_time_s);
         max_time_s = MAX(max_time_s, metric_info->last_time_s);
     }
+
+    fatal_assert(count == number_of_metrics);
 
     // Check if not properly set in the loop above to prevent overflow
     if (min_time_s == LONG_MAX)
@@ -1492,7 +1498,7 @@ void journalfile_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno
         internal_error(true, "DBENGINE: ACTIVATING NEW INDEX JNL %llu", (now_monotonic_usec() - start_loading) / USEC_PER_MS);
         ctx_current_disk_space_increase(ctx, total_file_size);
         freez(uuid_list);
-        return;
+        return true;
     }
     else {
         netdata_log_info("DBENGINE: failed to build index '%s', file will be skipped", path);
@@ -1506,7 +1512,7 @@ void journalfile_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno
     freez(uuid_list);
 
     if (likely(resize_file_to == total_file_size))
-        return;
+        return true;
 
     int ret = truncate(path, (long) resize_file_to);
     if (ret < 0) {
@@ -1516,6 +1522,8 @@ void journalfile_migrate_to_v2_callback(Word_t section, unsigned datafile_fileno
     }
     else
         ctx_current_disk_space_increase(ctx, resize_file_to);
+
+    return true;
 }
 
 int journalfile_load(struct rrdengine_instance *ctx, struct rrdengine_journalfile *journalfile,
