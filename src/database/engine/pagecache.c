@@ -513,7 +513,9 @@ static NOT_INLINE_HOT size_t get_page_list_from_journal_v2(struct rrdengine_inst
         if (unlikely(!j2_header))
             continue;
 
-        PROTECTED_ACCESS_SETUP(datafile->journalfile->mmap.data, datafile->journalfile->mmap.size);
+        char file_path[RRDENG_PATH_MAX];
+        journalfile_v2_generate_path(datafile, file_path, sizeof(file_path));
+        PROTECTED_ACCESS_SETUP(datafile->journalfile->mmap.data, datafile->journalfile->mmap.size, file_path, "read");
         if(no_signal_received) {
             time_t journal_start_time_s = (time_t)(j2_header->start_time_ut / USEC_PER_SEC);
             size_t journal_v2_file_size = datafile->journalfile->mmap.size;
@@ -622,9 +624,9 @@ static NOT_INLINE_HOT size_t get_page_list_from_journal_v2(struct rrdengine_inst
             }
         }
         else {
-            nd_log(NDLS_DAEMON, NDLP_ERR,
-                   "DBENGINE: failed to journal file %u of tier %u (SIGBUS)",
-                   datafile->fileno, datafile->tier);
+            nd_log_limit_static_thread_var(erl, 10, 0);
+            nd_log_limit(&erl, NDLS_DAEMON, NDLP_ERR, "DBENGINE: failed to access journal file %u of tier %d (SIGBUS)",
+                         datafile->fileno, datafile->ctx->config.tier);
         }
 
         journalfile_v2_data_release(datafile->journalfile);
