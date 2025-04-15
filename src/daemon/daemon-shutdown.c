@@ -16,11 +16,13 @@
 // External configuration structures that need cleanup
 extern struct config netdata_config;
 extern struct config cloud_config;
-extern void inicfg_free(struct config *root);
+
 // Functions to free various configurations
-extern void claim_config_free(void);
-extern void stream_config_free(void);
-extern void exporting_config_free(void);
+void claim_config_free(void);
+void rrd_functions_inflight_destroy(void);
+void cgroup_netdev_link_destroy(void);
+void bearer_tokens_destroy(void);
+void alerts_by_x_cleanup(void);
 
 static bool abort_on_fatal = true;
 
@@ -219,7 +221,7 @@ static void netdata_cleanup_and_exit(EXIT_REASON reason, bool abnormal, bool exi
                         ABILITY_STREAMING_CONNECTIONS | SERVICE_SYSTEMD);
     watcher_step_complete(WATCHER_STEP_ID_DISABLE_MAINTENANCE_NEW_QUERIES_NEW_WEB_REQUESTS_NEW_STREAMING_CONNECTIONS);
 
-    service_wait_exit(SERVICE_MAINTENANCE | SERVICE_SYSTEMD, 3 * USEC_PER_SEC);
+    service_wait_exit(SERVICE_MAINTENANCE | SERVICE_SYSTEMD, 5 * USEC_PER_SEC);
     watcher_step_complete(WATCHER_STEP_ID_STOP_MAINTENANCE_THREAD);
 
     service_wait_exit(SERVICE_EXPORTERS | SERVICE_HEALTH | SERVICE_WEB_SERVER | SERVICE_HTTPD, 3 * USEC_PER_SEC);
@@ -236,14 +238,14 @@ static void netdata_cleanup_and_exit(EXIT_REASON reason, bool abnormal, bool exi
         rrdeng_flush_everything_and_wait(false, false, true);
 #endif
 
-    service_wait_exit(SERVICE_REPLICATION, 3 * USEC_PER_SEC);
+    service_wait_exit(SERVICE_REPLICATION, 5 * USEC_PER_SEC);
     watcher_step_complete(WATCHER_STEP_ID_STOP_REPLICATION_THREADS);
 
     ml_stop_threads();
     ml_fini();
     watcher_step_complete(WATCHER_STEP_ID_DISABLE_ML_DETEC_AND_TRAIN_THREADS);
 
-    service_wait_exit(SERVICE_CONTEXT, 3 * USEC_PER_SEC);
+    service_wait_exit(SERVICE_CONTEXT, 5 * USEC_PER_SEC);
     watcher_step_complete(WATCHER_STEP_ID_STOP_CONTEXT_THREAD);
 
     web_client_cache_destroy();
@@ -257,7 +259,7 @@ static void netdata_cleanup_and_exit(EXIT_REASON reason, bool abnormal, bool exi
     service_wait_exit(SERVICE_ACLK, 3 * USEC_PER_SEC);
     watcher_step_complete(WATCHER_STEP_ID_STOP_ACLK_MQTT_THREAD);
 
-    service_wait_exit(~0, 10 * USEC_PER_SEC);
+    service_wait_exit(~0, 20 * USEC_PER_SEC);
     watcher_step_complete(WATCHER_STEP_ID_STOP_ALL_REMAINING_WORKER_THREADS);
 
     cancel_main_threads();
@@ -345,12 +347,20 @@ static void netdata_cleanup_and_exit(EXIT_REASON reason, bool abnormal, bool exi
 
     fprintf(stderr, "Freeing all RRDHOSTs...\n");
     rrdhost_free_all();
+    dyncfg_shutdown();
+    rrd_functions_inflight_destroy();
+    health_plugin_destroy();
+    cgroup_netdev_link_destroy();
+    bearer_tokens_destroy();
 
     fprintf(stderr, "Cleaning up destroyed dictionaries...\n");
-    size_t dictionaries_referenced = cleanup_destroyed_dictionaries();
+    size_t dictionaries_referenced = cleanup_destroyed_dictionaries(true);
     if(dictionaries_referenced)
         fprintf(stderr, "WARNING: There are %zu dictionaries with references in them, that cannot be destroyed.\n",
                 dictionaries_referenced);
+                
+    // Always report dictionary allocations during ASAN builds
+    dictionary_print_still_allocated_stacktraces();
 
 #ifdef ENABLE_DBENGINE
     // destroy the caches in reverse order (extent and open depend on main cache)
@@ -388,10 +398,11 @@ static void netdata_cleanup_and_exit(EXIT_REASON reason, bool abnormal, bool exi
     stream_config_free();
     inicfg_free(&cloud_config);
     inicfg_free(&netdata_config);
-    
+
     fprintf(stderr, "Cleaning up worker utilization...\n");
     worker_utilization_cleanup();
-    
+
+    alerts_by_x_cleanup();
     size_t strings_referenced = string_destroy();
     if(strings_referenced)
         fprintf(stderr, "WARNING: STRING has %zu strings still allocated.\n",
