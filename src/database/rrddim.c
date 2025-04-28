@@ -334,13 +334,32 @@ static inline RRDDIM *rrddim_index_find(RRDSET *st, const char *id) {
 inline RRDDIM *rrddim_find(RRDSET *st, const char *id) {
     netdata_log_debug(D_RRD_CALLS, "rrddim_find() for chart %s, dimension %s", rrdset_name(st), id);
 
-    return rrddim_index_find(st, id);
+    RRDDIM *rd = rrddim_index_find(st, id);
+    if(rd) {
+        if(rrddim_flag_check(rd, RRDDIM_FLAG_OBSOLETE) && !rrdset_is_discoverable(st))
+            return NULL;
+
+        rd->rrdset->last_accessed_time_s = now_realtime_sec();
+    }
+
+    return rd;
 }
 
 inline RRDDIM_ACQUIRED *rrddim_find_and_acquire(RRDSET *st, const char *id) {
     netdata_log_debug(D_RRD_CALLS, "rrddim_find_and_acquire() for chart %s, dimension %s", rrdset_name(st), id);
 
-    return (RRDDIM_ACQUIRED *)dictionary_get_and_acquire_item(st->rrddim_root_index, id);
+    RRDDIM_ACQUIRED *rda = (RRDDIM_ACQUIRED *)dictionary_get_and_acquire_item(st->rrddim_root_index, id);
+    if(rda) {
+        RRDDIM *rd = (RRDDIM *) dictionary_acquired_item_value((const DICTIONARY_ITEM *)rda);
+        if(rrddim_flag_check(rd, RRDDIM_FLAG_OBSOLETE) && !rrdset_is_discoverable(st)) {
+            dictionary_acquired_item_release(st->rrddim_root_index, (const DICTIONARY_ITEM *)rda);
+            return NULL;
+        }
+
+        rd->rrdset->last_accessed_time_s = now_realtime_sec();
+    }
+
+    return rda;
 }
 
 RRDDIM *rrddim_acquired_to_rrddim(RRDDIM_ACQUIRED *rda) {
@@ -360,12 +379,7 @@ void rrddim_acquired_release(RRDDIM_ACQUIRED *rda) {
 
 // This will not return dimensions that are archived
 RRDDIM *rrddim_find_active(RRDSET *st, const char *id) {
-    RRDDIM *rd = rrddim_find(st, id);
-
-    if(rd && rrddim_flag_check(rd, RRDDIM_FLAG_OBSOLETE))
-        rd = NULL;
-
-    return rd;
+    return rrddim_find(st, id);
 }
 
 // ----------------------------------------------------------------------------
@@ -548,6 +562,7 @@ int rrddim_hide(RRDSET *st, const char *id) {
 
     rrddim_option_set(rd, RRDDIM_OPTION_HIDDEN);
     rrdcontext_updated_rrddim_flags(rd);
+    rrdset_metadata_updated(st);
     return 0;
 }
 
@@ -568,6 +583,7 @@ int rrddim_unhide(RRDSET *st, const char *id) {
 
     rrddim_option_clear(rd, RRDDIM_OPTION_HIDDEN);
     rrdcontext_updated_rrddim_flags(rd);
+    rrdset_metadata_updated(st);
     return 0;
 }
 
@@ -578,6 +594,7 @@ inline void rrddim_is_obsolete___safe_from_collector_thread(RRDSET *st, RRDDIM *
     rrdset_flag_set(st, RRDSET_FLAG_OBSOLETE_DIMENSIONS);
     rrdhost_flag_set(st->rrdhost, RRDHOST_FLAG_PENDING_OBSOLETE_DIMENSIONS);
     rrdcontext_updated_rrddim_flags(rd);
+    rrdset_metadata_updated(st);
 }
 
 inline void rrddim_isnot_obsolete___safe_from_collector_thread(RRDSET *st __maybe_unused, RRDDIM *rd) {
@@ -586,6 +603,7 @@ inline void rrddim_isnot_obsolete___safe_from_collector_thread(RRDSET *st __mayb
     rrddim_flag_clear(rd, RRDDIM_FLAG_OBSOLETE);
     rrddim_reinitialize_collection(rd);
     rrdcontext_updated_rrddim_flags(rd);
+    rrdset_metadata_updated(st);
 }
 
 // ----------------------------------------------------------------------------
@@ -622,7 +640,7 @@ collected_number rrddim_timed_set_by_pointer(RRDSET *st __maybe_unused, RRDDIM *
 
 collected_number rrddim_set(RRDSET *st, const char *id, collected_number value) {
     RRDHOST *host = st->rrdhost;
-    RRDDIM *rd = rrddim_find(st, id);
+    RRDDIM *rd = rrddim_find_active(st, id);
     if(unlikely(!rd)) {
         netdata_log_error("Cannot find dimension with id '%s' on stats '%s' (%s) on host '%s'.", id, rrdset_name(st), rrdset_id(st), rrdhost_hostname(host));
         return 0;
