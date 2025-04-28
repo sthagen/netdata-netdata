@@ -346,7 +346,9 @@ static void nd_logger(const char *file, const char *function, const unsigned lon
     if(nd_log.sources[source].pending_msg && spinlock_trylock(&nd_log.sources[source].limits.spinlock)) {
         // we have to check again if the pending message is still there
 
-        if(nd_log.sources[source].pending_msg) {
+        const char *pending_msg = nd_log.sources[source].pending_msg;
+
+        if(pending_msg) {
             nd_logger_unset_all_thread_fields();
 
             thread_log_fields[NDF_TIMESTAMP_REALTIME_USEC].entry = (struct log_stack_entry){
@@ -370,7 +372,7 @@ static void nd_logger(const char *file, const char *function, const unsigned lon
             thread_log_fields[NDF_MESSAGE].entry = (struct log_stack_entry){
                 .set = true,
                 .type = NDFT_TXT,
-                .txt = nd_log.sources[source].pending_msg,
+                .txt = pending_msg,
             };
 
             thread_log_fields[NDF_MESSAGE_ID].entry = (struct log_stack_entry){
@@ -379,15 +381,17 @@ static void nd_logger(const char *file, const char *function, const unsigned lon
                 .uuid = nd_log.sources[source].pending_msgid,
             };
 
-            nd_logger_log_fields(
-                spinlock, fp, false, priority, output, &nd_log.sources[source], thread_log_fields, THREAD_FIELDS_MAX);
-
-            freez((void *)nd_log.sources[source].pending_msg);
             nd_log.sources[source].pending_msg = NULL;
             nd_log.sources[source].pending_msgid = NULL;
         }
 
         spinlock_unlock(&nd_log.sources[source].limits.spinlock);
+
+        if(pending_msg)
+            nd_logger_log_fields(spinlock, fp, false, priority, output, &nd_log.sources[source],
+                                 thread_log_fields, THREAD_FIELDS_MAX);
+
+        freez((void *)pending_msg);
     }
 
     errno_clear();
