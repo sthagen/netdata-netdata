@@ -16,7 +16,7 @@ require (
 	github.com/clbanning/rfile/v2 v2.0.0-20231024120205-ac3fca974b0e
 	github.com/cloudflare/cfssl v1.6.5
 	github.com/coreos/go-systemd/v22 v22.5.0
-	github.com/docker/docker v28.1.1+incompatible
+	github.com/docker/docker v28.2.1+incompatible
 	github.com/facebook/time v0.0.0-20250211113239-e3e1421a0980
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-ldap/ldap/v3 v3.4.11
@@ -35,7 +35,7 @@ require (
 	github.com/kanocz/fcgi_client v0.0.0-20210113082628-fff85c8adfb7
 	github.com/likexian/whois v1.15.6
 	github.com/likexian/whois-parser v1.24.20
-	github.com/lmittmann/tint v1.1.0
+	github.com/lmittmann/tint v1.1.1
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-xmlrpc v0.0.3
 	github.com/miekg/dns v1.1.66
@@ -43,7 +43,7 @@ require (
 	github.com/prometheus-community/pro-bing v0.7.0
 	github.com/prometheus/common v0.64.0
 	github.com/prometheus/prometheus v2.55.1+incompatible
-	github.com/redis/go-redis/v9 v9.8.0
+	github.com/redis/go-redis/v9 v9.9.0
 	github.com/sijms/go-ora/v2 v2.8.24
 	github.com/sourcegraph/conc v0.3.0
 	github.com/stretchr/testify v1.10.0
@@ -75,6 +75,8 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/containerd/errdefs v1.0.0 // indirect
+	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgryski/go-metro v0.0.0-20180109044635-280f6062b5bc // indirect
