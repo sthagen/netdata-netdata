@@ -27,7 +27,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.6.0
 	github.com/gorcon/rcon v1.4.0
-	github.com/gosnmp/gosnmp v1.40.0
+	github.com/gosnmp/gosnmp v1.41.0
 	github.com/invopop/jsonschema v0.13.0
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/jackc/pgx/v5 v5.7.5
@@ -35,7 +35,7 @@ require (
 	github.com/kanocz/fcgi_client v0.0.0-20210113082628-fff85c8adfb7
 	github.com/likexian/whois v1.15.6
 	github.com/likexian/whois-parser v1.24.20
-	github.com/lmittmann/tint v1.1.1
+	github.com/lmittmann/tint v1.1.2
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-xmlrpc v0.0.3
 	github.com/miekg/dns v1.1.66
@@ -43,14 +43,14 @@ require (
 	github.com/prometheus-community/pro-bing v0.7.0
 	github.com/prometheus/common v0.64.0
 	github.com/prometheus/prometheus v2.55.1+incompatible
-	github.com/redis/go-redis/v9 v9.9.0
+	github.com/redis/go-redis/v9 v9.10.0
 	github.com/sijms/go-ora/v2 v2.8.24
 	github.com/sourcegraph/conc v0.3.0
 	github.com/stretchr/testify v1.10.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/valyala/fastjson v1.6.4
 	github.com/vmware/govmomi v0.51.0
-	go.mongodb.org/mongo-driver v1.17.3
+	go.mongodb.org/mongo-driver v1.17.4
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/net v0.41.0
 	golang.org/x/text v0.26.0
