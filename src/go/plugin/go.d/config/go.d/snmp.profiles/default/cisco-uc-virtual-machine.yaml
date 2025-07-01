@@ -1,0 +1,14 @@
+extends:
+  - _system-base.yaml
+  - _cisco-base.yaml
+  - _cisco-voice.yaml
+
+metadata:
+  device:
+    fields:
+      type:
+        value: Server
+      vendor:
+        value: Cisco
+
+sysobjectid: 1.3.6.1.4.1.9.1.1348

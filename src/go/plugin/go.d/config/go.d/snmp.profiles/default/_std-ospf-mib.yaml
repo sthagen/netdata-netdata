@@ -1,0 +1,149 @@
+metrics:
+  - MIB: OSPF-MIB
+    table:
+      OID: 1.3.6.1.2.1.14.10
+      name: ospfNbrTable
+    symbols:
+      - OID: 1.3.6.1.2.1.14.10.1.6
+        name: ospfNbrState
+        chart_meta:
+          description: The state of the relationship with this neighbor
+          family: Routing/OSPF/Neighbor/State/Status
+          unit: "{status}"
+        mapping:
+          1: down
+          2: attempt
+          3: init
+          4: twoWay
+          5: exchangeStart
+          6: exchange
+          7: loading
+          8: full
+      - OID: 1.3.6.1.2.1.14.10.1.7
+        name: ospfNbrEvents
+        chart_meta:
+          description: The number of times this neighbor relationship has changed state or an error has occurred
+          family: Routing/OSPF/Neighbor/Event/Count
+          unit: "{event}"
+      - OID: 1.3.6.1.2.1.14.10.1.8
+        name: ospfNbrLsRetransQLen
+        chart_meta:
+          description: The current length of the retransmission queue
+          family: Routing/OSPF/Neighbor/Queue/RetransmitLength
+          unit: "{message}"
+    metric_tags:
+      - symbol:
+          OID: 1.3.6.1.2.1.14.10.1.3
+          name: ospfNbrRtrId
+        tag: neighbor_id
+      - symbol:
+          OID: 1.3.6.1.2.1.14.10.1.1
+          name: ospfNbrIpAddr
+        tag: neighbor_ip
+
+  - MIB: OSPF-MIB
+    table:
+      OID: 1.3.6.1.2.1.14.11
+      name: ospfVirtNbrTable
+    symbols:
+      - OID: 1.3.6.1.2.1.14.11.1.5
+        name: ospfVirtNbrState
+        chart_meta:
+          description: The state of the virtual neighbor relationship
+          family: Routing/OSPF/VirtualNeighbor/State/Status
+          unit: "{status}"
+        mapping:
+          1: down
+          2: attempt
+          3: init
+          4: two_way
+          5: exchange_start
+          6: exchange
+          7: loading
+          8: full
+      - OID: 1.3.6.1.2.1.14.11.1.6
+        name: ospfVirtNbrEvents
+        chart_meta:
+          description: The number of times this virtual link has changed its state or an error has occurred
+          family: Routing/OSPF/VirtualNeighbor/Event/Count
+          unit: "{change}"
+      - OID: 1.3.6.1.2.1.14.11.1.7
+        name: ospfVirtNbrLsRetransQLen
+        chart_meta:
+          description: The current length of the retransmission queue
+          family: Routing/OSPF/VirtualNeighbor/Queue/RetransmitLength
+          unit: "{message}"
+    metric_tags:
+      - symbol:
+          OID: 1.3.6.1.2.1.14.11.1.3
+          name: ospfVirtNbrIpAddr
+        tag: neighbor_ip
+      - symbol:
+          OID: 1.3.6.1.2.1.14.11.1.2
+          name: ospfVirtNbrRtrId
+        tag: neighbor_id
+
+  - MIB: OSPF-MIB
+    table:
+      OID: 1.3.6.1.2.1.14.7
+      name: ospfIfTable
+    symbols:
+      - OID: 1.3.6.1.2.1.14.7.1.12
+        name: ospfIfState
+        chart_meta:
+          description: The OSPF Interface State
+          family: Routing/OSPF/Interface/State/Status
+          unit: "{status}"
+        mapping:
+          1: down
+          2: loopback
+          3: waiting
+          4: point_to_point
+          5: designated_router
+          6: backup_designated_router
+          7: other_designated_router
+      - OID: 1.3.6.1.2.1.14.7.1.21
+        name: ospfIfLsaCount
+        chart_meta:
+          description: The total number of link-local link state advertisements in this interface's link-local link state database
+          family: Routing/OSPF/Interface/LinkStateAdvertisement/Count
+          unit: "{advertisement}"
+    metric_tags:
+      - symbol:
+          OID: 1.3.6.1.2.1.14.7.1.1
+          name: ospfIfIpAddress
+        tag: ospf_ip_addr
+      - symbol:
+          OID: 1.3.6.1.2.1.14.10.1.3
+          name: ospfNbrRtrId
+        table: ospfNbrTable
+        MIB: OSPF-MIB
+        tag: neighbor_id
+
+  - MIB: OSPF-MIB
+    table:
+      OID: 1.3.6.1.2.1.14.9
+      name: ospfVirtIfTable
+    symbols:
+      - OID: 1.3.6.1.2.1.14.9.1.7
+        name: ospfVirtIfState
+        chart_meta:
+          description: OSPF virtual interface states
+          family: Routing/OSPF/VirtualInterface/State/Status
+          unit: "{status}"
+        mapping:
+          1: down
+          4: point_to_point
+      - OID: 1.3.6.1.2.1.14.9.1.12
+        name: ospfVirtIfLsaCount
+        chart_meta:
+          description: The total number of link-local link state advertisements in this virtual interface's link-local link state database
+          family: Routing/OSPF/VirtualInterface/LinkStateAdvertisement/Count
+          unit: "{advertisement}"
+    metric_tags:
+      - symbol:
+          OID: 1.3.6.1.2.1.14.11.1.2
+          name: ospfVirtNbrRtrId
+        table: ospfVirtNbrTable
+        MIB: OSPF-MIB
+        tag: neighbor_id

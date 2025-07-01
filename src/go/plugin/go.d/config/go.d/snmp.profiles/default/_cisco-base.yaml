@@ -1,0 +1,602 @@
+# Metrics mixin for Cisco devices.
+
+extends:
+  - _std-if-mib.yaml
+  - _std-tcp-mib.yaml
+  - _std-udp-mib.yaml
+  - _std-ospf-mib.yaml
+  - _std-bgp4-mib.yaml
+  - _std-ip-mib.yaml
+  - _cisco-cpu-memory.yaml
+  - _cisco-metadata.yaml
+
+metrics:
+  - MIB: CISCO-ENTITY-FRU-CONTROL-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.117.1.1.2
+      name: cefcFRUPowerStatusTable
+    symbols:
+      - name: cefcFRUPowerAdminStatus
+        OID: 1.3.6.1.4.1.9.9.117.1.1.2.1.1
+        chart_meta:
+          description: Administratively desired FRU power state
+          family: FRU/Power/Admin/Status
+          unit: "{status}"
+        mapping:
+          1: on
+          2: off
+          3: inline_auto
+          4: inline_on
+          5: power_cycle
+      - name: cefcFRUPowerOperStatus
+        OID: 1.3.6.1.4.1.9.9.117.1.1.2.1.2
+        chart_meta:
+          description: Operational FRU power state
+          family: FRU/Power/Operational/Status
+          unit: "{status}"
+        mapping:
+          1: off_env_other
+          2: on
+          3: off_admin
+          4: off_denied
+          5: off_env_power
+          6: off_env_temp
+          7: off_env_fan
+          8: failed
+          9: on_but_fan_fail
+          10: off_cooling
+          11: off_connector_rating
+          12: on_but_inline_power_fail
+      - OID: 1.3.6.1.4.1.9.9.117.1.1.2.1.3
+        name: cefcFRUCurrent
+        chart_meta:
+          description: Current supplied by the FRU or current required to operate the FRU
+          family: FRU/Power/Current
+          unit: "A"
+    metric_tags:
+      - tag: fru_index
+        index: 1
+  - MIB: CISCO-PROCESS-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.109.1.1.1
+      name: cpmCPUTotalTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.109.1.1.1.1.10
+        name: cpmCPUTotalMonIntervalValue
+        chart_meta:
+          description: Overall CPU busy percentage in the last monitoring interval
+          family: CPU/Usage
+          unit: "%"
+      - OID: 1.3.6.1.4.1.9.9.109.1.1.1.1.7
+        name: cpmCPUTotal1minRev
+        chart_meta:
+          description: Overall CPU busy percentage in the last 1 minute period
+          family: CPU/Usage
+          unit: "%"
+      - OID: 1.3.6.1.4.1.9.9.109.1.1.1.1.12
+        name: cpmCPUMemoryUsed
+        chart_meta:
+          description: Overall CPU wide system memory which is currently under use
+          family: CPU/Memory/Used
+          unit: "By"
+      - OID: 1.3.6.1.4.1.9.9.109.1.1.1.1.13
+        name: cpmCPUMemoryFree
+        chart_meta:
+          description: Overall CPU wide system memory which is currently free
+          family: CPU/Memory/Free
+          unit: "By"
+    metric_tags:
+      - tag: cpu_index
+        index: 1
+  - MIB: CISCO-IF-EXTENSION-MIB
+    metric_type: monotonic_count
+    table:
+      OID: 1.3.6.1.4.1.9.9.276.1.1.2
+      name: cieIfInterfaceTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.276.1.1.2.1.1
+        name: cieIfResetCount
+        chart_meta:
+          description: Number of times the interface was internally reset and brought up
+          family: Interfaces/Reset/Count
+          unit: "{reset}/s"
+    metric_tags:
+      - tag: interface
+        table: ifXTable
+        MIB: IF-MIB
+        symbol:
+          OID: 1.3.6.1.2.1.31.1.1.1.1
+          name: ifName
+  - MIB: CISCO-ENVMON-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.13.1.3
+      name: ciscoEnvMonTemperatureStatusTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.13.1.3.1.3
+        name: ciscoEnvMonTemperatureStatusValue
+        chart_meta:
+          description: Current measurement of the testpoint
+          family: Environment/Temperature/Value
+          unit: "Cel"
+      - OID: 1.3.6.1.4.1.9.9.13.1.3.1.6
+        name: ciscoEnvMonTemperatureState
+        chart_meta:
+          description: Current state of the testpoint
+          family: Environment/Temperature/Status
+          unit: "{status}"
+        mapping:
+          1: normal
+          2: warning
+          3: critical
+          4: shutdown
+          5: not_present
+          6: not_functioning
+    metric_tags:
+      - tag: temp_index
+        index: 1
+      - tag: _temp_desc
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.13.1.3.1.2
+          name: ciscoEnvMonTemperatureStatusDescr
+
+  - MIB: CISCO-ENVMON-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.13.1.5
+      name: ciscoEnvMonSupplyStatusTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.13.1.5.1.3
+        name: ciscoEnvMonSupplyState
+        chart_meta:
+          description: Current state of the power supply
+          family: Environment/PowerSupply/Status
+          unit: "{status}"
+        mapping:
+          1: normal
+          2: warning
+          3: critical
+          4: shutdown
+          5: not_present
+          6: not_functioning
+    metric_tags:
+      - tag: power_supply_index
+        index: 1
+      - tag: _power_supply_descr
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.13.1.5.1.2
+          name: ciscoEnvMonSupplyStatusDescr
+      - tag: _power_supply_source
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.13.1.5.1.4
+          name: ciscoEnvMonSupplySource
+        mapping:
+          1: unknown
+          2: ac
+          3: dc
+          4: external_power_supply
+          5: internal_redundant
+
+  - MIB: CISCO-ENVMON-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.13.1.4
+      name: ciscoEnvMonFanStatusTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.13.1.4.1.3
+        name: ciscoEnvMonFanState
+        chart_meta:
+          description: Current state of the fan
+          family: Environment/Fan/Status
+          unit: "{status}"
+        mapping:
+          1: normal
+          2: warning
+          3: critical
+          4: shutdown
+          5: not_present
+          6: not_functioning
+    metric_tags:
+      - tag: fan_status_index
+        index: 1
+      - tag: _fan_status_descr
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.13.1.4.1.2
+          name: ciscoEnvMonFanStatusDescr
+
+  #  stackport specific info - every physical stackport has an entry in ifTable
+  - MIB: CISCO-STACKWISE-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.500.1.2.2
+      name: cswStackPortInfoTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.500.1.2.2.1.1
+        name: cswStackPortOperStatus
+        chart_meta:
+          description: State of the stackport
+          family: StackWise/Port/Status
+          unit: "{status}"
+        mapping:
+          1: up
+          2: down
+          3: forcedDown
+    metric_tags:
+      - tag: interface
+        table: ifXTable
+        MIB: IF-MIB
+        symbol:
+          OID: 1.3.6.1.2.1.31.1.1.1.1
+          name: ifName
+
+  # every switch with entPhysicalClass chassis will have an entry in switchinfo
+  - MIB: CISCO-STACKWISE-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.500.1.2.1
+      name: cswSwitchInfoTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.500.1.2.1.1.6
+        name: cswSwitchState
+        chart_meta:
+          description: Current state of a switch
+          family: StackWise/Switch/Status
+          unit: "{status}"
+        mapping:
+          1: waiting
+          2: progressing
+          3: added
+          4: ready
+          5: sdm_mismatch
+          6: ver_mismatch
+          7: feature_mismatch
+          8: new_master_init
+          9: provisioned
+          10: invalid
+          11: removed
+    metric_tags:
+      - tag: mac_addr
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.500.1.2.1.1.7
+          name: cswSwitchMacAddress
+          format: mac_address
+      - tag: entity_name
+        table: entPhysicalTable
+        MIB: ENTITY-MIB
+        symbol:
+          OID: 1.3.6.1.2.1.47.1.1.1.1.7
+          name: entPhysicalName
+
+  - MIB: CISCO-ENTITY-FRU-CONTROL-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.117.1.4.1
+      name: cefcFanTrayStatusTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.117.1.4.1.1.1
+        name: cefcFanTrayOperStatus
+        chart_meta:
+          description: Operational state of the fan or fan tray
+          family: Environment/FanTray/Status
+          unit: "{status}"
+        tag: cefc_fan_tray_oper_status
+        mapping:
+          1: unknown
+          2: up
+          3: down
+          4: warning
+    metric_tags:
+      - tag: fru_index
+        index: 1
+      - tag: cefc_fan_tray_direction
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.117.1.4.1.1.2
+          name: cefcFanTrayDirection
+        mapping:
+          1: unknown
+          2: front_to_back
+          3: back_to_front
+
+  - MIB: CISCO-MEMORY-POOL-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.48.1.1
+      name: ciscoMemoryPoolTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.48.1.1.1.5
+        name: ciscoMemoryPoolUsed
+        chart_meta:
+          description: Number of bytes from the memory pool currently in use
+          family: MemoryPool/Used
+          unit: "By"
+      - OID: 1.3.6.1.4.1.9.9.48.1.1.1.6
+        name: ciscoMemoryPoolFree
+        chart_meta:
+          description: Number of bytes from the memory pool currently unused
+          family: MemoryPool/Free
+          unit: "By"
+      - OID: 1.3.6.1.4.1.9.9.48.1.1.1.7
+        name: ciscoMemoryPoolLargestFree
+        chart_meta:
+          description: Largest number of contiguous bytes from the memory pool currently unused
+          family: MemoryPool/LargestFree
+          unit: "By"
+    metric_tags:
+      - tag: mem_pool_index
+        index: 1
+      - tag: _mem_pool_name
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.48.1.1.1.2
+          name: ciscoMemoryPoolName
+
+  - MIB: CISCO-FIREWALL-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.147.1.2.2.2
+      name: cfwConnectionStatTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.147.1.2.2.2.1.4
+        name: cfwConnectionStatCount
+        chart_meta:
+          description: Integer that contains the value of the resource statistic.
+          family: Firewall/Connection/Count
+          unit: "1"
+    metric_tags:
+      - tag: conn_stat_id
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.147.1.2.2.2.1.1
+          name: cfwConnectionStatService
+        mapping:
+          1: otherFWService
+          2: fileXferFtp
+          3: fileXferTftp
+          4: fileXferFtps
+          5: loginTelnet
+          6: loginRlogin
+          7: loginTelnets
+          8: remoteExecSunRPC
+          9: remoteExecMSRPC
+          10: remoteExecRsh
+          11: remoteExecXserver
+          12: webHttp
+          13: webHttps
+          14: mailSmtp
+          15: multimediaStreamworks
+          16: multimediaH323
+          17: multimediaNetShow
+          18: multimediaVDOLive
+          19: multimediaRealAV
+          20: multimediaRTSP
+          21: dbOracle
+          22: dbMSsql
+          23: contInspProgLang
+          24: contInspUrl
+          25: directoryNis
+          26: directoryDns
+          27: directoryNetbiosns
+          28: directoryNetbiosdgm
+          29: directoryNetbiosssn
+          30: directoryWins
+          31: qryWhois
+          32: qryFinger
+          33: qryIdent
+          34: fsNfsStatus
+          35: fsNfs
+          36: fsCifs
+          37: protoIcmp
+          38: protoTcp
+          39: protoUdp
+          40: protoIp
+          41: protoSnmp
+
+  - MIB: CISCO-FIREWALL-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.147.1.2.1.1
+      name: cfwHardwareStatusTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.147.1.2.1.1.1.3
+        name: cfwHardwareStatusValue
+        chart_meta:
+          description: Current status of the resource
+          family: Firewall/Hardware/Status
+          unit: "{status}"
+        mapping:
+          1: other
+          2: up
+          3: down
+          4: error
+          5: overTemp
+          6: busy
+          7: noMedia
+          8: backup
+          9: active
+          10: standby
+    metric_tags:
+      - tag: hardware_type
+        index: 1
+      - tag: hardware_desc
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.147.1.2.1.1.1.2
+          name: cfwHardwareInformation
+
+  - MIB: CISCO-VIRTUAL-SWITCH-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.388.1.2.2
+      name: cvsChassisTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.388.1.2.2.1.3
+        name: cvsChassisUpTime
+        chart_meta:
+          description: Up time for the chassis since last re-initialization
+          family: VirtualSwitch/Chassis/Uptime
+          unit: "cs"
+    metric_tags:
+      - tag: chassis_switch_id
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.388.1.2.2.1.1
+          name: cvsChassisSwitchID
+
+    # RTT info
+  - MIB: CISCO-RTTMON-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.42.1.2.10
+      name: rttMonLatestRttOperTable
+    symbols:
+      # TODO The completion time of the latest RTT operation successfully completed. The unit of this object will be microsecond when rttMonCtrlAdminRttType is set to 'jitter' and rttMonEchoAdminPrecision is set to 'microsecond'. Otherwise, the unit of this object will be millisecond. <-- Case where the unit and precision is defined by other values in the snmpwalk
+      # - OID: 1.3.6.1.4.1.9.9.42.1.2.10.1.1
+      #   name: rttMonLatestRttOperCompletionTime
+      #   description: Completion time of the latest RTT operation successfully completed
+      #   unit: "us"
+      - OID: 1.3.6.1.4.1.9.9.42.1.2.10.1.2
+        name: rttMonLatestRttOperSense
+        chart_meta:
+          description: Sense code for the completion status of the latest RTT operation
+          family: RTT/Operation/Sense
+          unit: "{status}"
+        mapping:
+          0: other
+          1: ok
+          2: disconnected
+          3: over_threshold
+          4: timeout
+          5: busy
+          6: not_connected
+          7: dropped
+          8: sequence_error
+          9: verify_error
+          10: application_specific
+          11: dns_server_timeout
+          12: tcp_connect_timeout
+          13: http_transaction_timeout
+          14: dns_query_error
+          15: http_error
+          16: error
+    metric_tags:
+      - tag: rtt_index
+        index: 1
+      - tag: _rtt_owner
+        table: rttMonCtrlAdminTable
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.42.1.2.1.1.2
+          name: rttMonCtrlAdminOwner
+      - tag: _rtt_tag
+        table: rttMonCtrlAdminTable
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.42.1.2.1.1.3
+          name: rttMonCtrlAdminTag
+      - tag: _rtt_type
+        table: rttMonCtrlAdminTable
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.42.1.2.1.1.4
+          name: rttMonCtrlAdminRttType
+        mapping:
+          1: echo
+          2: path_echo
+          3: file_io
+          4: script
+          5: udp_echo
+          6: tcp_connect
+          7: http
+          8: dns
+          9: jitter
+          10: dlsw
+          11: dhcp
+          12: ftp
+          13: voip
+          14: rtp
+          15: lsp_group
+          16: icmpjitter
+          17: lsp_ping
+          18: lsp_trace
+          19: ethernet_ping
+          20: ethernet_jitter
+          21: lsp_ping_pseudowire
+          22: video
+          23: y1731_delay
+          24: y1731_loss
+          25: mcast_jitter
+          26: fabric_path_echo
+
+  - MIB: CISCO-RTTMON-MIB
+    table:
+      OID: 1.3.6.1.4.1.9.9.42.1.2.9
+      name: rttMonCtrlOperTable
+    symbols:
+      - OID: 1.3.6.1.4.1.9.9.42.1.2.9.1.10
+        name: rttMonCtrlOperState
+        chart_meta:
+          description: Used to manage the state of the probe that is implementing conceptual RTT control row.
+          family: RTT/Control/State
+          unit: "{status}"
+        mapping:
+          1: reset
+          2: orderly_stop
+          3: immediate_stop
+          4: pending
+          5: inactive
+          6: active
+          7: restart
+      - OID: 1.3.6.1.4.1.9.9.42.1.2.9.1.6
+        name: rttMonCtrlOperTimeoutOccurred
+        chart_meta:
+          description: Indicates if a timeout occurred for the RTT operation
+          family: RTT/Control/Timeout
+          unit: "{status}"
+        mapping:
+          1: timeout_occurred
+          2: ok
+      - OID: 1.3.6.1.4.1.9.9.42.1.2.9.1.5
+        name: rttMonCtrlOperConnectionLostOccurred
+        chart_meta:
+          description: Indicates if a connection lost occurred for the RTT operation
+          family: RTT/Control/ConnectionLost
+          unit: "{status}"
+        mapping:
+          1: connection_lost_occurred
+          2: ok
+      - OID: 1.3.6.1.4.1.9.9.42.1.2.9.1.7
+        name: rttMonCtrlOperOverThresholdOccurred
+        chart_meta:
+          description: Indicates if the latest RTT operation exceeded its configured threshold value
+          family: RTT/Control/OverThreshold
+          unit: "{status}"
+        mapping:
+          1: over_threshold_occurred
+          2: ok
+    metric_tags:
+      - tag: rtt_index
+        index: 1
+      - tag: _rtt_owner
+        table: rttMonCtrlAdminTable
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.42.1.2.1.1.2
+          name: rttMonCtrlAdminOwner
+      - tag: _rtt_tag
+        table: rttMonCtrlAdminTable
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.42.1.2.1.1.3
+          name: rttMonCtrlAdminTag
+      - tag: _rtt_type
+        table: rttMonCtrlAdminTable
+        symbol:
+          OID: 1.3.6.1.4.1.9.9.42.1.2.1.1.4
+          name: rttMonCtrlAdminRttType
+        mapping:
+          1: echo
+          2: path_echo
+          3: file_io
+          4: script
+          5: udp_echo
+          6: tcp_connect
+          7: http
+          8: dns
+          9: jitter
+          10: dlsw
+          11: dhcp
+          12: ftp
+          13: voip
+          14: rtp
+          15: lsp_group
+          16: icmpjitter
+          17: lsp_ping
+          18: lsp_trace
+          19: ethernet_ping
+          20: ethernet_jitter
+          21: lsp_ping_pseudowire
+          22: video
+          23: y1731_delay
+          24: y1731_loss
+          25: mcast_jitter
+          26: fabric_path_echo

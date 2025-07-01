@@ -1,0 +1,51 @@
+# Generic UDP metrics.
+
+metrics:
+  - MIB: UDP-MIB
+    symbol:
+      OID: 1.3.6.1.2.1.7.8.0
+      name: udpHCInDatagrams
+      chart_meta:
+        description: UDP datagrams received
+        family: Network/UDP/Datagram/Total/In
+        unit: "{packet}/s"
+  - MIB: UDP-MIB
+    symbol:
+      OID: 1.3.6.1.2.1.7.1.0
+      name: udpInDatagrams
+      chart_meta:
+        description: UDP datagrams received
+        family: Network/UDP/Datagram/Total/In
+        unit: "{packet}/s"
+  - MIB: UDP-MIB
+    symbol:
+      OID: 1.3.6.1.2.1.7.9.0
+      name: udpHCOutDatagrams
+      chart_meta:
+        description: UDP datagrams sent
+        family: Network/UDP/Datagram/Total/Out
+        unit: "{packet}/s"
+  - MIB: UDP-MIB
+    symbol:
+      OID: 1.3.6.1.2.1.7.4.0
+      name: udpOutDatagrams
+      chart_meta:
+        description: UDP datagrams sent
+        family: Network/UDP/Datagram/Total/Out
+        unit: "{packet}/s"
+  - MIB: UDP-MIB
+    symbol:
+      OID: 1.3.6.1.2.1.7.3.0
+      name: udpInErrors
+      chart_meta:
+        description: UDP datagrams received but couldn't be delivered (not due to missing app)
+        family: Network/UDP/Datagram/Error/In
+        unit: "{error}/s"
+  - MIB: UDP-MIB
+    symbol:
+      OID: 1.3.6.1.2.1.7.2.0
+      name: udpNoPorts
+      chart_meta:
+        description: UDP datagrams received with no app on the destination port
+        family: Network/UDP/Datagram/Error/NoPort
+        unit: "{error}/s"

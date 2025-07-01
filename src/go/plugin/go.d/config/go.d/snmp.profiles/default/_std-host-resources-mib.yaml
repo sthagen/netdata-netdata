@@ -1,0 +1,3 @@
+# Generic Resource metrics for devices with cpu and memory metrics combined
+extends:
+  - _std-host-resources-mib-feat-base.yaml
