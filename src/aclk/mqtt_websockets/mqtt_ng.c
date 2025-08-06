@@ -5,7 +5,7 @@
 #endif
 
 #include "libnetdata/libnetdata.h"
-void pulse_aclk_sent_message_acked(usec_t usec, size_t len);
+void pulse_aclk_sent_message_acked(usec_t publish_latency, size_t len);
 
 #include "common_internal.h"
 #include "mqtt_constants.h"
@@ -250,6 +250,8 @@ struct mqtt_ng_client {
 
     size_t max_msg_size;
 };
+
+usec_t publish_latency;
 
 unsigned char pingreq[] = { MQTT_CPT_PINGREQ << 4, 0x00 };
 
@@ -622,6 +624,7 @@ struct mqtt_ng_client *mqtt_ng_init(struct mqtt_ng_init *settings)
     client->msg_callback = settings->msg_callback;
     spinlock_init(&client->pending_packets.spinlock);
     client->pending_packets.JudyL = NULL;
+    __atomic_store_n(&publish_latency, 0, __ATOMIC_RELEASE);
 
     return client;
 }
@@ -802,18 +805,20 @@ static void remove_packet_from_timeout_monitor_list(struct mqtt_ng_client *clien
     spinlock_unlock(&client->pending_packets.spinlock);
 }
 
+#define PACKET_TIMEOUT_EPOCH (1704067200L)  // Jan 1, 2024 00:00:00 UTC
+
 static void add_packet_to_timeout_monitor_list(struct mqtt_ng_client *client, uint16_t packet_id)
 {
     spinlock_lock(&client->pending_packets.spinlock);
     time_t now = now_realtime_sec();
     // Add it to the JudyL array
-    time_t *Pvalue = (time_t *) JudyLIns(&client->pending_packets.JudyL, (Word_t) packet_id, PJE0);
+    uint32_t *Pvalue = (uint32_t *) JudyLIns(&client->pending_packets.JudyL, (Word_t) packet_id, PJE0);
     if (!Pvalue || Pvalue == PJERR) {
         nd_log(NDLS_DAEMON, NDLP_ERR, "Error inserting packet_id (%" PRIu16 ") into JudyL array.", packet_id);
         spinlock_unlock(&client->pending_packets.spinlock);
         return;
     }
-    *Pvalue = now + PACKET_ACK_TIMEOUT_SECS;
+    *Pvalue = (uint32_t) ((now - PACKET_TIMEOUT_EPOCH) + PACKET_ACK_TIMEOUT_SECS);
     spinlock_unlock(&client->pending_packets.spinlock);
 }
 
@@ -1163,7 +1168,9 @@ static int mark_packet_acked(struct mqtt_ng_client *client, uint16_t packet_id)
                 UNLOCK_HDR_BUFFER(&client->main_buffer);
                 return 1;
             }
-            pulse_aclk_sent_message_acked(frag->sent_monotonic_ut, frag->len);
+            usec_t latency = now_monotonic_usec() - frag->sent_monotonic_ut;
+            pulse_aclk_sent_message_acked(latency, frag->len);
+            __atomic_store_n(&publish_latency, latency, __ATOMIC_RELEASE);
             mark_message_for_gc(frag);
 
             size_t used = BUFFER_BYTES_USED(&client->main_buffer.hdr_buffer);
@@ -1189,12 +1196,12 @@ static void check_packet_monitor_list_for_timeouts(struct mqtt_ng_client *client
 {
     spinlock_lock(&client->pending_packets.spinlock);
     bool first_then_next = true;
-    time_t *Pvalue;
+    uint32_t *Pvalue;
     Word_t packet_id = 0;
     time_t now = now_realtime_sec();
-    while ((Pvalue = (time_t *) JudyLFirstThenNext(client->pending_packets.JudyL, &packet_id, &first_then_next))) {
-        time_t expire_time = *Pvalue;
-        if (now >= expire_time) {
+    while ((Pvalue = (uint32_t *) JudyLFirstThenNext(client->pending_packets.JudyL, &packet_id, &first_then_next))) {
+        uint32_t expire_time_delta = *Pvalue;
+        if (now >= (PACKET_TIMEOUT_EPOCH + expire_time_delta)) {
             spinlock_unlock(&client->pending_packets.spinlock);
             (void) mark_packet_acked(client, (uint16_t) packet_id);
             spinlock_lock(&client->pending_packets.spinlock);
