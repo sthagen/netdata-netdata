@@ -104,32 +104,27 @@ The following alerts are available:
 
 ## Setup
 
+
+You can configure the **httpcheck** collector in two ways:
+
+| Method                | Best for                                                                                 | How to                                                                                                                                 |
+|-----------------------|------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| [**UI**](#via-ui)     | Fast setup without editing files                                                         | Go to **Nodes → Configure this node → Collectors → Jobs**, search for **httpcheck**, then click **+** to add a job. |
+| [**File**](#via-file) | If you prefer configuring via file, or need to automate deployments (e.g., with Ansible) | Edit `go.d/httpcheck.conf` and add a job.                                                                        |
+
+:::important
+
+UI configuration requires paid Netdata Cloud plan. File-based configuration uses the same options and is useful if you prefer configuring via file or need to automate deployments.
+
+:::
+
+
 ### Prerequisites
 
 No action required.
 
 ### Configuration
 
-#### File
-
-The configuration file name for this integration is `go.d/httpcheck.conf`.
-
-The file format is YAML. Generally, the structure is:
-
-```yaml
-update_every: 1
-autodetection_retry: 0
-jobs:
-  - name: some_name1
-  - name: some_name1
-```
-You can edit the configuration file using the [`edit-config`](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#edit-a-configuration-file-using-edit-config) script from the
-Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#the-netdata-config-directory).
-
-```bash
-cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
-sudo ./edit-config go.d/httpcheck.conf
-```
 #### Options
 
 The following options can be defined globally: update_every, autodetection_retry.
@@ -166,9 +161,45 @@ The following options can be defined globally: update_every, autodetection_retry
 
 </details>
 
-#### Examples
 
-##### Basic
+#### via UI
+
+Configure the **httpcheck** collector from the Netdata web interface:
+
+1. Go to **Nodes**.
+2. Select the node **where you want the httpcheck data-collection job to run** and click the :gear: (**Configure this node**). That node will run the data collection.
+3. The **Collectors → Jobs** view opens by default.
+4. In the Search box, type _httpcheck_ (or scroll the list) to locate the **httpcheck** collector.
+5. Click the **+** next to the **httpcheck** collector to add a new job.
+6. Fill in the job fields, then click **Test** to verify the configuration and **Submit** to save.
+    - **Test** runs the job with the provided settings and shows whether data can be collected.
+    - If it fails, an error message appears with details (for example, connection refused, timeout, or command execution errors), so you can adjust and retest.
+
+
+#### via File
+
+The configuration file name for this integration is `go.d/httpcheck.conf`.
+
+The file format is YAML. Generally, the structure is:
+
+```yaml
+update_every: 1
+autodetection_retry: 0
+jobs:
+  - name: some_name1
+  - name: some_name2
+```
+You can edit the configuration file using the [`edit-config`](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#edit-a-configuration-file-using-edit-config) script from the
+Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#the-netdata-config-directory).
+
+```bash
+cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
+sudo ./edit-config go.d/httpcheck.conf
+```
+
+##### Examples
+
+###### Basic
 
 A basic example configuration.
 
@@ -182,7 +213,7 @@ jobs:
 ```
 </details>
 
-##### With HTTP request headers
+###### With HTTP request headers
 
 Configuration with HTTP request headers that will be sent by the client.
 
@@ -200,7 +231,7 @@ jobs:
 ```
 </details>
 
-##### With `status_accepted`
+###### With `status_accepted`
 
 A basic example configuration with non-default status_accepted.
 
@@ -217,7 +248,7 @@ jobs:
 ```
 </details>
 
-##### With `header_match`
+###### With `header_match`
 
 Example configurations with `header_match`. See the value [pattern](https://github.com/netdata/netdata/tree/master/src/go/pkg/matcher#supported-format) syntax.
 
@@ -264,7 +295,7 @@ jobs:
 ```
 </details>
 
-##### HTTP authentication
+###### HTTP authentication
 
 Basic HTTP authentication.
 
@@ -280,7 +311,7 @@ jobs:
 ```
 </details>
 
-##### HTTPS with self-signed certificate
+###### HTTPS with self-signed certificate
 
 Do not validate server certificate chain and hostname.
 
@@ -296,7 +327,7 @@ jobs:
 ```
 </details>
 
-##### Multi-instance
+###### Multi-instance
 
 > **Note**: When you define multiple jobs, their names must be unique.
 

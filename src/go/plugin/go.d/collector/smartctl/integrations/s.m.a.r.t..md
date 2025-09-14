@@ -101,6 +101,21 @@ There are no alerts configured by default for this integration.
 
 ## Setup
 
+
+You can configure the **smartctl** collector in two ways:
+
+| Method                | Best for                                                                                 | How to                                                                                                                                 |
+|-----------------------|------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| [**UI**](#via-ui)     | Fast setup without editing files                                                         | Go to **Nodes → Configure this node → Collectors → Jobs**, search for **smartctl**, then click **+** to add a job. |
+| [**File**](#via-file) | If you prefer configuring via file, or need to automate deployments (e.g., with Ansible) | Edit `go.d/smartctl.conf` and add a job.                                                                        |
+
+:::important
+
+UI configuration requires paid Netdata Cloud plan. File-based configuration uses the same options and is useful if you prefer configuring via file or need to automate deployments.
+
+:::
+
+
 ### Prerequisites
 
 #### Install smartmontools (v7.0+)
@@ -145,26 +160,6 @@ Install `smartmontools` version 7.0 or later using your distribution's package m
 
 ### Configuration
 
-#### File
-
-The configuration file name for this integration is `go.d/smartctl.conf`.
-
-The file format is YAML. Generally, the structure is:
-
-```yaml
-update_every: 1
-autodetection_retry: 0
-jobs:
-  - name: some_name1
-  - name: some_name1
-```
-You can edit the configuration file using the [`edit-config`](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#edit-a-configuration-file-using-edit-config) script from the
-Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#the-netdata-config-directory).
-
-```bash
-cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
-sudo ./edit-config go.d/smartctl.conf
-```
 #### Options
 
 The following options can be defined globally: update_every.
@@ -197,9 +192,45 @@ The valid arguments to this option are:
 
 </details>
 
-#### Examples
 
-##### Custom devices poll interval
+#### via UI
+
+Configure the **smartctl** collector from the Netdata web interface:
+
+1. Go to **Nodes**.
+2. Select the node **where you want the smartctl data-collection job to run** and click the :gear: (**Configure this node**). That node will run the data collection.
+3. The **Collectors → Jobs** view opens by default.
+4. In the Search box, type _smartctl_ (or scroll the list) to locate the **smartctl** collector.
+5. Click the **+** next to the **smartctl** collector to add a new job.
+6. Fill in the job fields, then click **Test** to verify the configuration and **Submit** to save.
+    - **Test** runs the job with the provided settings and shows whether data can be collected.
+    - If it fails, an error message appears with details (for example, connection refused, timeout, or command execution errors), so you can adjust and retest.
+
+
+#### via File
+
+The configuration file name for this integration is `go.d/smartctl.conf`.
+
+The file format is YAML. Generally, the structure is:
+
+```yaml
+update_every: 1
+autodetection_retry: 0
+jobs:
+  - name: some_name1
+  - name: some_name2
+```
+You can edit the configuration file using the [`edit-config`](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#edit-a-configuration-file-using-edit-config) script from the
+Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#the-netdata-config-directory).
+
+```bash
+cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
+sudo ./edit-config go.d/smartctl.conf
+```
+
+##### Examples
+
+###### Custom devices poll interval
 
 Allows you to override the default devices poll interval (data collection).
 
@@ -213,7 +244,7 @@ jobs:
 ```
 </details>
 
-##### Concurrent scanning for multiple devices
+###### Concurrent scanning for multiple devices
 
 This example demonstrates enabling concurrent scanning to improve performance when monitoring many devices.
 
@@ -228,7 +259,7 @@ jobs:
 ```
 </details>
 
-##### Extra devices
+###### Extra devices
 
 This example demonstrates using `extra_devices` to manually add a storage device (`/dev/sdc`) not automatically detected by `smartctl --scan`.
 

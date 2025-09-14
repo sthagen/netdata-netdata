@@ -22,6 +22,7 @@ further analysis, or correlation with data from other sources.
 
 ## Setup
 
+
 ### Prerequisites
 
 #### 
@@ -32,18 +33,6 @@ further analysis, or correlation with data from other sources.
 
 ### Configuration
 
-#### File
-
-The configuration file name for this integration is `exporting.conf`.
-
-
-You can edit the configuration file using the [`edit-config`](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#edit-a-configuration-file-using-edit-config) script from the
-Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#the-netdata-config-directory).
-
-```bash
-cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
-sudo ./edit-config exporting.conf
-```
 #### Options
 
 The following options can be defined for this exporter.
@@ -124,9 +113,24 @@ different : disks with device-mapper, interrupts, QoS classes, statsd synthetic 
 
 </details>
 
-#### Examples
 
-##### Minimal configuration
+
+#### via File
+
+The configuration file name for this integration is `exporting.conf`.
+
+
+You can edit the configuration file using the [`edit-config`](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#edit-a-configuration-file-using-edit-config) script from the
+Netdata [config directory](https://github.com/netdata/netdata/blob/master/docs/netdata-agent/configuration/README.md#the-netdata-config-directory).
+
+```bash
+cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
+sudo ./edit-config exporting.conf
+```
+
+##### Examples
+
+###### Minimal configuration
 
 Add `:http` or `:https` modifiers to the connector type if you need to use other than a plaintext protocol.
 For example: `opentsdb:http:my_opentsdb_instance`, `opentsdb:https:my_opentsdb_instance`.
@@ -138,7 +142,7 @@ For example: `opentsdb:http:my_opentsdb_instance`, `opentsdb:https:my_opentsdb_i
   destination = localhost:4242
 
 ```
-##### HTTP authentication
+###### HTTP authentication
 
 
 
@@ -150,7 +154,7 @@ For example: `opentsdb:http:my_opentsdb_instance`, `opentsdb:https:my_opentsdb_i
     password = my_password
 
 ```
-##### Using `send hosts matching`
+###### Using `send hosts matching`
 
 
 
@@ -161,7 +165,7 @@ For example: `opentsdb:http:my_opentsdb_instance`, `opentsdb:https:my_opentsdb_i
     send hosts matching = localhost *
 
 ```
-##### Using `send charts matching`
+###### Using `send charts matching`
 
 
 
