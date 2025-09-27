@@ -6,13 +6,17 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"time"
 
 	"github.com/gosnmp/gosnmp"
 
+	"github.com/netdata/netdata/go/plugins/logger"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/agent/module"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/agent/vnodes"
+	"github.com/netdata/netdata/go/plugins/plugin/go.d/collector/ping"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/collector/snmp/ddsnmp"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/collector/snmp/ddsnmp/ddsnmpcollector"
+	"github.com/netdata/netdata/go/plugins/plugin/go.d/pkg/confopt"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/pkg/snmputils"
 )
 
@@ -36,8 +40,7 @@ func New() *Collector {
 			CreateVnode:              true,
 			VnodeDeviceDownThreshold: 3,
 			Community:                "public",
-			DisableLegacyCollection:  true,
-			Options: Options{
+			Options: OptionsConfig{
 				Port:           161,
 				Retries:        1,
 				Timeout:        5,
@@ -45,10 +48,18 @@ func New() *Collector {
 				MaxOIDs:        60,
 				MaxRepetitions: 25,
 			},
-			User: User{
+			User: UserConfig{
 				SecurityLevel: "authPriv",
 				AuthProto:     "sha512",
 				PrivProto:     "aes192c",
+			},
+			Ping: PingConfig{
+				Enabled: true,
+				ProberConfig: ping.ProberConfig{
+					Privileged: true,
+					Packets:    3,
+					Interval:   confopt.Duration(time.Millisecond * 100),
+				},
 			},
 		},
 
@@ -56,39 +67,44 @@ func New() *Collector {
 		seenScalarMetrics: make(map[string]bool),
 		seenTableMetrics:  make(map[string]bool),
 
+		newProber:     ping.NewProber,
 		newSnmpClient: gosnmp.NewHandler,
-
-		snmpBulkWalkOk: true,
-		enableProfiles: true,
+		newDdSnmpColl: func(cfg ddsnmpcollector.Config) ddCollector {
+			return ddsnmpcollector.New(cfg)
+		},
 	}
 }
 
-type Collector struct {
-	module.Base
-	Config `yaml:",inline" json:""`
+type (
+	Collector struct {
+		module.Base
+		Config `yaml:",inline" json:""`
 
-	vnode *vnodes.VirtualNode
+		vnode *vnodes.VirtualNode
 
-	charts            *module.Charts
-	seenScalarMetrics map[string]bool
-	seenTableMetrics  map[string]bool
+		charts            *module.Charts
+		seenScalarMetrics map[string]bool
+		seenTableMetrics  map[string]bool
 
-	newSnmpClient func() gosnmp.Handler
-	snmpClient    gosnmp.Handler
-	ddSnmpColl    *ddsnmpcollector.Collector
+		prober    ping.Prober
+		newProber func(ping.ProberConfig, *logger.Logger) ping.Prober
 
-	sysInfo      *snmputils.SysInfo
-	snmpProfiles []*ddsnmp.Profile
+		snmpClient    gosnmp.Handler
+		newSnmpClient func() gosnmp.Handler
 
-	adjMaxRepetitions uint32
-	snmpBulkWalkOk    bool
+		ddSnmpColl    ddCollector
+		newDdSnmpColl func(ddsnmpcollector.Config) ddCollector
 
-	// legacy data collection parameters
-	customOids []string
+		sysInfo      *snmputils.SysInfo
+		snmpProfiles []*ddsnmp.Profile
 
-	// only for tests
-	enableProfiles bool
-}
+		adjMaxRepetitions uint32
+	}
+	ddCollector interface {
+		Collect() ([]*ddsnmp.ProfileMetrics, error)
+		CollectDeviceMetadata() (map[string]ddsnmp.MetaTag, error)
+	}
+)
 
 func (c *Collector) Configuration() any {
 	return c.Config
@@ -103,13 +119,13 @@ func (c *Collector) Init(context.Context) error {
 		return fmt.Errorf("failed to initialize SNMP client: %v", err)
 	}
 
-	charts, err := newUserInputCharts(c.ChartsInput)
-	if err != nil {
-		return fmt.Errorf("failed to create user charts: %v", err)
+	if c.Ping.Enabled {
+		pr, err := c.initProber()
+		if err != nil {
+			return fmt.Errorf("failed to initialize ping prober: %v", err)
+		}
+		c.prober = pr
 	}
-	c.charts = charts
-
-	c.customOids = c.initOIDs()
 
 	return nil
 }

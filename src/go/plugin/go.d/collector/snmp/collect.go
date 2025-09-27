@@ -3,6 +3,8 @@
 package snmp
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -10,9 +12,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/google/uuid"
 	"github.com/gosnmp/gosnmp"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/netdata/netdata/go/plugins/logger"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/agent/vnodes"
@@ -21,58 +25,107 @@ import (
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/pkg/snmputils"
 )
 
-const oidSysUptime = "1.3.6.1.2.1.1.3.0"
-
 func (c *Collector) collect() (map[string]int64, error) {
-	if c.snmpClient == nil {
-		snmpClient, err := c.initAndConnectSNMPClient()
-		if err != nil {
-			return nil, err
-		}
-		c.snmpClient = snmpClient
-		if c.ddSnmpColl != nil {
-			c.ddSnmpColl.SetSNMPClient(snmpClient)
-		}
+	if err := c.ensureInitialized(); err != nil {
+		return nil, err
 	}
 
-	if c.sysInfo == nil {
-		si, err := snmputils.GetSysInfo(c.snmpClient)
-		if err != nil {
-			return nil, err
-		}
-
-		if c.enableProfiles {
-			c.snmpProfiles = c.setupProfiles(si)
-		}
-
-		if c.ddSnmpColl == nil {
-			c.ddSnmpColl = ddsnmpcollector.New(c.snmpClient, c.snmpProfiles, c.Logger, si.SysObjectID)
-		}
-
-		if c.CreateVnode {
-			deviceMeta, err := c.ddSnmpColl.CollectDeviceMetadata()
-			if err != nil {
-				return nil, err
-			}
-			c.vnode = c.setupVnode(si, deviceMeta)
-		}
-
-		c.sysInfo = si
-	}
-
-	mx := make(map[string]int64)
-
-	if err := c.collectProfiles(mx); err != nil {
-		c.Infof("failed to collect profiles: %v", err)
-	}
-
-	if !c.DisableLegacyCollection && len(c.customOids) > 0 {
-		if err := c.collectOIDs(mx); err != nil {
-			return nil, err
-		}
+	mx, err := c.collectMetrics()
+	if err != nil {
+		return nil, err
 	}
 
 	return mx, nil
+}
+
+func (c *Collector) collectMetrics() (map[string]int64, error) {
+	var (
+		snmpMx map[string]int64
+		pingMx map[string]int64
+	)
+
+	ctx := context.Background()
+
+	g, _ := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		m := make(map[string]int64)
+		if err := c.collectSNMP(m); err != nil {
+			return err
+		}
+		snmpMx = m
+		return nil
+	})
+
+	if c.Ping.Enabled && c.prober != nil {
+		g.Go(func() error {
+			m := make(map[string]int64)
+			if err := c.collectPing(m); err != nil {
+				c.Errorf("ping: %v", err)
+				if isPingUnrecoverableError(err) {
+					c.prober = nil
+				}
+				return nil
+			}
+			pingMx = m
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	mx := make(map[string]int64, len(snmpMx)+len(pingMx))
+
+	maps.Copy(mx, snmpMx)
+	maps.Copy(mx, pingMx)
+
+	return mx, nil
+}
+
+func (c *Collector) ensureInitialized() error {
+	if c.snmpClient == nil {
+		return errors.New("snmp client not initialized")
+	}
+
+	if c.sysInfo != nil {
+		return nil
+	}
+
+	si, err := snmputils.GetSysInfo(c.snmpClient)
+	if err != nil {
+		return err
+	}
+
+	if c.snmpProfiles == nil {
+		c.snmpProfiles = c.setupProfiles(si)
+	}
+
+	if c.ddSnmpColl == nil && len(c.snmpProfiles) > 0 {
+		c.ddSnmpColl = c.newDdSnmpColl(ddsnmpcollector.Config{
+			SnmpClient:  c.snmpClient,
+			Profiles:    c.snmpProfiles,
+			Log:         c.Logger,
+			SysObjectID: si.SysObjectID,
+		})
+	}
+
+	if c.CreateVnode {
+		deviceMeta, err := c.ddSnmpColl.CollectDeviceMetadata()
+		if err != nil {
+			return err
+		}
+		c.vnode = c.setupVnode(si, deviceMeta)
+	}
+
+	c.sysInfo = si
+
+	if c.Ping.Enabled {
+		c.addPingCharts()
+	}
+
+	return nil
 }
 
 func (c *Collector) setupVnode(si *snmputils.SysInfo, deviceMeta map[string]ddsnmp.MetaTag) *vnodes.VirtualNode {
@@ -172,11 +225,11 @@ func (c *Collector) initAndConnectSNMPClient() (gosnmp.Handler, error) {
 			c.Warningf("SNMP bulk walk disabled: table metrics collection unavailable (device may not support GETBULK or max-repetitions adjustment failed)")
 		}
 		c.adjMaxRepetitions = snmpClient.MaxRepetitions()
-		c.snmpBulkWalkOk = ok
 	}
 
 	return snmpClient, nil
 }
+
 func (c *Collector) adjustMaxRepetitions(snmpClient gosnmp.Handler) (bool, error) {
 	orig := c.Config.Options.MaxRepetitions
 	maxReps := c.Config.Options.MaxRepetitions
@@ -192,7 +245,7 @@ func (c *Collector) adjustMaxRepetitions(snmpClient gosnmp.Handler) (bool, error
 		}
 
 		if len(v) > 0 {
-			//c.Config.Options.MaxRepetitions = maxReps
+			//c.Config.OptionsConfig.MaxRepetitions = maxReps
 			if orig != maxReps {
 				c.Infof("adjusted max_repetitions: %d → %d (took %d attempts)", orig, maxReps, attempts)
 			}
@@ -230,23 +283,7 @@ func walkAll(snmpClient gosnmp.Handler, rootOid string) ([]gosnmp.SnmpPDU, error
 	return snmpClient.BulkWalkAll(rootOid)
 }
 
-func pduToInt(pdu gosnmp.SnmpPDU) (int64, error) {
-	switch pdu.Type {
-	case gosnmp.Counter32, gosnmp.Counter64, gosnmp.Integer, gosnmp.Gauge32, gosnmp.TimeTicks:
-		return gosnmp.ToBigInt(pdu.Value).Int64(), nil
-	default:
-		return 0, fmt.Errorf("unsupported type: '%v'", pdu.Type)
-	}
+func isPingUnrecoverableError(err error) bool {
+	var errno syscall.Errno
+	return errors.As(err, &errno) && (errors.Is(errno, syscall.EPERM) || errors.Is(errno, syscall.EACCES))
 }
-
-//func physAddressToString(pdu gosnmp.SnmpPDU) (string, error) {
-//	address, ok := pdu.Value.([]uint8)
-//	if !ok {
-//		return "", errors.New("physAddress is not a []uint8")
-//	}
-//	parts := make([]string, 0, 6)
-//	for _, v := range address {
-//		parts = append(parts, fmt.Sprintf("%02X", v))
-//	}
-//	return strings.Join(parts, ":"), nil
-//}
