@@ -20,15 +20,13 @@ include(CMakeDependentOption)
 include(NetdataUtil)
 netdata_fixup_system_processor()
 
-if(DEFINED BUILD_SHARED_LIBS)
-    if(NOT BUILD_SHARED_LIBS)
-        set(STATIC_BUILD TRUE)
-    endif()
-endif()
+option(STATIC_BUILD "Use static linking instead of dynamic linking for the build." FALSE)
+mark_as_advanced(STATIC_BUILD)
+set(BUILD_SHARED_LIBS "${STATIC_BUILD}")
 
 if(STATIC_BUILD)
-    set(CMAKE_FIND_LIBRARY_PREFIXES "${CMAKE_STATIC_LIBRARY_PREFIX}")
-    set(CMAKE_FIND_LIBRARY_SUFFIXES "${CMAKE_STATIC_LIBRARY_SUFFIX}")
+  set(CMAKE_FIND_LIBRARY_PREFIXES "${CMAKE_STATIC_LIBRARY_PREFIX}")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${CMAKE_STATIC_LIBRARY_SUFFIX}")
 endif()
 
 find_package(PkgConfig REQUIRED)
@@ -170,11 +168,6 @@ set(WEB_DEST "${WEB_DIR}")
 set(WEB_DIR "${NETDATA_RUNTIME_PREFIX}/${WEB_DEST}")
 
 include(NetdataCompilerFlags)
-
-check_c_compiler_flag("-fexceptions" HAVE_FEXCEPTIONS)
-if (NOT HAVE_FEXCEPTIONS)
-    message(FATAL_ERROR "Missing required compiler flag: -fexceptions.")
-endif()
 
 # This is intended to make life easier for developers who are working on one
 # specific feature.
@@ -1821,6 +1814,13 @@ set(WEB_PLUGIN_FILES
         src/web/api/v3/api_v3_stream_path.c
         src/web/mcp/adapters/mcp-websocket.c
         src/web/mcp/adapters/mcp-websocket.h
+        src/web/mcp/adapters/mcp-http.c
+        src/web/mcp/adapters/mcp-http.h
+        src/web/mcp/adapters/mcp-http-common.h
+        src/web/mcp/adapters/mcp-sse.c
+        src/web/mcp/adapters/mcp-sse.h
+        src/web/mcp/mcp-jsonrpc.c
+        src/web/mcp/mcp-jsonrpc.h
         src/web/mcp/mcp-initialize.c
         src/web/mcp/mcp-initialize.h
         src/web/mcp/mcp-prompts.c
@@ -1846,16 +1846,14 @@ set(WEB_PLUGIN_FILES
         src/web/mcp/mcp-tools-configured-alerts.h
         src/web/mcp/mcp-params.c
         src/web/mcp/mcp-params.h
-        src/web/mcp/mcp-request-id.c
-        src/web/mcp/mcp-request-id.h
         src/web/mcp/mcp-ping.c
         src/web/mcp/mcp-ping.h
         src/web/mcp/mcp-logging.c
         src/web/mcp/mcp-logging.h
         src/web/mcp/mcp-completion.c
         src/web/mcp/mcp-completion.h
-        src/web/mcp/mcp-api-key.c
-        src/web/mcp/mcp-api-key.h
+        src/web/api/mcp_auth.c
+        src/web/api/mcp_auth.h
         src/web/mcp/mcp.c
         src/web/mcp/mcp.h
         src/web/server/static/static-threaded.c
