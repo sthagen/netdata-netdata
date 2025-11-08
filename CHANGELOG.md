@@ -180,6 +180,12 @@
 - Improve agent startup ([#21260](https://github.com/netdata/netdata/issues/21260))
 - Add missing modulo operator to alerts ([#21267](https://github.com/netdata/netdata/issues/21267))
 - Improve websocket thread shutdown ([#21264](https://github.com/netdata/netdata/issues/21264))
+- Build(deps): bump github.com/docker/docker from 28.5.1+incompatible to 28.5.2+incompatible in /src/go ([#21268](https://github.com/netdata/netdata/issues/21268))
+- Security and Privacy ([#21271](https://github.com/netdata/netdata/issues/21271))
+- Improve(go.d/sd/pipeline): add `services` config ([#21269](https://github.com/netdata/netdata/issues/21269))
+- Chore(go.d/sd): make module optional in the template ([#21273](https://github.com/netdata/netdata/issues/21273))
+- Compute timestamps needed for status file ([#21272](https://github.com/netdata/netdata/issues/21272))
+- Detect netdata CLI initialization failure ([#21275](https://github.com/netdata/netdata/issues/21275))
 
 ## [2.7.0] - 2025-09-25
 
