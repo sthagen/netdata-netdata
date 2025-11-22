@@ -22,7 +22,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/go-sql-driver/mysql v1.9.3
-	github.com/godbus/dbus/v5 v5.1.0
+	github.com/godbus/dbus/v5 v5.2.0
 	github.com/gofrs/flock v0.13.0
 	github.com/gohugoio/hashstructure v0.6.0
 	github.com/golang/mock v1.6.0
@@ -42,9 +42,9 @@ require (
 	github.com/miekg/dns v1.1.68
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/prometheus-community/pro-bing v0.7.0
-	github.com/prometheus/common v0.67.2
+	github.com/prometheus/common v0.67.4
 	github.com/prometheus/prometheus v2.55.1+incompatible
-	github.com/redis/go-redis/v9 v9.16.0
+	github.com/redis/go-redis/v9 v9.17.0
 	github.com/sijms/go-ora/v2 v2.9.0
 	github.com/sourcegraph/conc v0.3.0
 	github.com/stretchr/testify v1.11.1
@@ -60,15 +60,15 @@ require (
 	gopkg.in/ini.v1 v1.67.0
 	gopkg.in/rethinkdb/rethinkdb-go.v6 v6.2.2
 	gopkg.in/yaml.v2 v2.4.0
-	k8s.io/api v0.34.1
-	k8s.io/apimachinery v0.34.1
-	k8s.io/client-go v0.34.1
+	k8s.io/api v0.34.2
+	k8s.io/apimachinery v0.34.2
+	k8s.io/client-go v0.34.2
 	layeh.com/radius v0.0.0-20190322222518-890bc1058917
 )
 
 require (
 	github.com/alexbrainman/odbc v0.0.0-20250601004241-49e6b2bc0cf0
-	github.com/ibm-messaging/mq-golang/v5 v5.6.6
+	github.com/ibm-messaging/mq-golang/v5 v5.6.7
 	github.com/microsoft/go-mssqldb v1.9.4
 	gopkg.in/yaml.v3 v3.0.1
 )
