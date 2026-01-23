@@ -102,6 +102,51 @@ Metrics:
 
 
 
+## Functions
+
+This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+
+
+### Top Queries
+
+Slow commands from Redis SLOWLOG. WARNING: Command arguments may contain unmasked literals (potential PII).
+
+Reads Redis SLOWLOG and returns the top entries sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Redis:top-queries` |
+| Performance | Uses SLOWLOG GET and may return many entries; use top_queries_limit to control size. |
+| Security | Command arguments may contain unmasked literals (potential PII). |
+| Availability | Available when the collector is initialized; returns 503 if the collector is still connecting. |
+
+#### Prerequisites
+
+No additional configuration is required.
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | duration |  |
+
+#### Returns
+
+Slowlog entries with command timing and metadata.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| ID | integer |  | hidden |  |
+| Timestamp | timestamp |  |  |  |
+| Command | string |  |  |  |
+| Command Name | string |  |  |  |
+| Duration | duration | milliseconds |  |  |
+| Client Address | string |  | hidden |  |
+| Client Name | string |  | hidden |  |
+
+
+
 ## Alerts
 
 

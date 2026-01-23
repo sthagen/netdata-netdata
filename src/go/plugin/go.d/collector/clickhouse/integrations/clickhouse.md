@@ -171,6 +171,64 @@ Metrics:
 
 
 
+## Functions
+
+This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+
+
+### Top Queries
+
+Top SQL queries from ClickHouse system.query_log.
+
+Queries system.query_log, aggregates by query, and returns the top entries sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Clickhouse:top-queries` |
+| Performance | Uses system.query_log and can be expensive on busy systems. Use limits to control response size. |
+| Security | Query text may include sensitive literals depending on server settings. |
+| Availability | Available when the collector can query system tables; returns 503 if system.query_log is not available. |
+
+#### Prerequisites
+
+##### Grant access to system.query_log
+
+Ensure the Netdata user can read system.query_log on the target ClickHouse instance.
+
+
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | totalTime |  |
+
+#### Returns
+
+Aggregated query statistics from system.query_log.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| Query ID | string |  | hidden |  |
+| Query | string |  |  |  |
+| Database | string |  |  |  |
+| User | string |  |  |  |
+| Calls | integer |  |  |  |
+| Total Time | duration | milliseconds |  |  |
+| Avg Time | duration | milliseconds |  |  |
+| Min Time | duration | milliseconds | hidden |  |
+| Max Time | duration | milliseconds | hidden |  |
+| Read Rows | integer |  |  |  |
+| Read Bytes | integer |  |  |  |
+| Written Rows | integer |  | hidden |  |
+| Written Bytes | integer |  | hidden |  |
+| Result Rows | integer |  |  |  |
+| Result Bytes | integer |  | hidden |  |
+| Max Memory | float |  | hidden |  |
+
+
+
 ## Alerts
 
 

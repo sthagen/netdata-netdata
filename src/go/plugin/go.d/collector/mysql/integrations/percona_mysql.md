@@ -183,6 +183,86 @@ Metrics:
 
 
 
+## Functions
+
+This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+
+
+### Top Queries
+
+Top SQL queries from performance_schema.
+
+Reads performance_schema statement digest tables and returns the top entries sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Mysql:top-queries` |
+| Performance | Requires performance_schema and can be expensive on busy servers. |
+| Security | Query text may contain unmasked literals (potential PII). |
+| Availability | Available when performance_schema tables are accessible and the collector is initialized. |
+
+#### Prerequisites
+
+##### Enable performance_schema digest tables
+
+Enable performance_schema and grant access to events_statements_summary_by_digest.
+
+
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | totalTime |  |
+
+#### Returns
+
+Aggregated statement statistics from performance_schema.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| Digest | string |  | hidden |  |
+| Query | string |  |  |  |
+| Schema | string |  |  |  |
+| Calls | integer |  |  |  |
+| Total Time | duration | milliseconds |  |  |
+| Min Time | duration | milliseconds | hidden |  |
+| Avg Time | duration | milliseconds |  |  |
+| Max Time | duration | milliseconds | hidden |  |
+| Lock Time | duration | milliseconds |  |  |
+| Errors | integer |  |  |  |
+| Warnings | integer |  |  |  |
+| Rows Affected | integer |  |  |  |
+| Rows Sent | integer |  |  |  |
+| Rows Examined | integer |  |  |  |
+| Temp Disk Tables | integer |  |  |  |
+| Temp Tables | integer |  |  |  |
+| Full Joins | integer |  |  |  |
+| Full Range Joins | integer |  | hidden |  |
+| Select Range | integer |  | hidden |  |
+| Select Range Check | integer |  | hidden |  |
+| Select Scan | integer |  |  |  |
+| Sort Merge Passes | integer |  | hidden |  |
+| Sort Range | integer |  | hidden |  |
+| Sort Rows | integer |  |  |  |
+| Sort Scan | integer |  | hidden |  |
+| No Index Used | integer |  |  |  |
+| No Good Index Used | integer |  | hidden |  |
+| First Seen | string |  | hidden |  |
+| Last Seen | string |  | hidden |  |
+| P95 Time | duration | milliseconds |  |  |
+| P99 Time | duration | milliseconds |  |  |
+| P99.9 Time | duration | milliseconds | hidden |  |
+| Sample Query | string |  | hidden |  |
+| Sample Seen | string |  | hidden |  |
+| Sample Time | duration | milliseconds | hidden |  |
+| CPU Time | duration | milliseconds |  |  |
+| Max Controlled Memory | integer |  |  |  |
+| Max Total Memory | integer |  |  |  |
+
+
+
 ## Alerts
 
 
@@ -235,21 +315,21 @@ To create the `netdata` user with these permissions, execute the following in th
 
 - **MySQL and MariaDB < 10.5.9**
 
-    ```mysql
-    CREATE USER 'netdata'@'localhost';
-    GRANT USAGE, REPLICATION CLIENT, PROCESS ON *.* TO 'netdata'@'localhost';
-    FLUSH PRIVILEGES;
-    ```
+  ```mysql
+  CREATE USER 'netdata'@'localhost';
+  GRANT USAGE, REPLICATION CLIENT, PROCESS ON *.* TO 'netdata'@'localhost';
+  FLUSH PRIVILEGES;
+  ```
 
 - **MariaDB >= 10.5.9**
 
-    For MariaDB 10.5.9 and later, use the `SLAVE MONITOR` privilege instead of `REPLICATION CLIENT`:
+  For MariaDB 10.5.9 and later, use the `SLAVE MONITOR` privilege instead of `REPLICATION CLIENT`:
 
-    ```mysql
-    CREATE USER 'netdata'@'localhost';
-    GRANT USAGE, SLAVE MONITOR, PROCESS ON *.* TO 'netdata'@'localhost';
-    FLUSH PRIVILEGES;
-    ```
+  ```mysql
+  CREATE USER 'netdata'@'localhost';
+  GRANT USAGE, SLAVE MONITOR, PROCESS ON *.* TO 'netdata'@'localhost';
+  FLUSH PRIVILEGES;
+  ```
 
 The `netdata` user will have the ability to connect to the MySQL server on localhost without a password. 
 It will only be able to gather statistics without being able to alter or affect operations in any way.

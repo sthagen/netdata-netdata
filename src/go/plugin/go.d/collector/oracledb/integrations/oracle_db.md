@@ -136,6 +136,109 @@ Metrics:
 
 
 
+## Functions
+
+This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+
+
+### Top Queries
+
+Top SQL statements from V$SQLSTATS. WARNING: Query text may contain unmasked literals (potential PII).
+
+Queries V$SQLSTATS and returns the top entries sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Oracledb:top-queries` |
+| Performance | Queries system views and may be expensive on busy databases. |
+| Security | Query text may contain unmasked literals (potential PII). |
+| Availability | Available when the collector can query Oracle system views; returns errors if SQL is unavailable. |
+
+#### Prerequisites
+
+##### Grant access to V$SQLSTATS
+
+Use a SQL user with access to V$SQLSTATS and a working SQL connection.
+
+
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | totalTime |  |
+
+#### Returns
+
+Aggregated SQL statistics from V$SQLSTATS.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| SQL ID | string |  | hidden |  |
+| Query | string |  |  |  |
+| Schema | string |  |  |  |
+| Executions | integer |  |  |  |
+| Total Time | duration | milliseconds |  |  |
+| Avg Time | duration | milliseconds |  |  |
+| CPU Time | duration | milliseconds |  |  |
+| Buffer Gets | integer |  |  |  |
+| Disk Reads | integer |  |  |  |
+| Rows Processed | integer |  |  |  |
+| Parse Calls | integer |  | hidden |  |
+| Module | string |  | hidden |  |
+| Action | string |  | hidden |  |
+| Last Active | string |  | hidden |  |
+
+### Running Queries
+
+Currently running SQL statements from V$SESSION. WARNING: Query text may contain unmasked literals (potential PII).
+
+Queries V$SESSION and returns running statements sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Oracledb:running-queries` |
+| Performance | Queries system views and may be expensive on busy databases. |
+| Security | Query text may contain unmasked literals (potential PII). |
+| Availability | Available when the collector can query Oracle system views; returns errors if SQL is unavailable. |
+
+#### Prerequisites
+
+##### Grant access to V$SESSION
+
+Use a SQL user with access to V$SESSION and a working SQL connection.
+
+
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | lastCallMs |  |
+
+#### Returns
+
+Snapshot of currently running SQL sessions.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| Session | string |  |  |  |
+| User | string |  |  |  |
+| Status | string |  |  |  |
+| Type | string |  | hidden |  |
+| SQL ID | string |  | hidden |  |
+| Query | string |  |  |  |
+| Elapsed | duration | milliseconds |  |  |
+| SQL Exec Start | string |  | hidden |  |
+| Module | string |  | hidden |  |
+| Action | string |  | hidden |  |
+| Program | string |  | hidden |  |
+| Machine | string |  | hidden |  |
+
+
+
 ## Alerts
 
 There are no alerts configured by default for this integration.

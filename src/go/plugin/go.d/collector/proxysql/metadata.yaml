@@ -98,7 +98,7 @@ modules:
             - name: Multi-instance
               description: |
                 > **Note**: When you define multiple jobs, their names must be unique.
-                
+
                 Local and remote instances.
               config: |
                 jobs:
@@ -123,6 +123,109 @@ modules:
         metric: proxysql.backend_status
         info: ProxySQL backend OFFLINE_HARD (${label:host}:${label:port} hostgroup ${label:hostgroup})
         link: https://github.com/netdata/netdata/blob/master/src/health/health.d/proxysql.conf
+    functions:
+      description: |
+        This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+      list:
+        - id: top-queries
+          name: Top Queries
+          description: |
+            Top SQL queries from ProxySQL query digest stats.
+
+            Queries stats_mysql_query_digest and returns the top entries sorted by the selected column.
+          parameters:
+            - id: __sort
+              name: Filter By
+              description: Select the primary sort column (options are derived from sortable columns in the response).
+              type: select
+              required: true
+              default: totalTime
+              options: []
+          returns:
+            description: Query digest statistics from ProxySQL.
+            columns:
+              - name: Digest
+                type: string
+                unit: ""
+                visibility: hidden
+                description: ""
+              - name: Query
+                type: string
+                unit: ""
+                description: ""
+              - name: Schema
+                type: string
+                unit: ""
+                description: ""
+              - name: User
+                type: string
+                unit: ""
+                visibility: hidden
+                description: ""
+              - name: Hostgroup
+                type: integer
+                unit: ""
+                visibility: hidden
+                description: ""
+              - name: Calls
+                type: integer
+                unit: ""
+                description: ""
+              - name: Total Time
+                type: duration
+                unit: "milliseconds"
+                description: ""
+              - name: Avg Time
+                type: duration
+                unit: "milliseconds"
+                description: ""
+              - name: Min Time
+                type: duration
+                unit: "milliseconds"
+                visibility: hidden
+                description: ""
+              - name: Max Time
+                type: duration
+                unit: "milliseconds"
+                visibility: hidden
+                description: ""
+              - name: Rows Affected
+                type: integer
+                unit: ""
+                description: ""
+              - name: Rows Sent
+                type: integer
+                unit: ""
+                description: ""
+              - name: Errors
+                type: integer
+                unit: ""
+                description: ""
+              - name: Warnings
+                type: integer
+                unit: ""
+                description: ""
+              - name: First Seen
+                type: string
+                unit: ""
+                visibility: hidden
+                description: ""
+              - name: Last Seen
+                type: string
+                unit: ""
+                visibility: hidden
+                description: ""
+          performance: |
+            Uses ProxySQL stats tables and can be expensive on busy systems.
+          security: |
+            Query text may contain unmasked literals (potential PII).
+          prerequisites:
+            list:
+              - title: Grant access to stats_mysql_query_digest
+                description: |
+                  Ensure the ProxySQL user can read stats_mysql_query_digest.
+          availability: |
+            Available when the collector can query ProxySQL stats; returns errors if the SQL connection is unavailable.
     metrics:
       folding:
         title: Metrics

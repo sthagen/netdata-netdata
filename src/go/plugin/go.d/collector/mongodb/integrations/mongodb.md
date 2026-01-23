@@ -59,9 +59,9 @@ Metrics grouped by *scope*.
 The scope defines the instance that the metric belongs to. An instance is uniquely identified by a set of labels.
 
 - WireTiger metrics are available only if [WiredTiger](https://docs.mongodb.com/v6.0/core/wiredtiger/) is used as the
-  storage engine.
+storage engine.
 - Sharding metrics are available on shards only
-  for [mongos](https://www.mongodb.com/docs/manual/reference/program/mongos/).
+for [mongos](https://www.mongodb.com/docs/manual/reference/program/mongos/).
 
 
 ### Per MongoDB instance
@@ -205,6 +205,76 @@ Metrics:
 
 
 
+## Functions
+
+This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+
+
+### Top Queries
+
+Top queries from MongoDB Profiler (system.profile). WARNING: Query text may contain unmasked literals (potential PII).
+
+Reads from system.profile and returns the top profiled queries sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Mongodb:top-queries` |
+| Performance | Requires profiling and reads from system.profile; may add load on busy systems. |
+| Security | Query text may contain unmasked literals (potential PII). |
+| Availability | Available when profiling is enabled and the collector is initialized; returns 403 if disabled in config. |
+
+#### Prerequisites
+
+##### Enable MongoDB profiling
+
+Enable profiling on the target databases and set top_queries_function_enabled to true.
+
+
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | execution_time |  |
+
+#### Returns
+
+Profiled query statistics from system.profile.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| Timestamp | timestamp |  |  |  |
+| Namespace | string |  |  |  |
+| Operation | string |  |  |  |
+| Query | string |  |  |  |
+| Execution Time | duration | seconds |  |  |
+| Docs Examined | integer |  |  |  |
+| Keys Examined | integer |  |  |  |
+| Docs Returned | integer |  |  |  |
+| Plan Summary | string |  |  |  |
+| Client | string |  |  |  |
+| User | string |  |  |  |
+| Docs Deleted | integer |  | hidden |  |
+| Docs Inserted | integer |  | hidden |  |
+| Docs Modified | integer |  | hidden |  |
+| Response Length | integer |  | hidden |  |
+| Num Yield | integer |  | hidden |  |
+| App Name | string |  |  |  |
+| Cursor Exhausted | string |  | hidden |  |
+| Has Sort Stage | string |  | hidden |  |
+| Uses Disk | string |  | hidden |  |
+| From Multi Planner | string |  | hidden |  |
+| Replanned | string |  | hidden |  |
+| Query Hash | string |  | hidden |  |
+| Plan Cache Key | string |  | hidden |  |
+| Planning Time | duration | seconds | hidden |  |
+| CPU Time | duration | seconds | hidden |  |
+| Query Framework | string |  | hidden |  |
+| Query Shape Hash | string |  | hidden |  |
+
+
+
 ## Alerts
 
 There are no alerts configured by default for this integration.
@@ -244,13 +314,13 @@ Create a read-only user for Netdata in the admin database.
 
   ```bash
   db.createUser({
-    "user":"netdata",
-    "pwd": "<UNIQUE_PASSWORD>",
-    "roles" : [
-      {role: 'read', db: 'admin' },
-      {role: 'clusterMonitor', db: 'admin'},
-      {role: 'read', db: 'local' }
-    ]
+  "user":"netdata",
+  "pwd": "<UNIQUE_PASSWORD>",
+  "roles" : [
+  {role: 'read', db: 'admin' },
+  {role: 'clusterMonitor', db: 'admin'},
+  {role: 'read', db: 'local' }
+  ]
   })
   ```
 

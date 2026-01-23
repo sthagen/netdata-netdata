@@ -234,6 +234,108 @@ Metrics:
 
 
 
+## Functions
+
+This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+
+
+### Top Queries
+
+Top SQL queries from Query Store.
+
+Queries Query Store runtime statistics and returns the top entries sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Mssql:top-queries` |
+| Performance | Uses Query Store and can be expensive on busy instances. |
+| Security | Query Store may contain unmasked literals (potential PII). |
+| Availability | Available when Query Store is enabled and the collector is initialized; returns 403 if disabled in config. |
+
+#### Prerequisites
+
+##### Enable Query Store functions
+
+Enable Query Store and set query_store_function_enabled to true.
+
+
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | totalTime |  |
+
+#### Returns
+
+Query Store statistics for top queries.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| Query Hash | string |  | hidden |  |
+| Query | string |  |  |  |
+| Database | string |  |  |  |
+| Calls | integer |  |  |  |
+| Total Time | duration | milliseconds |  |  |
+| Avg Time | duration | milliseconds |  |  |
+| Last Time | duration | milliseconds | hidden |  |
+| Min Time | duration | milliseconds | hidden |  |
+| Max Time | duration | milliseconds | hidden |  |
+| StdDev Time | duration | milliseconds | hidden |  |
+| Avg CPU | duration | milliseconds |  |  |
+| Last CPU | duration | milliseconds | hidden |  |
+| Min CPU | duration | milliseconds | hidden |  |
+| Max CPU | duration | milliseconds | hidden |  |
+| StdDev CPU | duration | milliseconds | hidden |  |
+| Avg Logical Reads | float |  |  |  |
+| Last Logical Reads | integer |  | hidden |  |
+| Min Logical Reads | integer |  | hidden |  |
+| Max Logical Reads | integer |  | hidden |  |
+| StdDev Logical Reads | float |  | hidden |  |
+| Avg Logical Writes | float |  |  |  |
+| Last Logical Writes | integer |  | hidden |  |
+| Min Logical Writes | integer |  | hidden |  |
+| Max Logical Writes | integer |  | hidden |  |
+| StdDev Logical Writes | float |  | hidden |  |
+| Avg Physical Reads | float |  |  |  |
+| Last Physical Reads | integer |  | hidden |  |
+| Min Physical Reads | integer |  | hidden |  |
+| Max Physical Reads | integer |  | hidden |  |
+| StdDev Physical Reads | float |  | hidden |  |
+| Avg CLR Time | duration | milliseconds | hidden |  |
+| Last CLR Time | duration | milliseconds | hidden |  |
+| Min CLR Time | duration | milliseconds | hidden |  |
+| Max CLR Time | duration | milliseconds | hidden |  |
+| StdDev CLR Time | duration | milliseconds | hidden |  |
+| Avg DOP | float |  |  |  |
+| Last DOP | integer |  | hidden |  |
+| Min DOP | integer |  | hidden |  |
+| Max DOP | integer |  | hidden |  |
+| StdDev DOP | float |  | hidden |  |
+| Avg Memory (8KB pages) | float |  |  |  |
+| Last Memory (8KB pages) | integer |  | hidden |  |
+| Min Memory (8KB pages) | integer |  | hidden |  |
+| Max Memory (8KB pages) | integer |  | hidden |  |
+| StdDev Memory | float |  | hidden |  |
+| Avg Rows | float |  |  |  |
+| Last Rows | integer |  | hidden |  |
+| Min Rows | integer |  | hidden |  |
+| Max Rows | integer |  | hidden |  |
+| StdDev Rows | float |  | hidden |  |
+| Avg Log Bytes | float |  |  |  |
+| Last Log Bytes | integer |  | hidden |  |
+| Min Log Bytes | integer |  | hidden |  |
+| Max Log Bytes | integer |  | hidden |  |
+| StdDev Log Bytes | float |  | hidden |  |
+| Avg TempDB (8KB pages) | float |  |  |  |
+| Last TempDB (8KB pages) | integer |  | hidden |  |
+| Min TempDB (8KB pages) | integer |  | hidden |  |
+| Max TempDB (8KB pages) | integer |  | hidden |  |
+| StdDev TempDB | float |  | hidden |  |
+
+
+
 ## Alerts
 
 There are no alerts configured by default for this integration.

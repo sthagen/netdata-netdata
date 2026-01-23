@@ -252,6 +252,109 @@ modules:
         metric: clickhouse.distributed_files_to_insert
         info: ClickHouse high number of pending files to process for asynchronous insertion into Distributed tables
         link: https://github.com/netdata/netdata/blob/master/src/health/health.d/clickhouse.conf
+    functions:
+      description: |
+        This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+      list:
+        - id: top-queries
+          name: Top Queries
+          description: |
+            Top SQL queries from ClickHouse system.query_log.
+
+            Queries system.query_log, aggregates by query, and returns the top entries sorted by the selected column.
+          parameters:
+            - id: __sort
+              name: Filter By
+              description: Select the primary sort column (options are derived from sortable columns in the response).
+              type: select
+              required: true
+              default: totalTime
+              options: []
+          returns:
+            description: Aggregated query statistics from system.query_log.
+            columns:
+              - name: Query ID
+                type: string
+                unit: ""
+                visibility: hidden
+                description: ""
+              - name: Query
+                type: string
+                unit: ""
+                description: ""
+              - name: Database
+                type: string
+                unit: ""
+                description: ""
+              - name: User
+                type: string
+                unit: ""
+                description: ""
+              - name: Calls
+                type: integer
+                unit: ""
+                description: ""
+              - name: Total Time
+                type: duration
+                unit: "milliseconds"
+                description: ""
+              - name: Avg Time
+                type: duration
+                unit: "milliseconds"
+                description: ""
+              - name: Min Time
+                type: duration
+                unit: "milliseconds"
+                visibility: hidden
+                description: ""
+              - name: Max Time
+                type: duration
+                unit: "milliseconds"
+                visibility: hidden
+                description: ""
+              - name: Read Rows
+                type: integer
+                unit: ""
+                description: ""
+              - name: Read Bytes
+                type: integer
+                unit: ""
+                description: ""
+              - name: Written Rows
+                type: integer
+                unit: ""
+                visibility: hidden
+                description: ""
+              - name: Written Bytes
+                type: integer
+                unit: ""
+                visibility: hidden
+                description: ""
+              - name: Result Rows
+                type: integer
+                unit: ""
+                description: ""
+              - name: Result Bytes
+                type: integer
+                unit: ""
+                visibility: hidden
+                description: ""
+              - name: Max Memory
+                type: float
+                unit: ""
+                visibility: hidden
+                description: ""
+          performance: |
+            Uses system.query_log and can be expensive on busy systems. Use limits to control response size.
+          security: |
+            Query text may include sensitive literals depending on server settings.
+          prerequisites:
+            list:
+              - title: Grant access to system.query_log
+                description: |
+                  Ensure the Netdata user can read system.query_log on the target ClickHouse instance.
+          availability: |
+            Available when the collector can query system tables; returns 503 if system.query_log is not available.
     metrics:
       folding:
         title: Metrics

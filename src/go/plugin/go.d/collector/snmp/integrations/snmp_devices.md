@@ -95,9 +95,9 @@ The configuration file name is [go.d/sd/snmp.conf](https://github.com/netdata/ne
 You can edit the configuration file using the edit-config script from the Netdata [config directory](https://learn.netdata.cloud/docs/netdata-agent/configuration#the-netdata-config-directory).
 
 ```bash
- cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
- sudo ./edit-config go.d/sd/snmp.conf
- ```
+cd /etc/netdata 2>/dev/null || cd /opt/netdata/etc/netdata
+sudo ./edit-config go.d/sd/snmp.conf
+```
 
 
 #### Limits
@@ -117,11 +117,68 @@ Metrics and charts are **defined by the matched SNMP profile(s)** at runtime. Th
 
 :::tip
 
- To understand the structure of these profiles (metrics, tags, virtual metrics, etc.), see **[SNMP Profile Format](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/profile-format.md)**.
+To understand the structure of these profiles (metrics, tags, virtual metrics, etc.), see **[SNMP Profile Format](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/profile-format.md)**.
 
 :::
 
 If `ping.enabled` is true, ICMP latency/packet-loss charts are also provided (or exclusively, when `ping_only: true`).
+
+
+
+## Functions
+
+This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+
+
+### Network Interfaces
+
+Network interface traffic and status metrics.
+
+Uses the latest cached SNMP interface data, filters by the selected type group, and sorts by the default column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Snmp:interfaces` |
+| Performance | Uses cached data only and does not trigger additional SNMP requests. Large devices may return many rows. |
+| Security | Exposes interface names and counters only. |
+| Availability | Available after the collector has completed at least one data collection; returns 503 until cache is ready. |
+
+#### Prerequisites
+
+No additional configuration is required.
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Type Group | select | Filter by interface type group. | yes | ethernet | Ethernet (default), Aggregation, Virtual, Other |
+
+#### Returns
+
+Table of interface traffic and status from cached SNMP data.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| Interface | string |  |  |  |
+| Type | string |  |  |  |
+| Type Group | string |  |  |  |
+| Admin Status | string |  |  |  |
+| Oper Status | string |  |  |  |
+| Traffic In | float | Mbits |  |  |
+| Traffic Out | float | Mbits |  |  |
+| Unicast In | float | Kpps | hidden |  |
+| Unicast Out | float | Kpps | hidden |  |
+| Broadcast In | float | Kpps | hidden |  |
+| Broadcast Out | float | Kpps | hidden |  |
+| Packets In | float | Kpps |  |  |
+| Packets Out | float | Kpps |  |  |
+| Errors In | float | packets/s | hidden |  |
+| Errors Out | float | packets/s | hidden |  |
+| Discards In | float | packets/s |  |  |
+| Discards Out | float | packets/s |  |  |
+| Multicast In | float | Kpps | hidden |  |
+| Multicast Out | float | Kpps | hidden |  |
 
 
 

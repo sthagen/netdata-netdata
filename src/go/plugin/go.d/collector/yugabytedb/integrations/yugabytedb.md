@@ -333,6 +333,105 @@ Metrics:
 
 
 
+## Functions
+
+This collector exposes real-time functions for interactive troubleshooting in the Top tab.
+
+
+### Top Queries
+
+Top SQL queries from pg_stat_statements. WARNING: Query text may contain unmasked literals (potential PII).
+
+Reads pg_stat_statements and returns the top entries sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Yugabytedb:top-queries` |
+| Performance | Executes SQL queries and may be expensive on busy clusters; use top_queries_limit and sql_timeout. |
+| Security | Query text may contain unmasked literals (potential PII). |
+| Availability | Available when YSQL is accessible; returns errors if the SQL connection is unavailable. |
+
+#### Prerequisites
+
+##### Enable pg_stat_statements for YSQL
+
+Install and enable pg_stat_statements and configure a YSQL DSN.
+
+
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | totalTime |  |
+
+#### Returns
+
+Aggregated query statistics from pg_stat_statements.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| Query ID | string |  | hidden |  |
+| Query | string |  |  |  |
+| Database | string |  |  |  |
+| User | string |  |  |  |
+| Calls | integer |  |  |  |
+| Total Time | duration | milliseconds |  |  |
+| Mean Time | duration | milliseconds |  |  |
+| Min Time | duration | milliseconds | hidden |  |
+| Max Time | duration | milliseconds | hidden |  |
+| Rows | integer |  |  |  |
+| Stddev Time | duration | milliseconds | hidden |  |
+
+### Running Queries
+
+Currently running SQL statements from pg_stat_activity. WARNING: Query text may contain unmasked literals (potential PII).
+
+Reads pg_stat_activity and returns running statements sorted by the selected column.
+
+
+| Aspect | Description |
+|:-------|:------------|
+| Name | `Yugabytedb:running-queries` |
+| Performance | Executes SQL queries and may be expensive on busy clusters; use top_queries_limit and sql_timeout. |
+| Security | Query text may contain unmasked literals (potential PII). |
+| Availability | Available when YSQL is accessible; returns errors if the SQL connection is unavailable. |
+
+#### Prerequisites
+
+##### Grant access to pg_stat_activity
+
+Configure a YSQL DSN and grant access to pg_stat_activity.
+
+
+
+#### Parameters
+
+| Parameter | Type | Description | Required | Default | Options |
+|:---------|:-----|:------------|:--------:|:--------|:--------|
+| Filter By | select | Select the primary sort column (options are derived from sortable columns in the response). | yes | elapsedMs |  |
+
+#### Returns
+
+Snapshot of currently running SQL statements.
+
+| Column | Type | Unit | Visibility | Description |
+|:-------|:-----|:-----|:-----------|:------------|
+| PID | string |  | hidden |  |
+| Query | string |  |  |  |
+| Database | string |  |  |  |
+| User | string |  |  |  |
+| State | string |  |  |  |
+| Wait Event Type | string |  | hidden |  |
+| Wait Event | string |  | hidden |  |
+| Application | string |  | hidden |  |
+| Client Address | string |  | hidden |  |
+| Query Start | string |  | hidden |  |
+| Elapsed | duration | milliseconds |  |  |
+
+
+
 ## Alerts
 
 There are no alerts configured by default for this integration.
