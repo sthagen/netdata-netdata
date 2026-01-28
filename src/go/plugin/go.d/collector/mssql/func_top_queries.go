@@ -205,7 +205,9 @@ func (f *funcTopQueries) Handle(ctx context.Context, method string, params funca
 	}
 	switch method {
 	case topQueriesMethodID:
-		return f.collectData(ctx, params.Column(topQueriesParamSort))
+		queryCtx, cancel := context.WithTimeout(ctx, f.router.collector.topQueriesTimeout())
+		defer cancel()
+		return f.collectData(queryCtx, params.Column(topQueriesParamSort))
 	default:
 		return funcapi.NotFoundResponse(method)
 	}
@@ -215,8 +217,8 @@ func (f *funcTopQueries) Handle(ctx context.Context, method string, params funca
 func (f *funcTopQueries) Cleanup(ctx context.Context) {}
 
 func (f *funcTopQueries) methodParams(ctx context.Context) ([]funcapi.ParamConfig, error) {
-	if !f.router.collector.Config.GetQueryStoreFunctionEnabled() {
-		return nil, fmt.Errorf("query store function disabled")
+	if f.router.collector.Functions.TopQueries.Disabled {
+		return nil, fmt.Errorf("top-queries function disabled in configuration")
 	}
 
 	availableCols, err := f.detectQueryStoreColumns(ctx)
@@ -234,12 +236,8 @@ func (f *funcTopQueries) methodParams(ctx context.Context) ([]funcapi.ParamConfi
 }
 
 func (f *funcTopQueries) collectData(ctx context.Context, sortColumn string) *funcapi.FunctionResponse {
-	if !f.router.collector.Config.GetQueryStoreFunctionEnabled() {
-		return &funcapi.FunctionResponse{
-			Status: 403,
-			Message: "Query Store function has been disabled in configuration. " +
-				"To enable, set query_store_function_enabled: true in the MSSQL collector config.",
-		}
+	if f.router.collector.Functions.TopQueries.Disabled {
+		return funcapi.UnavailableResponse("top-queries function has been disabled in configuration")
 	}
 
 	availableCols, err := f.detectQueryStoreColumns(ctx)
@@ -260,11 +258,8 @@ func (f *funcTopQueries) collectData(ctx context.Context, sortColumn string) *fu
 
 	validatedSortColumn := f.mapAndValidateSortColumn(sortColumn, cols)
 
-	timeWindowDays := f.router.collector.Config.GetQueryStoreTimeWindowDays()
-	limit := f.router.collector.TopQueriesLimit
-	if limit <= 0 {
-		limit = 500
-	}
+	timeWindowDays := f.router.collector.topQueriesTimeWindowDays()
+	limit := f.router.collector.topQueriesLimit()
 	query := f.buildDynamicSQL(cols, validatedSortColumn, timeWindowDays, limit)
 
 	rows, err := f.router.collector.db.QueryContext(ctx, query)
@@ -286,6 +281,93 @@ func (f *funcTopQueries) collectData(ctx context.Context, sortColumn string) *fu
 	data, err := f.scanDynamicRows(rows, cols)
 	if err != nil {
 		return &funcapi.FunctionResponse{Status: 500, Message: err.Error()}
+	}
+
+	errorStatus, errorDetails := f.router.collector.collectMSSQLErrorDetails(ctx)
+	planOpsByDB := f.router.collector.collectMSSQLPlanOps(ctx, data, cols)
+	extraCols := append(mssqlErrorAttributionColumns(), mssqlPlanAttributionColumns()...)
+
+	queryIdx := -1
+	queryHashIdx := -1
+	dbIdx := -1
+	for i, col := range cols {
+		switch col.Name {
+		case "query":
+			queryIdx = i
+		case "queryHash":
+			queryHashIdx = i
+		case "database":
+			dbIdx = i
+		}
+	}
+
+	if len(extraCols) > 0 {
+		for i := range data {
+			status := errorStatus
+			var errRow mssqlErrorRow
+			if errorStatus == mssqlErrorAttrEnabled {
+				found := false
+				if queryHashIdx >= 0 && queryHashIdx < len(data[i]) {
+					queryHash := rowString(data[i][queryHashIdx])
+					if queryHash != "" {
+						if row, ok := errorDetails[queryHash]; ok {
+							status = mssqlErrorAttrEnabled
+							errRow = row
+							found = true
+						}
+					}
+				}
+				if !found && queryIdx >= 0 && queryIdx < len(data[i]) {
+					queryText := normalizeSQLText(rowString(data[i][queryIdx]))
+					if queryText != "" {
+						if row, ok := errorDetails[queryText]; ok {
+							status = mssqlErrorAttrEnabled
+							errRow = row
+							found = true
+						}
+					}
+				}
+				if !found {
+					status = mssqlErrorAttrNoData
+				}
+			}
+
+			var hashMatch, mergeJoin, nestedLoops, sorts any
+			if dbIdx >= 0 && dbIdx < len(data[i]) && queryHashIdx >= 0 && queryHashIdx < len(data[i]) {
+				dbName := rowString(data[i][dbIdx])
+				queryHash := rowString(data[i][queryHashIdx])
+				if dbName != "" && queryHash != "" {
+					if opsByHash, ok := planOpsByDB[dbName]; ok {
+						if ops, ok := opsByHash[queryHash]; ok {
+							hashMatch = ops.HashMatch
+							mergeJoin = ops.MergeJoin
+							nestedLoops = ops.NestedLoops
+							sorts = ops.Sorts
+						}
+					}
+				}
+			}
+
+			var errNo any
+			if errRow.ErrorNumber != nil {
+				errNo = *errRow.ErrorNumber
+			}
+			var errState any
+			if errRow.ErrorState != nil {
+				errState = *errRow.ErrorState
+			}
+			data[i] = append(data[i],
+				status,
+				errNo,
+				errState,
+				nullableString(rowString(errRow.Message)),
+				hashMatch,
+				mergeJoin,
+				nestedLoops,
+				sorts,
+			)
+		}
+		cols = append(cols, extraCols...)
 	}
 
 	sortParam, sortOptions := f.buildSortParam(cols)

@@ -174,6 +174,9 @@ var _ funcapi.MethodHandler = (*funcTopQueries)(nil)
 
 // MethodParams implements funcapi.MethodHandler.
 func (f *funcTopQueries) MethodParams(ctx context.Context, method string) ([]funcapi.ParamConfig, error) {
+	if f.router.collector.Functions.TopQueries.Disabled {
+		return nil, fmt.Errorf("top-queries function disabled in configuration")
+	}
 	if f.router.collector.db == nil {
 		return nil, fmt.Errorf("collector is still initializing")
 	}
@@ -187,13 +190,18 @@ func (f *funcTopQueries) MethodParams(ctx context.Context, method string) ([]fun
 
 // Handle implements funcapi.MethodHandler.
 func (f *funcTopQueries) Handle(ctx context.Context, method string, params funcapi.ResolvedParams) *funcapi.FunctionResponse {
+	if f.router.collector.Functions.TopQueries.Disabled {
+		return funcapi.UnavailableResponse("top-queries function has been disabled in configuration")
+	}
 	if f.router.collector.db == nil {
 		return funcapi.UnavailableResponse("collector is still initializing, please retry in a few seconds")
 	}
 
 	switch method {
 	case topQueriesMethodID:
-		return f.collectData(ctx, params.Column(topQueriesParamSort))
+		queryCtx, cancel := context.WithTimeout(ctx, f.router.collector.topQueriesTimeout())
+		defer cancel()
+		return f.collectData(queryCtx, params.Column(topQueriesParamSort))
 	default:
 		return funcapi.NotFoundResponse(method)
 	}
@@ -262,11 +270,7 @@ func (f *funcTopQueries) collectData(ctx context.Context, sortColumn string) *fu
 	// Validate and map sort column
 	dbSortColumn := f.mapAndValidateSortColumn(sortColumn, availableCols)
 
-	// Get query limit (default 500)
-	limit := f.router.collector.TopQueriesLimit
-	if limit <= 0 {
-		limit = 500
-	}
+	limit := f.router.collector.topQueriesLimit()
 
 	// Build and execute query
 	query := f.buildDynamicSQL(cols, dbSortColumn, limit)
@@ -284,6 +288,69 @@ func (f *funcTopQueries) collectData(ctx context.Context, sortColumn string) *fu
 	data, err := f.scanDynamicRows(rows, cols)
 	if err != nil {
 		return &funcapi.FunctionResponse{Status: 500, Message: err.Error()}
+	}
+
+	errorCols := mysqlErrorAttributionColumns()
+	errorStatus := mysqlErrorAttrNotSupported
+	errorDetails := map[string]mysqlErrorRow{}
+	digestIdx := -1
+	for i, col := range cols {
+		if col.Name == "digest" {
+			digestIdx = i
+			break
+		}
+	}
+	if digestIdx >= 0 {
+		digests := make([]string, 0, len(data))
+		seen := make(map[string]bool)
+		for _, row := range data {
+			if digestIdx >= len(row) {
+				continue
+			}
+			digest, ok := row[digestIdx].(string)
+			if !ok || digest == "" {
+				continue
+			}
+			if seen[digest] {
+				continue
+			}
+			seen[digest] = true
+			digests = append(digests, digest)
+		}
+		if len(digests) > 0 {
+			errorStatus, errorDetails = f.router.collector.collectMySQLErrorDetailsForDigests(ctx, digests)
+		} else {
+			errorStatus = mysqlErrorAttrNoData
+		}
+	}
+
+	if len(errorCols) > 0 {
+		for i := range data {
+			status := errorStatus
+			var errRow mysqlErrorRow
+			var errNo any
+			if digestIdx >= 0 && digestIdx < len(data[i]) {
+				if digest, ok := data[i][digestIdx].(string); ok && digest != "" {
+					if row, ok := errorDetails[digest]; ok {
+						status = mysqlErrorAttrEnabled
+						errRow = row
+						if errRow.ErrorNumber != nil {
+							errNo = *errRow.ErrorNumber
+						}
+					} else if status == mysqlErrorAttrEnabled {
+						status = mysqlErrorAttrNoData
+					}
+				}
+			}
+
+			data[i] = append(data[i],
+				status,
+				errNo,
+				nullableString(errRow.SQLState),
+				nullableString(errRow.Message),
+			)
+		}
+		cols = append(cols, errorCols...)
 	}
 
 	// Build dynamic sort options from available columns (only those actually detected)

@@ -231,6 +231,22 @@
 - Regenerate integrations docs ([#21627](https://github.com/netdata/netdata/issues/21627))
 - Docs: add comprehensive node states and transitions documentation ([#21630](https://github.com/netdata/netdata/issues/21630))
 - Docs: add node-states-and-transitions to learn map ([#21631](https://github.com/netdata/netdata/issues/21631))
+- Build(deps): bump go.mongodb.org/mongo-driver from 1.17.6 to 1.17.7 in /src/go ([#21638](https://github.com/netdata/netdata/issues/21638))
+- Build(deps): bump github.com/bmatcuk/doublestar/v4 from 4.9.2 to 4.10.0 in /src/go ([#21639](https://github.com/netdata/netdata/issues/21639))
+- Build(deps): bump github.com/redis/go-redis/v9 from 9.17.2 to 9.17.3 in /src/go ([#21640](https://github.com/netdata/netdata/issues/21640))
+- Build(deps): bump github.com/miekg/dns from 1.1.70 to 1.1.72 in /src/go ([#21641](https://github.com/netdata/netdata/issues/21641))
+- Improve Netdata architecture description ([#21642](https://github.com/netdata/netdata/issues/21642))
+- Refactor(go.d.plugin): functions restructure ([#21633](https://github.com/netdata/netdata/issues/21633))
+- Feat(go.d.plugin): add function-only mode for modules and jobs ([#21646](https://github.com/netdata/netdata/issues/21646))
+- Feat(diskspace.plugin): smart ZFS dataset deduplication ([#21643](https://github.com/netdata/netdata/issues/21643))
+- DB error attribution ([#21645](https://github.com/netdata/netdata/issues/21645))
+- Regenerate integrations docs ([#21648](https://github.com/netdata/netdata/issues/21648))
+- Fix(go.d.plugin): mysql error-info function improvements ([#21650](https://github.com/netdata/netdata/issues/21650))
+- Switch to using a hard-coded release version for RHEL repo configs. ([#21649](https://github.com/netdata/netdata/issues/21649))
+- Feat(go.d.plugin/mssql): improve deadlock-info and error-info functions ([#21652](https://github.com/netdata/netdata/issues/21652))
+- Feat(go.d.plugin): improve db function e2e tests and documentation ([#21654](https://github.com/netdata/netdata/issues/21654))
+- Refactor(go.d.plugin): use nested functions config for database collectors ([#21655](https://github.com/netdata/netdata/issues/21655))
+- Regenerate integrations docs ([#21653](https://github.com/netdata/netdata/issues/21653))
 
 ## [2.8.0] - 2025-11-19
 
