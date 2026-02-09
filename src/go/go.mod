@@ -40,7 +40,7 @@ require (
 	github.com/mattn/go-xmlrpc v0.0.3
 	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/go-homedir v1.1.0
-	github.com/prometheus-community/pro-bing v0.7.0
+	github.com/prometheus-community/pro-bing v0.8.0
 	github.com/prometheus/common v0.67.5
 	github.com/prometheus/prometheus v2.55.1+incompatible
 	github.com/redis/go-redis/v9 v9.17.3
@@ -50,7 +50,7 @@ require (
 	github.com/tidwall/gjson v1.18.0
 	github.com/valyala/fastjson v1.6.7
 	github.com/vmware/govmomi v0.52.0
-	go.mongodb.org/mongo-driver v1.17.8
+	go.mongodb.org/mongo-driver v1.17.9
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/net v0.49.0
 	golang.org/x/sync v0.19.0
@@ -67,7 +67,7 @@ require (
 
 require (
 	github.com/alexbrainman/odbc v0.0.0-20250601004241-49e6b2bc0cf0
-	github.com/ibm-messaging/mq-golang/v5 v5.7.0
+	github.com/ibm-messaging/mq-golang/v5 v5.7.1
 	github.com/microsoft/go-mssqldb v1.9.6
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	gopkg.in/yaml.v3 v3.0.1
