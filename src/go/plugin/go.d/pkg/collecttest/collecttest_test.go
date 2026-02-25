@@ -9,10 +9,9 @@ import (
 	"testing"
 
 	"github.com/netdata/netdata/go/plugins/pkg/metrix"
+	"github.com/netdata/netdata/go/plugins/plugin/framework/chartengine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/netdata/netdata/go/plugins/plugin/go.d/agent/chartengine"
 )
 
 func TestScalarKeyFromLabelsMap(t *testing.T) {

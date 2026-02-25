@@ -4,8 +4,8 @@
 
 **Audience**: `ModuleV2` collector authors and framework contributors.
 
-**See also**: [charttpl](/src/go/plugin/go.d/agent/charttpl/README.md) (template DSL),
-[chartengine](/src/go/plugin/go.d/agent/chartengine/README.md) (compile + plan).
+**See also**: [charttpl](/src/go/plugin/framework/charttpl/README.md) (template DSL),
+[chartengine](/src/go/plugin/framework/chartengine/README.md) (compile + plan).
 
 ## Purpose
 
@@ -130,7 +130,7 @@ _ = ok
 ```
 
 For a complete collector integration pattern (cycle management, error handling),
-see [how-to-write-a-module.md](/src/go/plugin/go.d/docs/how-to-write-a-module.md).
+see [how-to-write-a-collector.md](/src/go/plugin/go.d/docs/how-to-write-a-collector.md).
 
 ## Contracts and Pitfalls
 

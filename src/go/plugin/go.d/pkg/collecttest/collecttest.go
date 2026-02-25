@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/netdata/netdata/go/plugins/pkg/metrix"
-	"github.com/netdata/netdata/go/plugins/plugin/go.d/agent/chartengine"
+	"github.com/netdata/netdata/go/plugins/plugin/framework/chartengine"
 )
 
 func collectOnce(store metrix.CollectorStore, collectFn func(ctx context.Context) error) error {

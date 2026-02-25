@@ -8,7 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/netdata/netdata/go/plugins/plugin/go.d/agent/module"
+	"github.com/netdata/netdata/go/plugins/plugin/framework/collectorapi"
+	"github.com/netdata/netdata/go/plugins/plugin/go.d/pkg/collecttest"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/pkg/logs"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/pkg/oldmetrix"
 	"github.com/stretchr/testify/assert"
@@ -33,11 +34,11 @@ func Test_testDataIsValid(t *testing.T) {
 }
 
 func TestCollector_ConfigurationSerialize(t *testing.T) {
-	module.TestConfigurationSerialize(t, &Collector{}, dataConfigJSON, dataConfigYAML)
+	collecttest.TestConfigurationSerialize(t, &Collector{}, dataConfigJSON, dataConfigYAML)
 }
 
 func TestNew(t *testing.T) {
-	assert.Implements(t, (*module.Module)(nil), New())
+	assert.Implements(t, (*collectorapi.CollectorV1)(nil), New())
 }
 
 func TestCollector_Init(t *testing.T) {
@@ -249,7 +250,7 @@ func TestCollector_Collect_ReturnOldDataIfNothingRead(t *testing.T) {
 func testCharts(t *testing.T, collr *Collector, mx map[string]int64) {
 	t.Helper()
 	ensureChartsDynamicDimsCreated(t, collr)
-	module.TestMetricsHasAllChartsDims(t, collr.Charts(), mx)
+	collecttest.TestMetricsHasAllChartsDims(t, collr.Charts(), mx)
 }
 
 func ensureChartsDynamicDimsCreated(t *testing.T, collr *Collector) {

@@ -24,6 +24,11 @@
 - Build(deps): bump github.com/vmware/govmomi from 0.52.0 to 0.53.0 in /src/go ([#21799](https://github.com/netdata/netdata/issues/21799))
 - Fix race condition on js.timer in scripts.d scheduler ([#21801](https://github.com/netdata/netdata/issues/21801))
 - Feat(go.d): new metrics collection framework ([#21769](https://github.com/netdata/netdata/issues/21769))
+- Aclk proxy connect log ([#21789](https://github.com/netdata/netdata/issues/21789))
+- Chore(go.d): restructure ([#21803](https://github.com/netdata/netdata/issues/21803))
+- Regenerate integrations docs ([#21807](https://github.com/netdata/netdata/issues/21807))
+- Support environment variable expansion in host labels ([#21796](https://github.com/netdata/netdata/issues/21796))
+- Fix url check ([#21805](https://github.com/netdata/netdata/issues/21805))
 
 ## [2.9.0] - 2026-02-16
 
