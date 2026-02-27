@@ -47,7 +47,10 @@ func main() {
 		return
 	}
 
-	pluginconfig.MustInit(opts)
+	pluginconfig.MustInit(pluginconfig.InitInput{
+		ConfDir:   opts.ConfDir,
+		WatchPath: opts.WatchPath,
+	})
 
 	watchPaths := pluginconfig.CollectorsConfigWatchPaths()
 	if len(watchPaths) == 0 {
@@ -85,7 +88,6 @@ func main() {
 		RunModule:               opts.Module,
 		RunJob:                  opts.Job,
 		MinUpdateEvery:          opts.UpdateEvery,
-		DumpSummary:             opts.DumpSummary,
 		DisableServiceDiscovery: true,
 	})
 

@@ -59,7 +59,10 @@ func main() {
 		return
 	}
 
-	pluginconfig.MustInit(opts)
+	pluginconfig.MustInit(pluginconfig.InitInput{
+		ConfDir:   opts.ConfDir,
+		WatchPath: opts.WatchPath,
+	})
 
 	if opts.Function != "" {
 		os.Exit(runFunctionCLI(opts))
@@ -97,7 +100,6 @@ func main() {
 		RunModule:      opts.Module,
 		RunJob:         opts.Job,
 		MinUpdateEvery: opts.UpdateEvery,
-		DumpSummary:    opts.DumpSummary,
 	})
 
 	a.Infof("plugin: name=%s, %s", a.Name, buildinfo.Info())

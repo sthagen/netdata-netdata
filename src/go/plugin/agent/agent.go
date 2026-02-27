@@ -17,10 +17,11 @@ import (
 	"github.com/netdata/netdata/go/plugins/plugin/agent/discovery"
 	"github.com/netdata/netdata/go/plugins/plugin/agent/jobmgr"
 	"github.com/netdata/netdata/go/plugins/plugin/agent/policy"
-	"github.com/netdata/netdata/go/plugins/plugin/agent/runtimemgr"
+	"github.com/netdata/netdata/go/plugins/plugin/agent/runtimechartemit"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/collectorapi"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/confgroup"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/functions"
+	"github.com/netdata/netdata/go/plugins/plugin/framework/metricsaudit"
 )
 
 // Config is an Agent configuration.
@@ -46,9 +47,9 @@ type Config struct {
 
 	DiscoveryProviders []discovery.ProviderFactory
 
-	DumpMode    time.Duration
-	DumpSummary bool
-	DumpDataDir string
+	AuditDuration time.Duration
+	AuditSummary  bool
+	AuditDataDir  string
 }
 
 // Agent represents orchestrator.
@@ -83,14 +84,14 @@ type Agent struct {
 
 	quitCh chan struct{}
 
-	// Dump mode
-	dumpMode     time.Duration
-	dumpSummary  bool
-	dumpAnalyzer *DumpAnalyzer
-	mgr          *jobmgr.Manager
+	// Metrics-audit mode.
+	auditDuration time.Duration
+	auditSummary  bool
+	auditAnalyzer *metricsaudit.Auditor
 
-	dumpDataDir string
-	dumpOnce    sync.Once
+	auditDataDir string
+	quitOnce     sync.Once
+	auditOnce    sync.Once
 }
 
 // New creates a new Agent.
@@ -115,26 +116,26 @@ func New(cfg Config) *Agent {
 		Out:                       safewriter.Stdout,
 		api:                       netdataapi.New(safewriter.Stdout),
 		quitCh:                    make(chan struct{}, 1),
-		dumpMode:                  cfg.DumpMode,
-		dumpSummary:               cfg.DumpSummary,
+		auditDuration:             cfg.AuditDuration,
+		auditSummary:              cfg.AuditSummary,
 		DisableServiceDiscovery:   cfg.DisableServiceDiscovery,
 	}
 
-	if a.dumpMode > 0 {
-		a.dumpAnalyzer = NewDumpAnalyzer()
-		a.Infof("dump mode enabled: will run for %v and analyze metric structure", a.dumpMode)
-		if a.dumpSummary {
-			a.Infof("dump summary enabled: will show consolidated summary across all jobs")
+	if a.auditDuration > 0 {
+		a.auditAnalyzer = metricsaudit.New()
+		a.Infof("metrics-audit mode enabled: will run for %v and analyze metric structure", a.auditDuration)
+		if a.auditSummary {
+			a.Infof("metrics-audit summary enabled: will show consolidated summary across all jobs")
 		}
 	}
 
-	if cfg.DumpDataDir != "" {
-		a.dumpDataDir = cfg.DumpDataDir
-		if a.dumpAnalyzer == nil {
-			a.dumpAnalyzer = NewDumpAnalyzer()
+	if cfg.AuditDataDir != "" {
+		a.auditDataDir = cfg.AuditDataDir
+		if a.auditAnalyzer == nil {
+			a.auditAnalyzer = metricsaudit.New()
 		}
-		a.dumpAnalyzer.EnableDataCapture(cfg.DumpDataDir, a.signalDumpComplete)
-		a.Infof("dump data directory: %s", cfg.DumpDataDir)
+		a.auditAnalyzer.EnableDataCapture(cfg.AuditDataDir, a.signalAuditComplete)
+		a.Infof("metrics-audit data directory: %s", cfg.AuditDataDir)
 	}
 
 	return a
@@ -173,19 +174,27 @@ func (a *Agent) RunKeepAlive(ctx context.Context) error {
 	}
 }
 
-// QuitCh returns agent quit notifications (e.g., dump completion).
+// QuitCh returns agent quit notifications (e.g., metrics-audit completion).
 func (a *Agent) QuitCh() <-chan struct{} {
 	return a.quitCh
 }
 
-// DumpModeDuration returns configured dump mode duration.
-func (a *Agent) DumpModeDuration() time.Duration {
-	return a.dumpMode
+// AuditDuration returns configured metrics-audit timer duration.
+func (a *Agent) AuditDuration() time.Duration {
+	return a.auditDuration
 }
 
-// TriggerDumpAnalysis prints dump analysis report.
-func (a *Agent) TriggerDumpAnalysis() {
-	a.collectDumpAnalysis()
+// FinalizeMetricsAudit prints metrics-audit analysis report once.
+func (a *Agent) FinalizeMetricsAudit(reason string) {
+	a.auditOnce.Do(func() {
+		if a.auditAnalyzer == nil {
+			return
+		}
+		if reason != "" {
+			a.Infof("finalizing metrics audit (%s)", reason)
+		}
+		a.printMetricsAudit()
+	})
 }
 
 func (a *Agent) run(ctx context.Context) {
@@ -218,7 +227,7 @@ func (a *Agent) run(ctx context.Context) {
 		return
 	}
 
-	runtimeSvc := runtimemgr.New(a.Logger.With(slog.String("component", "runtime metrics service")))
+	runtimeSvc := runtimechartemit.New(a.Logger.With(slog.String("component", "runtime metrics service")))
 	runtimeSvc.Start(a.Name, a.Out)
 	defer runtimeSvc.Stop()
 
@@ -237,14 +246,11 @@ func (a *Agent) run(ctx context.Context) {
 		VarLibDir:      a.VarLibDir,
 		FnReg:          fnMgr,
 		Vnodes:         a.setupVnodeRegistry(),
-		DumpMode:       a.dumpMode > 0,
-		DumpAnalyzer:   a.dumpAnalyzer,
-		DumpDataDir:    a.dumpDataDir,
+		AuditMode:      a.auditDuration > 0,
+		AuditAnalyzer:  a.auditAnalyzer,
+		AuditDataDir:   a.auditDataDir,
 		RuntimeService: runtimeSvc,
 	})
-
-	// Store reference for dump mode and enable dump mode if configured
-	a.mgr = jobMgr
 
 	in := make(chan []*confgroup.Group)
 	var wg sync.WaitGroup
@@ -262,23 +268,22 @@ func (a *Agent) run(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func (a *Agent) collectDumpAnalysis() {
-	if a.dumpAnalyzer == nil || a.mgr == nil {
-		a.Error("dump analyzer or job manager not initialized")
+func (a *Agent) printMetricsAudit() {
+	if a.auditAnalyzer == nil {
 		return
 	}
 
 	// Print the analysis report
-	if a.dumpSummary {
-		a.dumpAnalyzer.PrintSummary()
+	if a.auditSummary {
+		a.auditAnalyzer.PrintSummary()
 	} else {
-		a.dumpAnalyzer.PrintReport()
+		a.auditAnalyzer.PrintReport()
 	}
 }
 
-func (a *Agent) signalDumpComplete() {
-	a.dumpOnce.Do(func() {
-		a.Infof("dump data collection complete, shutting down")
+func (a *Agent) signalAuditComplete() {
+	a.quitOnce.Do(func() {
+		a.Infof("metrics-audit data collection complete, shutting down")
 		select {
 		case a.quitCh <- struct{}{}:
 		default:

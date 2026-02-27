@@ -37,6 +37,19 @@
 - Reduce log noise for indexing limit warnings on online journal files ([#21816](https://github.com/netdata/netdata/issues/21816))
 - Fix(go.d/sd): skip unsupported discoverer configs ([#21818](https://github.com/netdata/netdata/issues/21818))
 - Fix potential use after free in RAM mode ([#21809](https://github.com/netdata/netdata/issues/21809))
+- Include corrosion's cargo build dir in the clean target. ([#21820](https://github.com/netdata/netdata/issues/21820))
+- Plugins.d doubles ([#21349](https://github.com/netdata/netdata/issues/21349))
+- Remove most_popular from integrations ([#21811](https://github.com/netdata/netdata/issues/21811))
+- Regenerate integrations docs ([#21824](https://github.com/netdata/netdata/issues/21824))
+- Refactor(go.d): agent decoupling ([#21821](https://github.com/netdata/netdata/issues/21821))
+- Docs(dashboards): add TV Mode documentation section ([#21812](https://github.com/netdata/netdata/issues/21812))
+- Feat(go.d/framework): add float dimension option handling ([#21825](https://github.com/netdata/netdata/issues/21825))
+- Fix compilation warnings ([#21827](https://github.com/netdata/netdata/issues/21827))
+- Refactor(go/plugin): move dump analyzer to metricsaudit ([#21830](https://github.com/netdata/netdata/issues/21830))
+- Increase statsd UDP buffer size to localhost MTU ([#21822](https://github.com/netdata/netdata/issues/21822))
+- Chore(go.plugin): rename runtimemgr for clarity ([#21833](https://github.com/netdata/netdata/issues/21833))
+- Add skill document for querying Netdata Cloud metrics ([#21834](https://github.com/netdata/netdata/issues/21834))
+- Improve query metrics skill document ([#21836](https://github.com/netdata/netdata/issues/21836))
 
 ## [2.9.0] - 2026-02-16
 

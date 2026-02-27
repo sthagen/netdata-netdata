@@ -24,6 +24,7 @@ import (
 	"github.com/netdata/netdata/go/plugins/plugin/framework/dyncfg"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/functions"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/jobruntime"
+	"github.com/netdata/netdata/go/plugins/plugin/framework/metricsaudit"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/runtimecomp"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/vnodes"
 	"gopkg.in/yaml.v2"
@@ -39,9 +40,9 @@ type Config struct {
 	VarLibDir          string
 	FnReg              FunctionRegistry
 	Vnodes             map[string]*vnodes.VirtualNode
-	DumpMode           bool
-	DumpAnalyzer       jobruntime.DumpAnalyzer
-	DumpDataDir        string
+	AuditMode          bool
+	AuditAnalyzer      metricsaudit.Analyzer
+	AuditDataDir       string
 	FunctionJSONWriter func(payload []byte, code int)
 	RuntimeService     runtimecomp.Service
 }
@@ -78,9 +79,9 @@ func New(cfg Config) *Manager {
 		fnReg:          fnReg,
 		vnodes:         vnodesReg,
 
-		dumpMode:           cfg.DumpMode,
-		dumpAnalyzer:       cfg.DumpAnalyzer,
-		dumpDataDir:        cfg.DumpDataDir,
+		auditMode:          cfg.AuditMode,
+		auditAnalyzer:      cfg.AuditAnalyzer,
+		auditDataDir:       cfg.AuditDataDir,
 		functionJSONWriter: cfg.FunctionJSONWriter,
 		runtimeService:     cfg.RuntimeService,
 
@@ -145,10 +146,10 @@ type Manager struct {
 	fnReg          FunctionRegistry
 	vnodes         map[string]*vnodes.VirtualNode
 
-	// Dump mode
-	dumpMode     bool
-	dumpAnalyzer jobruntime.DumpAnalyzer
-	dumpDataDir  string
+	// Metrics-audit mode.
+	auditMode     bool
+	auditAnalyzer metricsaudit.Analyzer
+	auditDataDir  string
 
 	fileStatus  *fileStatus
 	moduleFuncs *moduleFuncRegistry
@@ -558,18 +559,16 @@ func (m *Manager) createCollectorJob(cfg confgroup.Config) (runtimeJob, error) {
 
 	m.Debugf("creating %s[%s] job, config: %v", cfg.Module(), cfg.Name(), cfg)
 
-	var jobDumpDir string
-	if m.dumpDataDir != "" {
-		jobDumpDir = filepath.Join(m.dumpDataDir, naming.Sanitize(cfg.Module()), naming.Sanitize(cfg.Name()))
-		if err := os.MkdirAll(jobDumpDir, 0o755); err != nil {
-			return nil, fmt.Errorf("creating dump directory: %w", err)
-		}
-		if m.dumpAnalyzer != nil {
-			m.dumpAnalyzer.RegisterJob(cfg.Name(), cfg.Module(), jobDumpDir)
+	useV2 := creator.CreateV2 != nil
+
+	var jobCaptureDir string
+	if m.auditDataDir != "" && !useV2 {
+		jobCaptureDir = filepath.Join(m.auditDataDir, naming.Sanitize(cfg.Module()), naming.Sanitize(cfg.Name()))
+		if err := os.MkdirAll(jobCaptureDir, 0o755); err != nil {
+			return nil, fmt.Errorf("creating audit directory: %w", err)
 		}
 	}
 
-	useV2 := creator.CreateV2 != nil
 	if useV2 {
 		mod := creator.CreateV2()
 		if mod == nil {
@@ -577,11 +576,6 @@ func (m *Manager) createCollectorJob(cfg confgroup.Config) (runtimeJob, error) {
 		}
 		if err := applyConfig(cfg, mod); err != nil {
 			return nil, err
-		}
-		if jobDumpDir != "" {
-			if dumpAware, ok := mod.(interface{ EnableDump(string) }); ok {
-				dumpAware.EnableDump(jobDumpDir)
-			}
 		}
 
 		jobCfg := jobruntime.JobV2Config{
@@ -614,9 +608,14 @@ func (m *Manager) createCollectorJob(cfg confgroup.Config) (runtimeJob, error) {
 		return nil, err
 	}
 
-	if jobDumpDir != "" {
-		if dumpAware, ok := mod.(interface{ EnableDump(string) }); ok {
-			dumpAware.EnableDump(jobDumpDir)
+	if m.auditAnalyzer != nil && jobCaptureDir != "" {
+		// Auditing hooks are V1-only; V2 jobs are intentionally excluded.
+		m.auditAnalyzer.RegisterJob(cfg.Name(), cfg.Module(), jobCaptureDir)
+	}
+
+	if jobCaptureDir != "" {
+		if captureAware, ok := mod.(metricsaudit.Capturable); ok {
+			captureAware.EnableCaptureArtifacts(jobCaptureDir)
 		}
 	}
 
@@ -632,8 +631,8 @@ func (m *Manager) createCollectorJob(cfg confgroup.Config) (runtimeJob, error) {
 		IsStock:         cfg.SourceType() == "stock",
 		Module:          mod,
 		Out:             m.out,
-		DumpMode:        m.dumpMode,
-		DumpAnalyzer:    m.dumpAnalyzer,
+		AuditMode:       m.auditMode,
+		AuditAnalyzer:   m.auditAnalyzer,
 		FunctionOnly:    functionOnly,
 	}
 
