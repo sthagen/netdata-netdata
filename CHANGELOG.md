@@ -55,6 +55,10 @@
 - Fix: apps.plugin use-after-free crash on parent pointer dereference ([#21838](https://github.com/netdata/netdata/issues/21838))
 - Fix FreeBSD 15.0 build failure in freebsd_ipfw.c ([#21843](https://github.com/netdata/netdata/issues/21843))
 - Chore(go/plugin/sd): dont validate config in userconfig ([#21842](https://github.com/netdata/netdata/issues/21842))
+- Chore(go/agent/jobmgr): harden dyncfg lifecycle, locking, and wait-decision flow ([#21840](https://github.com/netdata/netdata/issues/21840))
+- Build(deps): bump github.com/microsoft/go-mssqldb from 1.9.6 to 1.9.7 in /src/go ([#21848](https://github.com/netdata/netdata/issues/21848))
+- Build(deps): bump golang.org/x/net from 0.50.0 to 0.51.0 in /src/go ([#21846](https://github.com/netdata/netdata/issues/21846))
+- Refactor(go/plugin/framework/functions): redesign manager ([#21850](https://github.com/netdata/netdata/issues/21850))
 
 ## [2.9.0] - 2026-02-16
 
