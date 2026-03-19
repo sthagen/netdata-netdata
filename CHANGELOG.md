@@ -138,6 +138,19 @@
 - Fix health api call ([#21952](https://github.com/netdata/netdata/issues/21952))
 - Docs(go.d/snmp): add multi-device SNMPv3 config example with YAML anchors ([#21955](https://github.com/netdata/netdata/issues/21955))
 - Regenerate integrations docs ([#21956](https://github.com/netdata/netdata/issues/21956))
+- Run periodical refresh of timezone ([#21944](https://github.com/netdata/netdata/issues/21944))
+- Fix permissions for systemd-journal.plugin on offline installs ([#21953](https://github.com/netdata/netdata/issues/21953))
+- Ensure thread safety and proper cleanup in `GetHardwareInfo` ([#21958](https://github.com/netdata/netdata/issues/21958))
+- Fix windows config editor ([#21957](https://github.com/netdata/netdata/issues/21957))
+- Build(deps): bump github.com/go-ldap/ldap/v3 from 3.4.12 to 3.4.13 in /src/go ([#21963](https://github.com/netdata/netdata/issues/21963))
+- Correctly prefetch IBM MQ libraries in DEB package build CI jobs. ([#21959](https://github.com/netdata/netdata/issues/21959))
+- Fix compilation warnings (libbnetdata) ([#21961](https://github.com/netdata/netdata/issues/21961))
+- Feat(go.d): implement secretstore-based secrets management ([#21951](https://github.com/netdata/netdata/issues/21951))
+- Log missing user configuration directory at info level ([#21969](https://github.com/netdata/netdata/issues/21969))
+- Adjust eBPF (user ring) ([#21676](https://github.com/netdata/netdata/issues/21676))
+- Go.d/powerstore: add Dell PowerStore storage array collector (V2 framework) ([#21929](https://github.com/netdata/netdata/issues/21929))
+- Go.d/powervault: add Dell PowerVault ME4/ME5 storage array collector ([#21936](https://github.com/netdata/netdata/issues/21936))
+- Regenerate integrations docs ([#21970](https://github.com/netdata/netdata/issues/21970))
 
 ## [2.9.0] - 2026-02-16
 
