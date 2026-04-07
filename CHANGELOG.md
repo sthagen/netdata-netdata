@@ -254,6 +254,14 @@
 - Regenerate integrations docs ([#22135](https://github.com/netdata/netdata/issues/22135))
 - Chore(go.d/azure_monitor): shorten stock profile selectors ([#22137](https://github.com/netdata/netdata/issues/22137))
 - Chartengine: fix validated framework issues ([#22138](https://github.com/netdata/netdata/issues/22138))
+- Docs: Add guidance on obtaining TLS certificates for production use ([#22037](https://github.com/netdata/netdata/issues/22037))
+- Docs: add warning about mode=none disabling streaming capability ([#22056](https://github.com/netdata/netdata/issues/22056))
+- Docs: add HTTP 412 troubleshooting and publish bearer token protection docs on Learn ([#22044](https://github.com/netdata/netdata/issues/22044))
+- Docs: clarify alert behavior for non-existent mount points ([#22038](https://github.com/netdata/netdata/issues/22038))
+- Fix(go.d/azure_monitor): ignore invalid user profile overrides ([#22146](https://github.com/netdata/netdata/issues/22146))
+- Fix: restore _hw_product_name, _hw_sys_vendor, and _hw_product_type labels in netdata_info ([#22134](https://github.com/netdata/netdata/issues/22134))
+- Active Directory Federation Service (windows.plugin) ([#22113](https://github.com/netdata/netdata/issues/22113))
+- Packaging: enable scripts plugin by default ([#22148](https://github.com/netdata/netdata/issues/22148))
 
 ## [2.9.0] - 2026-02-16
 

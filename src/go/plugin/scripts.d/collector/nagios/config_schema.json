@@ -18,9 +18,14 @@
         "minimum": 0,
         "default": 0
       },
+      "check_name": {
+        "title": "Check name",
+        "description": "Name that identifies this check type for chart grouping and metric naming. Charts appear under `Perfdata/<check_name>` in the dashboard. When `plugin` points to an interpreter, set this to the actual check identity — otherwise all interpreter-based jobs share a single chart section. If omitted, derived from the `plugin` basename.",
+        "type": "string"
+      },
       "plugin": {
         "title": "Plugin path",
-        "description": "Absolute path to the Nagios-compatible check executable to run. If you need a script interpreter, point this to the interpreter executable and pass the script path in `args`. The command should return exit code 0, 1, 2, or 3 and may print performance data after `|`.",
+        "description": "Absolute path to the Nagios-compatible command entry point. This can be a packaged plugin, your own executable, or an interpreter. When `plugin` points to an interpreter, pass the script path in `args` and set `check_name` to the actual check identity. The command should return exit code 0, 1, 2, or 3 and may print performance data after `|`.",
         "type": "string"
       },
       "args": {
@@ -60,21 +65,21 @@
         "title": "Timeout",
         "description": "Maximum time allowed for one check execution, in seconds. If the check exceeds this limit, the job state becomes `timeout`.",
         "type": "number",
-        "minimum": 0.001,
+        "minimum": 1,
         "default": 5
       },
       "check_interval": {
         "title": "Check interval",
         "description": "Requested interval between regular checks, in seconds.",
         "type": "number",
-        "minimum": 0.001,
+        "minimum": 1,
         "default": 300
       },
       "retry_interval": {
         "title": "Retry interval",
         "description": "Requested interval between retry attempts while the check is in a soft non-OK state, in seconds.",
         "type": "number",
-        "minimum": 0.001,
+        "minimum": 1,
         "default": 60
       },
       "max_check_attempts": {
@@ -251,6 +256,10 @@
     "uiOptions": {
       "fullPage": true
     },
+    "check_name": {
+      "ui:placeholder": "check_ping",
+      "ui:help": "Controls the chart section name and metric context for performance data. Required when plugin is an interpreter."
+    },
     "plugin": {
       "ui:placeholder": "/usr/lib/nagios/plugins/check_ping"
     },
@@ -287,6 +296,7 @@
           "fields": [
             "update_every",
             "plugin",
+            "check_name",
             "args",
             "arg_values",
             "timeout",
