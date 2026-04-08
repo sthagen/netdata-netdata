@@ -262,6 +262,13 @@
 - Fix: restore _hw_product_name, _hw_sys_vendor, and _hw_product_type labels in netdata_info ([#22134](https://github.com/netdata/netdata/issues/22134))
 - Active Directory Federation Service (windows.plugin) ([#22113](https://github.com/netdata/netdata/issues/22113))
 - Packaging: enable scripts plugin by default ([#22148](https://github.com/netdata/netdata/issues/22148))
+- Feat(scripts.d/nagios): add optional check_name for perfdata identity ([#22154](https://github.com/netdata/netdata/issues/22154))
+- Regenerate integrations docs ([#22150](https://github.com/netdata/netdata/issues/22150))
+- Coverity and ML ([#22120](https://github.com/netdata/netdata/issues/22120))
+- Feat(scripts.d/nagios): validate plugin path security ([#22160](https://github.com/netdata/netdata/issues/22160))
+- Update to the latest version of Sentry Native to fix build issues. ([#22159](https://github.com/netdata/netdata/issues/22159))
+- Feat(scripts.d/nagios): auto-invoke Windows script files (.ps1, .bat, .cmd) through their interpreters ([#22162](https://github.com/netdata/netdata/issues/22162))
+- Regenerate integrations docs ([#22161](https://github.com/netdata/netdata/issues/22161))
 
 ## [2.9.0] - 2026-02-16
 
