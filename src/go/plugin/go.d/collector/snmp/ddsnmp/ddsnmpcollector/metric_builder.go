@@ -38,6 +38,15 @@ func (mb *metricBuilder) withTags(tags map[string]string) *metricBuilder {
 func (mb *metricBuilder) withStaticTags(tags map[string]string) *metricBuilder {
 	if len(tags) > 0 {
 		mb.metric.StaticTags = maps.Clone(tags)
+		if mb.metric.Tags == nil {
+			mb.metric.Tags = maps.Clone(tags)
+		} else {
+			for k, v := range tags {
+				if current, ok := mb.metric.Tags[k]; !ok || current == "" {
+					mb.metric.Tags[k] = v
+				}
+			}
+		}
 	}
 	return mb
 }
@@ -62,8 +71,9 @@ func (mb *metricBuilder) build() ddsnmp.Metric {
 	return mb.metric
 }
 
-func buildScalarMetric(cfg ddprofiledefinition.SymbolConfig, pdu gosnmp.SnmpPDU, value int64, staticTags map[string]string) (*ddsnmp.Metric, error) {
+func buildScalarMetric(cfg ddprofiledefinition.SymbolConfig, pdu gosnmp.SnmpPDU, value int64, tags, staticTags map[string]string) (*ddsnmp.Metric, error) {
 	metric := newMetricBuilder(cfg.Name, value).
+		withTags(tags).
 		withStaticTags(staticTags).
 		fromSymbol(cfg, pdu).
 		build()
