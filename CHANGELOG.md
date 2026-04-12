@@ -15,6 +15,7 @@
 - Fix(go.d): reduce transient 503 errors on dyncfg enable/disable ([#22183](https://github.com/netdata/netdata/issues/22183))
 - Refactor(queries): split query engine into smaller files ([#22187](https://github.com/netdata/netdata/issues/22187))
 - Go.d/snmp: add reusable profile engine helpers ([#22181](https://github.com/netdata/netdata/issues/22181))
+- Refactor(go.d): share ping probing between ping and snmp ([#22189](https://github.com/netdata/netdata/issues/22189))
 
 ## [2.10.0] - 2026-04-09
 
