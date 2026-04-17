@@ -35,6 +35,11 @@
 - Remove VLA (variable-length arrays) (claim and daemon) ([#22114](https://github.com/netdata/netdata/issues/22114))
 - Fix pluginsd cleanup race with active collector ([#22207](https://github.com/netdata/netdata/issues/22207))
 - Add SQLite version to build details and startup log message ([#22208](https://github.com/netdata/netdata/issues/22208))
+- Remove VLA (variable-length arrays)  (dbengine and health) ([#22209](https://github.com/netdata/netdata/issues/22209))
+- Add test for ARAL race condition and fix ([#22212](https://github.com/netdata/netdata/issues/22212))
+- Chore(go/snmp/topology): add MAC OUI vendor lookup table ([#22215](https://github.com/netdata/netdata/issues/22215))
+- Feat(topology): add role field to presentation actor types ([#22217](https://github.com/netdata/netdata/issues/22217))
+- Fix complilation / enforce size check ([#22216](https://github.com/netdata/netdata/issues/22216))
 
 ## [2.10.0] - 2026-04-09
 
