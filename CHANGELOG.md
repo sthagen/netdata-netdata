@@ -40,6 +40,8 @@
 - Chore(go/snmp/topology): add MAC OUI vendor lookup table ([#22215](https://github.com/netdata/netdata/issues/22215))
 - Feat(topology): add role field to presentation actor types ([#22217](https://github.com/netdata/netdata/issues/22217))
 - Fix complilation / enforce size check ([#22216](https://github.com/netdata/netdata/issues/22216))
+- Properly sync our CI with the versions of Alpine we officially support. ([#22211](https://github.com/netdata/netdata/issues/22211))
+- Docs(mcp): add Claude Code one-liner setup to Cloud MCP page ([#22220](https://github.com/netdata/netdata/issues/22220))
 
 ## [2.10.0] - 2026-04-09
 
