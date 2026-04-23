@@ -50,6 +50,14 @@
 - Feat: replace cgroups-ebpf SHM transport with netipc IPC ([#22221](https://github.com/netdata/netdata/issues/22221))
 - Feat(topology/snmp): SNMP L2/L3 topology engine and collector ([#22109](https://github.com/netdata/netdata/issues/22109))
 - Feat(netflow): NetFlow/IPFIX/sFlow flow analysis plugin ([#22111](https://github.com/netdata/netdata/issues/22111))
+- Fix ebpf shutdown and cgroup ipc integration ([#22242](https://github.com/netdata/netdata/issues/22242))
+- Improve context snapshots needed on ACLK connect ([#21904](https://github.com/netdata/netdata/issues/21904))
+- Regenerate integrations docs ([#22243](https://github.com/netdata/netdata/issues/22243))
+- Refactor(go.d/dyncfg): split job-name validation per domain ([#22247](https://github.com/netdata/netdata/issues/22247))
+- Chore(go): go fix ([#22248](https://github.com/netdata/netdata/issues/22248))
+- Ci(codeql): enable security-extended suite and align ignore paths ([#22245](https://github.com/netdata/netdata/issues/22245))
+- Optimize health DB lookups ([#22246](https://github.com/netdata/netdata/issues/22246))
+- Delete TODO-netflow-memory-footprint.md ([#22252](https://github.com/netdata/netdata/issues/22252))
 
 ## [2.10.0] - 2026-04-09
 
