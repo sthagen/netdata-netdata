@@ -1697,7 +1697,7 @@ static void aral_test_thread(void *ptr) {
 
             // fprintf(stderr, "all %zu, to free %zu, step %zu\n", all, to_free, step);
 
-            size_t free_list[to_free];
+            size_t *free_list = mallocz(to_free * sizeof(*free_list));
             for (size_t i = 0; i < to_free; i++) {
                 size_t pos = step * i;
                 aral_freez(ar, pointers[pos]);
@@ -1709,6 +1709,8 @@ static void aral_test_thread(void *ptr) {
                 size_t pos = free_list[i];
                 pointers[pos] = unittest_aral_malloc(ar, marked);
             }
+
+            freez(free_list);
         }
 
         for (size_t i = 0; i < elements; i++) {
@@ -1745,7 +1747,7 @@ int aral_stress_test(size_t threads, size_t elements, size_t seconds) {
     };
 
     usec_t started_ut = now_monotonic_usec();
-    ND_THREAD *thread_ptrs[threads];
+    ND_THREAD **thread_ptrs = callocz(threads, sizeof(*thread_ptrs));
 
     for(size_t i = 0; i < threads ; i++) {
         char tag[ND_THREAD_TAG_MAX + 1];
@@ -1777,6 +1779,8 @@ int aral_stress_test(size_t threads, size_t elements, size_t seconds) {
     for(size_t i = 0; i < threads ; i++) {
         nd_thread_join(thread_ptrs[i]);
     }
+
+    freez(thread_ptrs);
 
     usec_t ended_ut = now_monotonic_usec();
 

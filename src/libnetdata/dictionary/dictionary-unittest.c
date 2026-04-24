@@ -665,15 +665,15 @@ static void unittest_dict_thread(void *arg) {
 
 static int dictionary_unittest_threads() {
     time_t seconds_to_run = 5;
-    int threads_to_create = 2;
+    enum { DICTIONARY_UNITTEST_THREADS = 2 };
 
-    struct thread_unittest tu[threads_to_create];
-    memset(tu, 0, sizeof(struct thread_unittest) * threads_to_create);
+    struct thread_unittest tu[DICTIONARY_UNITTEST_THREADS];
+    memset(tu, 0, sizeof(struct thread_unittest) * DICTIONARY_UNITTEST_THREADS);
 
     fprintf(
         stderr,
         "\nChecking dictionary concurrency with %d threads for %lld seconds...\n",
-        threads_to_create,
+        DICTIONARY_UNITTEST_THREADS,
         (long long)seconds_to_run);
 
     // threads testing of dictionary
@@ -682,7 +682,7 @@ static int dictionary_unittest_threads() {
     tu[0].dups = 1;
     tu[0].dict = dictionary_create_advanced(DICT_OPTION_DONT_OVERWRITE_VALUE, &stats, 0);
 
-    for (int i = 0; i < threads_to_create; i++) {
+    for (int i = 0; i < DICTIONARY_UNITTEST_THREADS; i++) {
         if(i)
             tu[i] = tu[0];
 
@@ -693,7 +693,7 @@ static int dictionary_unittest_threads() {
 
     sleep_usec(seconds_to_run * USEC_PER_SEC);
 
-    for (int i = 0; i < threads_to_create; i++) {
+    for (int i = 0; i < DICTIONARY_UNITTEST_THREADS; i++) {
         __atomic_store_n(&tu[i].join, 1, __ATOMIC_RELAXED);
 
         nd_thread_join(tu[i].thread);

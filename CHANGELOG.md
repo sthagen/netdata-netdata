@@ -58,6 +58,11 @@
 - Ci(codeql): enable security-extended suite and align ignore paths ([#22245](https://github.com/netdata/netdata/issues/22245))
 - Optimize health DB lookups ([#22246](https://github.com/netdata/netdata/issues/22246))
 - Delete TODO-netflow-memory-footprint.md ([#22252](https://github.com/netdata/netdata/issues/22252))
+- Network-viewer: stabilize topology around self listeners ([#22253](https://github.com/netdata/netdata/issues/22253))
+- Chore: add test fixtures to gitignore ([#22255](https://github.com/netdata/netdata/issues/22255))
+- Docs: add metric count guidance to RAM requirements ([#22058](https://github.com/netdata/netdata/issues/22058))
+- Perf(ml): reuse onewayalloc arena across hosts in detection loop ([#22250](https://github.com/netdata/netdata/issues/22250))
+- Feat(go.d/sd): Add HTTP service discovery ([#22256](https://github.com/netdata/netdata/issues/22256))
 
 ## [2.10.0] - 2026-04-09
 
