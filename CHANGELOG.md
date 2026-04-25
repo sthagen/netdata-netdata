@@ -63,6 +63,15 @@
 - Docs: add metric count guidance to RAM requirements ([#22058](https://github.com/netdata/netdata/issues/22058))
 - Perf(ml): reuse onewayalloc arena across hosts in detection loop ([#22250](https://github.com/netdata/netdata/issues/22250))
 - Feat(go.d/sd): Add HTTP service discovery ([#22256](https://github.com/netdata/netdata/issues/22256))
+- Docs: update MCP prerequisites to include Homelab plan ([#22145](https://github.com/netdata/netdata/issues/22145))
+- Build(deps): bump github.com/Azure/go-ntlmssp from 0.1.0 to 0.1.1 in /src/go ([#22259](https://github.com/netdata/netdata/issues/22259))
+- Docs: add missing API grouping methods to queries README ([#22060](https://github.com/netdata/netdata/issues/22060))
+- Web_client: allow MCP Streamable HTTP headers in CORS preflight ([#22258](https://github.com/netdata/netdata/issues/22258))
+- Remove mcp-web-client and mcp-test-client from tree ([#22257](https://github.com/netdata/netdata/issues/22257))
+- Active Directory  (windows.plugin) ([#22093](https://github.com/netdata/netdata/issues/22093))
+- Remove VLA (variable-length arrays)  (libnetdata) ([#22218](https://github.com/netdata/netdata/issues/22218))
+- Docs: add architecture connectivity diagram to welcome page ([#22261](https://github.com/netdata/netdata/issues/22261))
+- Fix memory-safety and correctness bugs surfaced by Coverity audit (part 1) ([#22266](https://github.com/netdata/netdata/issues/22266))
 
 ## [2.10.0] - 2026-04-09
 
