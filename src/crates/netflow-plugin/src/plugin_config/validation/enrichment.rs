@@ -1,6 +1,6 @@
+use crate::network_sources::compile_jaq_filter;
 use crate::plugin_config::{NetworkAttributesValue, PluginConfig, RemoteNetworkSourceTlsConfig};
 use anyhow::{Context, Result};
-use jaq_interpret::ParseCtx;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -154,37 +154,12 @@ fn validate_network_source_transform(source_name: &str, transform: &str) -> Resu
     } else {
         transform.trim()
     };
-    let tokens = jaq_syn::Lexer::new(normalized).lex().map_err(|errs| {
+    compile_jaq_filter(normalized).map_err(|err| {
         anyhow::anyhow!(
-            "enrichment.network_sources.{source_name}.transform lex error: {:?}",
-            errs
+            "enrichment.network_sources.{source_name}.transform compile error: {}",
+            err
         )
     })?;
-    let main = jaq_syn::Parser::new(&tokens)
-        .parse(|parser| parser.module(|module| module.term()))
-        .map_err(|errs| {
-            anyhow::anyhow!(
-                "enrichment.network_sources.{source_name}.transform parse error: {:?}",
-                errs
-            )
-        })?
-        .conv(normalized);
-    let mut ctx = ParseCtx::new(Vec::new());
-    ctx.insert_natives(jaq_core::core());
-    ctx.insert_defs(jaq_std::std());
-    let _compiled = ctx.compile(main);
-    if !ctx.errs.is_empty() {
-        let errors = ctx
-            .errs
-            .into_iter()
-            .map(|err| err.0.to_string())
-            .collect::<Vec<_>>()
-            .join("; ");
-        anyhow::bail!(
-            "enrichment.network_sources.{source_name}.transform compile error: {}",
-            errors
-        );
-    }
     Ok(())
 }
 

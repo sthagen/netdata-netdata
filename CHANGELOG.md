@@ -72,6 +72,11 @@
 - Remove VLA (variable-length arrays)  (libnetdata) ([#22218](https://github.com/netdata/netdata/issues/22218))
 - Docs: add architecture connectivity diagram to welcome page ([#22261](https://github.com/netdata/netdata/issues/22261))
 - Fix memory-safety and correctness bugs surfaced by Coverity audit (part 1) ([#22266](https://github.com/netdata/netdata/issues/22266))
+- Fix memory-safety and correctness bugs surfaced by Coverity audit (part 2) ([#22267](https://github.com/netdata/netdata/issues/22267))
+- Fix memory-safety and correctness bugs surfaced by Coverity audit (part 3) ([#22268](https://github.com/netdata/netdata/issues/22268))
+- Fix memory-safety and correctness bugs surfaced by Coverity audit (part 4) ([#22270](https://github.com/netdata/netdata/issues/22270))
+- Fix memory-safety and correctness bugs surfaced by Coverity audit (part 5) ([#22279](https://github.com/netdata/netdata/issues/22279))
+- Netflow-plugin: isolate dependency upgrades ([#22273](https://github.com/netdata/netdata/issues/22273))
 
 ## [2.10.0] - 2026-04-09
 

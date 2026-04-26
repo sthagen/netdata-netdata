@@ -15,11 +15,9 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 allocative = { workspace = true }
 async-trait = { workspace = true }
-bincode = { workspace = true }
 bitflags = { workspace = true }
 bitvec = { workspace = true }
 bytesize = { workspace = true }
-bytesize-serde = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 journal-common = { workspace = true }
@@ -36,10 +34,9 @@ ipnet = { workspace = true }
 ipnet-trie = { workspace = true }
 itoa = { workspace = true }
 jaq-core = { workspace = true }
-jaq-interpret = { workspace = true }
+jaq-json = { workspace = true, features = ["serde"] }
 jaq-std = { workspace = true }
-jaq-syn = { workspace = true }
-maxminddb = { workspace = true, features = ["mmap"] }
+maxminddb = { workspace = true }
 memchr = { workspace = true }
 memmap2 = { workspace = true }
 netflow_parser = { workspace = true }
@@ -57,7 +54,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 regex = { workspace = true }
 twox-hash = { workspace = true, features = ["xxhash64"] }
-reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+reqwest = { workspace = true, features = ["json", "rustls"] }
 schemars = { workspace = true }
 socket2 = { workspace = true }
 tonic = { workspace = true, features = ["transport", "tls-native-roots"] }
@@ -66,6 +63,7 @@ prost = { workspace = true }
 rustc-hash = { workspace = true }
 thiserror = { workspace = true }
 fst = { workspace = true }
+rmp-serde = { workspace = true }
 
 rt = { workspace = true }
 netdata-plugin-error = { workspace = true }

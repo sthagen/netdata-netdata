@@ -1,12 +1,8 @@
 use super::*;
 
-fn should_ignore_geoip_lookup_error(err: &maxminddb::MaxMindDBError) -> bool {
-    matches!(err, maxminddb::MaxMindDBError::AddressNotFoundError(_))
-}
-
 fn warn_unexpected_geoip_lookup_error(
     database_kind: &'static str,
-    err: &maxminddb::MaxMindDBError,
+    err: &maxminddb::MaxMindDbError,
 ) {
     static ASN_LOOKUP_WARNED: std::sync::Once = std::sync::Once::new();
     static GEO_LOOKUP_WARNED: std::sync::Once = std::sync::Once::new();
@@ -33,9 +29,15 @@ fn lookup_geoip_record<T>(
 where
     T: for<'de> serde::Deserialize<'de>,
 {
-    match db.lookup::<T>(address) {
-        Ok(record) => Some(record),
-        Err(err) if should_ignore_geoip_lookup_error(&err) => None,
+    // Skip IPv6 lookups against IPv4-only databases; maxminddb would otherwise
+    // return an InvalidInput error that we would have to detect by message.
+    if address.is_ipv6() && db.metadata.ip_version == 4 {
+        return None;
+    }
+
+    match db.lookup(address).and_then(|record| record.decode::<T>()) {
+        Ok(Some(record)) => Some(record),
+        Ok(None) => None,
         Err(err) => {
             warn_unexpected_geoip_lookup_error(database_kind, &err);
             None
@@ -171,16 +173,6 @@ mod tests {
         resolver.refresh_if_needed();
 
         assert_eq!(resolver.last_reload_check, old_check);
-    }
-
-    #[test]
-    fn geoip_lookup_error_classifier_only_ignores_address_not_found() {
-        assert!(should_ignore_geoip_lookup_error(
-            &maxminddb::MaxMindDBError::AddressNotFoundError("missing".to_string())
-        ));
-        assert!(!should_ignore_geoip_lookup_error(
-            &maxminddb::MaxMindDBError::InvalidDatabaseError("broken".to_string())
-        ));
     }
 
     #[test]
