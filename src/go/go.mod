@@ -36,7 +36,7 @@ require (
 	github.com/likexian/whois v1.15.7
 	github.com/likexian/whois-parser v1.24.21
 	github.com/lmittmann/tint v1.1.3
-	github.com/mattn/go-isatty v0.0.21
+	github.com/mattn/go-isatty v0.0.22
 	github.com/mattn/go-xmlrpc v0.0.3
 	github.com/miekg/dns v1.1.72
 	github.com/mitchellh/go-homedir v1.1.0
@@ -49,7 +49,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/gjson v1.18.0
 	github.com/valyala/fastjson v1.6.10
-	github.com/vmware/govmomi v0.53.0
+	github.com/vmware/govmomi v0.53.1
 	go.mongodb.org/mongo-driver v1.17.9
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
 	go.uber.org/automaxprocs v1.6.0
