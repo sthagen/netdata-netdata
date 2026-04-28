@@ -77,6 +77,15 @@
 - Fix memory-safety and correctness bugs surfaced by Coverity audit (part 4) ([#22270](https://github.com/netdata/netdata/issues/22270))
 - Fix memory-safety and correctness bugs surfaced by Coverity audit (part 5) ([#22279](https://github.com/netdata/netdata/issues/22279))
 - Netflow-plugin: isolate dependency upgrades ([#22273](https://github.com/netdata/netdata/issues/22273))
+- Regenerate integrations docs ([#22260](https://github.com/netdata/netdata/issues/22260))
+- Docs: add web_log_1m_unmatched troubleshooting guide ([#22069](https://github.com/netdata/netdata/issues/22069))
+- Build(deps): bump github.com/vmware/govmomi from 0.53.0 to 0.53.1 in /src/go ([#22287](https://github.com/netdata/netdata/issues/22287))
+- Build(deps): bump github.com/mattn/go-isatty from 0.0.21 to 0.0.22 in /src/go ([#22288](https://github.com/netdata/netdata/issues/22288))
+- Docs: add advanced metric query example with time aggregation ([#22059](https://github.com/netdata/netdata/issues/22059))
+- Fix(go.d/powerstore): remove extra_details field ([#22291](https://github.com/netdata/netdata/issues/22291))
+- Chore: bootstrap repo for cross-tool AI agent compatibility ([#22295](https://github.com/netdata/netdata/issues/22295))
+- Fix memory-safety and correctness bugs surfaced by Coverity audit (part 8) ([#22293](https://github.com/netdata/netdata/issues/22293))
+- Fix ARAL double-free race ([#22294](https://github.com/netdata/netdata/issues/22294))
 
 ## [2.10.0] - 2026-04-09
 
