@@ -113,6 +113,9 @@
 - Snmp profiles: fix Netgear switch topology discovery (LLDP/FDB/STP) ([#22366](https://github.com/netdata/netdata/issues/22366))
 - Remove VLA (variable-length arrays)  (Streaming and Web) ([#22276](https://github.com/netdata/netdata/issues/22276))
 - Fix(cmake): IBM MQ FetchContent check breaks incremental rebuilds ([#22223](https://github.com/netdata/netdata/issues/22223))
+- Fix(dbengine): validate extent disk size and fix uncompressed page bounds ([#22324](https://github.com/netdata/netdata/issues/22324))
+- Agents: project-writing-collectors skill + SOW lifecycle updates ([#22386](https://github.com/netdata/netdata/issues/22386))
+- Agents: strip leftover stash markers in SOW audit script and template ([#22388](https://github.com/netdata/netdata/issues/22388))
 
 ## [2.10.0] - 2026-04-09
 
