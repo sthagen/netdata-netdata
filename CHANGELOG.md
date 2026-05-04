@@ -116,6 +116,9 @@
 - Fix(dbengine): validate extent disk size and fix uncompressed page bounds ([#22324](https://github.com/netdata/netdata/issues/22324))
 - Agents: project-writing-collectors skill + SOW lifecycle updates ([#22386](https://github.com/netdata/netdata/issues/22386))
 - Agents: strip leftover stash markers in SOW audit script and template ([#22388](https://github.com/netdata/netdata/issues/22388))
+- Fix memory-safety and correctness bugs surfaced by Coverity audit (part 6) ([#22281](https://github.com/netdata/netdata/issues/22281))
+- Fix based on Coverity and Sonar audits (part 9) ([#22337](https://github.com/netdata/netdata/issues/22337))
+- Fix aral race condition ([#22367](https://github.com/netdata/netdata/issues/22367))
 
 ## [2.10.0] - 2026-04-09
 
