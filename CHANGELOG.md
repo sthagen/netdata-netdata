@@ -119,6 +119,21 @@
 - Fix memory-safety and correctness bugs surfaced by Coverity audit (part 6) ([#22281](https://github.com/netdata/netdata/issues/22281))
 - Fix based on Coverity and Sonar audits (part 9) ([#22337](https://github.com/netdata/netdata/issues/22337))
 - Fix aral race condition ([#22367](https://github.com/netdata/netdata/issues/22367))
+- Docs: fix eBPF performance overhead unit from ms to ns in metadata.yaml ([#22277](https://github.com/netdata/netdata/issues/22277))
+- Regenerate integrations docs ([#22364](https://github.com/netdata/netdata/issues/22364))
+- Fix deadlock on dimension creation ([#22400](https://github.com/netdata/netdata/issues/22400))
+- Build(deps): bump github.com/go-sql-driver/mysql from 1.9.3 to 1.10.0 in /src/go ([#22409](https://github.com/netdata/netdata/issues/22409))
+- Build(deps): bump github.com/microsoft/go-mssqldb from 1.9.8 to 1.10.0 in /src/go ([#22410](https://github.com/netdata/netdata/issues/22410))
+- Build(deps): bump gopkg.in/ini.v1 from 1.67.1 to 1.67.2 in /src/go ([#22411](https://github.com/netdata/netdata/issues/22411))
+- Build(deps): bump github.com/fsnotify/fsnotify from 1.9.0 to 1.10.0 in /src/go ([#22412](https://github.com/netdata/netdata/issues/22412))
+- Feat(go.d): add vnode-scoped metrics for Azure Monitor workloads ([#22402](https://github.com/netdata/netdata/issues/22402))
+- Chore(go.d/sd): improve service rules desc position ([#22413](https://github.com/netdata/netdata/issues/22413))
+- Netdata and cyber-security (Doc) ([#22210](https://github.com/netdata/netdata/issues/22210))
+- Docs(go.d/sd): add metadata-driven docs pipeline for service discovery ([#22345](https://github.com/netdata/netdata/issues/22345))
+- Fix based on Coverity and Sonar audits (part 12) ([#22340](https://github.com/netdata/netdata/issues/22340))
+- Cgroups.plugin: fix misleading "cannot open directory" log message ([#22414](https://github.com/netdata/netdata/issues/22414))
+- Adjust vnodes dyncfg availability ([#22415](https://github.com/netdata/netdata/issues/22415))
+- Fix SNMP topology index-derived endpoints ([#22371](https://github.com/netdata/netdata/issues/22371))
 
 ## [2.10.0] - 2026-04-09
 
