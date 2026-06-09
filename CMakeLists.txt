@@ -201,7 +201,7 @@ cmake_dependent_option(ENABLE_PLUGIN_EBPF "Enable Linux eBPF metric collection" 
 cmake_dependent_option(ENABLE_LEGACY_EBPF_PROGRAMS "Enable eBPF programs for kernels without BTF support" True "ENABLE_PLUGIN_EBPF" False)
 mark_as_advanced(ENABLE_LEGACY_EBPF_PROGRAMS)
 cmake_dependent_option(ENABLE_PLUGIN_LOCAL_LISTENERS "Enable local listening socket tracking (including service auto-discovery support)" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
-cmake_dependent_option(ENABLE_PLUGIN_NETWORK_VIEWER "Enable network viewer functionality" ${DEFAULT_FEATURE_STATE} "OS_LINUX OR OS_WINDOWS" False)
+cmake_dependent_option(ENABLE_PLUGIN_NETWORK_VIEWER "Enable network viewer functionality" ${DEFAULT_FEATURE_STATE} "OS_LINUX OR OS_WINDOWS OR OS_FREEBSD" False)
 cmake_dependent_option(ENABLE_PLUGIN_NFACCT "Enable Linux NFACCT metric collection" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
 cmake_dependent_option(ENABLE_PLUGIN_PERF "Enable Linux performance counter monitoring" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
 cmake_dependent_option(ENABLE_PLUGIN_SLABINFO "Enable Linux kernel SLAB allocator monitoring" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
@@ -1191,6 +1191,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/locks/spinlock.h
         src/libnetdata/locks/rw-spinlock.c
         src/libnetdata/locks/rw-spinlock.h
+        src/libnetdata/locks/rw-spinlock-unittest.c
         src/libnetdata/atomics/atomic_flags.h
         src/libnetdata/atomics/atomics.h
         src/libnetdata/locks/waitq.c
@@ -2358,12 +2359,42 @@ set_source_files_properties(JudyLTables.c PROPERTIES COMPILE_OPTIONS "-I${CMAKE_
 # build netipc (standalone IPC library, no Netdata deps)
 #
 
+set(NETIPC_PROTOCOL_FILES
+        src/libnetdata/netipc/src/protocol/netipc_protocol.c
+        src/libnetdata/netipc/src/protocol/netipc_protocol_increment.c
+        src/libnetdata/netipc/src/protocol/netipc_protocol_string_reverse.c
+        src/libnetdata/netipc/src/protocol/netipc_protocol_cgroups_snapshot.c
+        src/libnetdata/netipc/src/protocol/netipc_protocol_lookup_common.c
+        src/libnetdata/netipc/src/protocol/netipc_protocol_cgroups_lookup.c
+        src/libnetdata/netipc/src/protocol/netipc_protocol_apps_lookup.c
+)
+
+set(NETIPC_SERVICE_COMMON_FILES
+        src/libnetdata/netipc/src/service/netipc_service_common.c
+        src/libnetdata/netipc/src/service/netipc_service_cgroups_cache_common.c
+        src/libnetdata/netipc/src/service/netipc_service_cgroups_cache.c
+        src/libnetdata/netipc/src/service/netipc_service_cgroups_snapshot.c
+        src/libnetdata/netipc/src/service/netipc_service_cgroups_lookup.c
+        src/libnetdata/netipc/src/service/netipc_service_apps_lookup.c
+)
+
 if(OS_LINUX)
     set(NETIPC_FILES
-            src/libnetdata/netipc/src/protocol/netipc_protocol.c
+            ${NETIPC_PROTOCOL_FILES}
             src/libnetdata/netipc/src/transport/posix/netipc_uds.c
+            src/libnetdata/netipc/src/transport/posix/netipc_uds_handshake.c
+            src/libnetdata/netipc/src/transport/posix/netipc_uds_inflight.c
+            src/libnetdata/netipc/src/transport/posix/netipc_uds_lifecycle.c
+            src/libnetdata/netipc/src/transport/posix/netipc_uds_receive.c
+            src/libnetdata/netipc/src/transport/posix/netipc_uds_send.c
             src/libnetdata/netipc/src/transport/posix/netipc_shm.c
+            ${NETIPC_SERVICE_COMMON_FILES}
             src/libnetdata/netipc/src/service/netipc_service.c
+            src/libnetdata/netipc/src/service/netipc_service_posix_client.c
+            src/libnetdata/netipc/src/service/netipc_service_posix_client_connect.c
+            src/libnetdata/netipc/src/service/netipc_service_posix_client_call.c
+            src/libnetdata/netipc/src/service/netipc_service_posix_server.c
+            src/libnetdata/netipc/src/service/netipc_service_posix_server_session.c
     )
 
     add_library(netipc STATIC ${NETIPC_FILES})
@@ -2372,10 +2403,16 @@ if(OS_LINUX)
     set_target_properties(netipc PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 elseif(OS_WINDOWS)
     set(NETIPC_FILES
-            src/libnetdata/netipc/src/protocol/netipc_protocol.c
+            ${NETIPC_PROTOCOL_FILES}
             src/libnetdata/netipc/src/transport/windows/netipc_named_pipe.c
             src/libnetdata/netipc/src/transport/windows/netipc_win_shm.c
+            ${NETIPC_SERVICE_COMMON_FILES}
             src/libnetdata/netipc/src/service/netipc_service_win.c
+            src/libnetdata/netipc/src/service/netipc_service_win_client.c
+            src/libnetdata/netipc/src/service/netipc_service_win_client_connect.c
+            src/libnetdata/netipc/src/service/netipc_service_win_client_call.c
+            src/libnetdata/netipc/src/service/netipc_service_win_server.c
+            src/libnetdata/netipc/src/service/netipc_service_win_server_session.c
     )
 
     add_library(netipc STATIC ${NETIPC_FILES})
@@ -2635,7 +2672,11 @@ endif()
 #
 # proto definitions
 #
-netdata_protoc_generate_cpp("${CMAKE_SOURCE_DIR}/src/aclk/aclk-schemas"
+# aclk-schemas moved to Buf v2 (PR netdata/aclk-schemas#57): the module root is
+# now "proto/" and internal imports are relative to it (e.g. "aclk/v1/lib.proto"),
+# so protoc's include root must be the proto/ directory. Generated headers are
+# therefore included without the "proto/" prefix (e.g. "aclk/v1/lib.pb.h").
+netdata_protoc_generate_cpp("${CMAKE_SOURCE_DIR}/src/aclk/aclk-schemas/proto"
                             "${CMAKE_BINARY_DIR}/src/aclk/aclk-schemas"
                             ACLK_PROTO_BUILT_SRCS
                             ACLK_PROTO_BUILT_HDRS
@@ -3148,6 +3189,12 @@ if(ENABLE_PLUGIN_NETWORK_VIEWER)
         if(OS_WINDOWS)
                 list(APPEND NETWORK_VIEWER_FILES
                         src/collectors/network-viewer.plugin/network-viewer-windows.c
+                )
+        endif()
+        if(OS_FREEBSD)
+                list(APPEND NETWORK_VIEWER_FILES
+                        src/libnetdata/local-sockets/local-sockets-freebsd.h
+                        src/collectors/network-viewer.plugin/network-viewer.c
                 )
         endif()
 
