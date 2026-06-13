@@ -12,6 +12,9 @@ To visualize cgroup metrics Netdata provides configuration for cherry-picking th
 Netdata should pick **systemd services**, all kinds of **containers** (lxc, docker, etc.) and **virtual machines** spawn
 by managers that register them with cgroups (qemu, libvirt, etc.).
 
+The collector also exposes cachestat charts for both regular cgroups and systemd services, mirroring the legacy
+`ebpf.plugin` contexts.
+
 ## Supported Technologies
 
 cgroups.plugin monitors **any process** that creates Linux cgroups. For the following technologies, Netdata also
@@ -257,7 +260,7 @@ log a few errors in error.log complaining about files it cannot find, but immedi
 4. Obsolete charts are not be offered on new dashboard sessions (so hit F5 and the charts are gone)
 5. Existing dashboard sessions will continue to see them, but of course they will not refresh
 6. Obsolete charts will be removed from memory, 1 hour after the last user viewed them (configurable)
-   with `[global].cleanup obsolete charts after seconds = 3600` (at `netdata.conf`).
+   with `[db].cleanup obsolete charts after = 3600` (at `netdata.conf`).
 
 ### Monitored container metrics
 
