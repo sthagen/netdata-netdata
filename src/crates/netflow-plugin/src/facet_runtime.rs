@@ -23,7 +23,6 @@ use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use tokio::sync::Notify;
 use twox_hash::XxHash64;
 
 #[allow(unused_imports)]
@@ -44,6 +43,10 @@ const MAX_FACET_STATE_FILE_LEN: usize = FACET_STATE_HEADER_LEN + MAX_FACET_STATE
 const FACET_AUTOCOMPLETE_LIMIT: usize = 100;
 const BTREE_ENTRY_OVERHEAD_BYTES: usize = size_of::<usize>() * 4;
 
+#[cfg(test)]
+static FACET_BEFORE_DISK_WRITE_HOOK: Mutex<Option<Arc<dyn Fn(&Path) + Send + Sync>>> =
+    Mutex::new(None);
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, allocative::Allocative)]
 pub(crate) struct FacetPublishedField {
     pub(crate) total_values: usize,
@@ -56,13 +59,21 @@ pub(crate) struct FacetPublishedSnapshot {
     pub(crate) fields: BTreeMap<String, FacetPublishedField>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct FacetMemoryBreakdown {
     pub(crate) archived_bytes: u64,
     pub(crate) active_bytes: u64,
     pub(crate) active_contributions_bytes: u64,
     pub(crate) published_bytes: u64,
     pub(crate) archived_path_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct FacetCardinalitySnapshot {
+    pub(crate) populated_fields: u64,
+    pub(crate) total_values: u64,
+    pub(crate) exposed_values: u64,
+    pub(crate) autocomplete_fields: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, allocative::Allocative)]
@@ -80,6 +91,7 @@ struct FacetState {
     active_contributions: BTreeMap<String, FacetFileContribution>,
     published: FacetPublishedSnapshot,
     dirty: bool,
+    dirty_generation: u64,
     rebuild_archived: bool,
 }
 
@@ -93,9 +105,9 @@ pub(crate) struct FacetReconcilePlan {
 
 pub(crate) struct FacetRuntime {
     state: Mutex<FacetState>,
+    persist_lock: Mutex<()>,
     snapshot: Arc<RwLock<Arc<FacetPublishedSnapshot>>>,
     ready: AtomicBool,
-    ready_notify: Notify,
     state_path: PathBuf,
     persistence: FacetPersistence,
 }
@@ -132,9 +144,9 @@ impl FacetRuntime {
 
         Self {
             state: Mutex::new(state),
+            persist_lock: Mutex::new(()),
             snapshot,
             ready: AtomicBool::new(ready),
-            ready_notify: Notify::new(),
             state_path,
             persistence,
         }
@@ -149,6 +161,10 @@ impl FacetRuntime {
             .read()
             .map(|guard| Arc::clone(&guard))
             .unwrap_or_else(|_| Arc::new(FacetPublishedSnapshot::default()))
+    }
+
+    pub(crate) fn cardinality_snapshot(&self) -> FacetCardinalitySnapshot {
+        facet_cardinality_from_published(&self.snapshot())
     }
 
     pub(crate) fn estimated_memory_breakdown(&self) -> FacetMemoryBreakdown {
@@ -174,12 +190,6 @@ impl FacetRuntime {
             .filter(|file_info| file_info.file.is_archived())
             .map(|file_info| file_info.file.path().to_string())
             .collect::<BTreeSet<_>>();
-        let _current_active_paths = registry_files
-            .iter()
-            .filter(|file_info| file_info.file.is_active())
-            .map(|file_info| file_info.file.path().to_string())
-            .collect::<BTreeSet<_>>();
-
         let Some(state) = self.state.lock().ok() else {
             return FacetReconcilePlan {
                 current_archived_paths,
@@ -230,52 +240,69 @@ impl FacetRuntime {
         archived_scans: BTreeMap<String, FacetFileContribution>,
         active_scans: BTreeMap<String, FacetFileContribution>,
     ) -> Result<()> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
+        let (sidecar_deletes, sidecar_writes, persist_snapshot) = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
+            let mut sidecar_deletes = Vec::new();
+            let mut sidecar_writes = Vec::new();
 
-        let removed_archived = state
-            .indexed_archived_paths
-            .iter()
-            .filter(|path| !plan.current_archived_paths.contains(*path))
-            .cloned()
-            .collect::<Vec<_>>();
-        for path in removed_archived {
-            state.indexed_archived_paths.remove(&path);
-            if self.persistence.writes_enabled() {
-                delete_sidecar_files(Path::new(&path));
+            let removed_archived = state
+                .indexed_archived_paths
+                .iter()
+                .filter(|path| !plan.current_archived_paths.contains(*path))
+                .cloned()
+                .collect::<Vec<_>>();
+            for path in removed_archived {
+                state.indexed_archived_paths.remove(&path);
+                if self.persistence.writes_enabled() {
+                    sidecar_deletes.push(PathBuf::from(&path));
+                }
+                state.rebuild_archived = true;
+                mark_dirty(&mut state);
             }
-            state.rebuild_archived = true;
-            state.dirty = true;
-        }
-        if plan.rebuild_archived {
-            state.archived_fields = empty_field_stores();
-            state.indexed_archived_paths.clear();
-            state.dirty = true;
-        }
-
-        for (path, contribution) in archived_scans {
-            merge_global_contribution(&mut state.archived_fields, &contribution);
-            if self.persistence.writes_enabled() {
-                write_sidecar_files(Path::new(&path), &contribution)?;
+            if plan.rebuild_archived {
+                state.archived_fields = empty_field_stores();
+                state.indexed_archived_paths.clear();
+                mark_dirty(&mut state);
             }
-            if state.indexed_archived_paths.insert(path) {
-                state.dirty = true;
+
+            for (path, contribution) in archived_scans {
+                merge_global_contribution(&mut state.archived_fields, &contribution);
+                if self.persistence.writes_enabled() {
+                    sidecar_writes.push((PathBuf::from(&path), contribution.clone()));
+                }
+                if state.indexed_archived_paths.insert(path) {
+                    mark_dirty(&mut state);
+                }
             }
-        }
 
-        state.active_contributions.clear();
-        for (path, contribution) in active_scans {
-            state.active_contributions.insert(path, contribution);
-            state.dirty = true;
-        }
-        rebuild_published_fields(&mut state);
-        state.rebuild_archived = false;
+            if !state.active_contributions.is_empty() {
+                mark_dirty(&mut state);
+            }
+            state.active_contributions.clear();
+            for (path, contribution) in active_scans {
+                state.active_contributions.insert(path, contribution);
+                mark_dirty(&mut state);
+            }
+            rebuild_published_fields(&mut state);
+            state.rebuild_archived = false;
 
-        publish_locked(&self.snapshot, &state);
-        self.persist_state_locked(&mut state)?;
-        drop(state);
+            publish_locked(&self.snapshot, &state);
+            let persist_snapshot = self.prepare_persist_snapshot_locked(&mut state)?;
+            (sidecar_deletes, sidecar_writes, persist_snapshot)
+        };
+
+        for path in sidecar_deletes {
+            before_facet_disk_write_for_test(&path);
+            delete_sidecar_files(&path);
+        }
+        for (path, contribution) in sidecar_writes {
+            before_facet_disk_write_for_test(&path);
+            write_sidecar_files(&path, &contribution)?;
+        }
+        self.persist_snapshot(persist_snapshot)?;
         self.mark_ready();
         Ok(())
     }
@@ -294,8 +321,8 @@ impl FacetRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
         let changed = apply_active_contribution(&mut state, path_str, contribution);
-        state.dirty = true;
         if changed {
+            mark_dirty(&mut state);
             publish_locked(&self.snapshot, &state);
         }
 
@@ -317,8 +344,8 @@ impl FacetRuntime {
             append_record_facet_values(&mut sink, record);
             sink.changed
         };
-        state.dirty = true;
         if changed {
+            mark_dirty(&mut state);
             publish_locked(&self.snapshot, &state);
         }
 
@@ -328,63 +355,96 @@ impl FacetRuntime {
     pub(crate) fn observe_rotation(&self, archived_path: &Path, active_path: &Path) -> Result<()> {
         let archived_path_str = archived_path.to_string_lossy().to_string();
         let active_path_str = active_path.to_string_lossy().to_string();
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
+        let (sidecar_write, persist_snapshot) = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
 
-        let contribution = state
-            .active_contributions
-            .remove(&archived_path_str)
-            .or_else(|| state.active_contributions.remove(&active_path_str));
-        if let Some(contribution) = contribution {
-            merge_global_contribution(&mut state.archived_fields, &contribution);
-            rebuild_published_fields(&mut state);
-            if self.persistence.writes_enabled() {
-                write_sidecar_files(archived_path, &contribution)?;
+            let contribution = state
+                .active_contributions
+                .remove(&archived_path_str)
+                .or_else(|| state.active_contributions.remove(&active_path_str));
+            if let Some(contribution) = contribution {
+                merge_global_contribution(&mut state.archived_fields, &contribution);
+                rebuild_published_fields(&mut state);
+                let sidecar_write = self
+                    .persistence
+                    .writes_enabled()
+                    .then(|| (archived_path.to_path_buf(), contribution));
+                state.indexed_archived_paths.insert(archived_path_str);
+                mark_dirty(&mut state);
+                publish_locked(&self.snapshot, &state);
+                let persist_snapshot = self.prepare_persist_snapshot_locked(&mut state)?;
+                (sidecar_write, persist_snapshot)
+            } else {
+                (None, None)
             }
-            state.indexed_archived_paths.insert(archived_path_str);
-            state.dirty = true;
-            publish_locked(&self.snapshot, &state);
-            self.persist_state_locked(&mut state)?;
-        }
+        };
 
+        if let Some((path, contribution)) = sidecar_write {
+            before_facet_disk_write_for_test(&path);
+            write_sidecar_files(&path, &contribution)?;
+        }
+        self.persist_snapshot(persist_snapshot)?;
         Ok(())
     }
 
     pub(crate) fn observe_deleted_paths(&self, deleted_paths: &[PathBuf]) -> Result<()> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
-        let mut changed = false;
+        let (sidecar_deletes, persist_snapshot) = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
+            let mut changed = false;
+            let mut sidecar_deletes = Vec::new();
 
-        for path in deleted_paths {
-            let Some(path_str) = path.to_str() else {
-                continue;
+            for path in deleted_paths {
+                let Some(path_str) = path.to_str() else {
+                    continue;
+                };
+                if state.active_contributions.remove(path_str).is_some() {
+                    changed = true;
+                }
+                if state.indexed_archived_paths.remove(path_str) {
+                    state.rebuild_archived = true;
+                    changed = true;
+                }
+                if self.persistence.writes_enabled() {
+                    sidecar_deletes.push(path.clone());
+                }
+            }
+
+            let persist_snapshot = if changed {
+                if !state.rebuild_archived {
+                    rebuild_published_fields(&mut state);
+                    publish_locked(&self.snapshot, &state);
+                }
+                mark_dirty(&mut state);
+                self.prepare_persist_snapshot_locked(&mut state)?
+            } else {
+                None
             };
-            if state.active_contributions.remove(path_str).is_some() {
-                changed = true;
-            }
-            if state.indexed_archived_paths.remove(path_str) {
-                state.rebuild_archived = true;
-                changed = true;
-            }
-            if self.persistence.writes_enabled() {
-                delete_sidecar_files(path);
-            }
-        }
+            (sidecar_deletes, persist_snapshot)
+        };
 
-        if changed {
-            if !state.rebuild_archived {
-                rebuild_published_fields(&mut state);
-                publish_locked(&self.snapshot, &state);
-            }
-            state.dirty = true;
-            self.persist_state_locked(&mut state)?;
+        for path in sidecar_deletes {
+            before_facet_disk_write_for_test(&path);
+            delete_sidecar_files(&path);
         }
-
+        self.persist_snapshot(persist_snapshot)?;
         Ok(())
+    }
+
+    pub(crate) fn persist_if_dirty(&self) -> Result<()> {
+        let persist_snapshot = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
+            self.prepare_persist_snapshot_locked(&mut state)?
+        };
+        self.persist_snapshot(persist_snapshot)
     }
 
     pub(crate) fn autocomplete(&self, field: &str, term: &str) -> Result<Vec<String>> {
@@ -473,29 +533,57 @@ impl FacetRuntime {
 
         Ok(matches)
     }
+    fn mark_ready(&self) {
+        self.ready.store(true, Ordering::Release);
+    }
 
-    pub(crate) fn persist_if_dirty(&self) -> Result<()> {
+    fn prepare_persist_snapshot_locked(
+        &self,
+        state: &mut FacetState,
+    ) -> Result<Option<FacetPersistSnapshot>> {
+        if !state.dirty {
+            return Ok(None);
+        }
+        if !self.persistence.writes_enabled() {
+            state.dirty = false;
+            return Ok(None);
+        }
+
+        Ok(Some(FacetPersistSnapshot {
+            generation: state.dirty_generation,
+            payload: encode_persisted_facet_state(&persisted_state_from_runtime_state(state))
+                .context("failed to serialize facet state")?,
+        }))
+    }
+
+    fn persist_snapshot(&self, snapshot: Option<FacetPersistSnapshot>) -> Result<()> {
+        let Some(snapshot) = snapshot else {
+            return Ok(());
+        };
+
+        let _persist_guard = self
+            .persist_lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("facet persistence lock poisoned"))?;
+        {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
+            if !state.dirty || state.dirty_generation != snapshot.generation {
+                return Ok(());
+            }
+        }
+
+        persist_state_snapshot(&self.state_path, &snapshot.payload)?;
         let mut state = self
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("facet runtime lock poisoned"))?;
-        self.persist_state_locked(&mut state)
-    }
-
-    fn mark_ready(&self) {
-        let was_ready = self.ready.swap(true, Ordering::AcqRel);
-        if !was_ready {
-            self.ready_notify.notify_waiters();
-        }
-    }
-
-    fn persist_state_locked(&self, state: &mut FacetState) -> Result<()> {
-        if self.persistence.writes_enabled() {
-            persist_state_locked(&self.state_path, state)
-        } else {
+        if state.dirty && state.dirty_generation == snapshot.generation {
             state.dirty = false;
-            Ok(())
         }
+        Ok(())
     }
 }
 
@@ -511,6 +599,7 @@ impl FacetState {
             archived_fields,
             active_contributions: BTreeMap::new(),
             dirty: false,
+            dirty_generation: 0,
             rebuild_archived: false,
         }
     }
@@ -546,9 +635,15 @@ impl FacetState {
             archived_fields,
             active_contributions: BTreeMap::new(),
             dirty: false,
+            dirty_generation: 0,
             rebuild_archived: false,
         }
     }
+}
+
+struct FacetPersistSnapshot {
+    generation: u64,
+    payload: Vec<u8>,
 }
 
 pub(crate) fn scan_registry_file_contribution(
@@ -641,6 +736,16 @@ fn published_snapshot_from_archived_and_active_contributions(
 ) -> FacetPublishedSnapshot {
     let mut fields = BTreeMap::new();
 
+    if active_contributions.is_empty() {
+        for spec in FACET_FIELD_SPECS.iter() {
+            fields.insert(
+                spec.name.to_string(),
+                published_field_from_store(*spec, archived_fields.get(spec.name)),
+            );
+        }
+        return FacetPublishedSnapshot { fields };
+    }
+
     for spec in FACET_FIELD_SPECS.iter() {
         let mut combined = archived_fields
             .get(spec.name)
@@ -669,6 +774,27 @@ fn published_snapshot_from_archived_and_active_contributions(
     }
 
     FacetPublishedSnapshot { fields }
+}
+
+fn published_field_from_store(
+    spec: FacetFieldSpec,
+    store: Option<&FacetStore>,
+) -> FacetPublishedField {
+    let total_values = store.map(FacetStore::len).unwrap_or_default();
+    let autocomplete = spec.supports_autocomplete && total_values > FACET_VALUE_LIMIT;
+    let values = if autocomplete {
+        Vec::new()
+    } else {
+        store
+            .map(|store| store.collect_strings(None))
+            .unwrap_or_default()
+    };
+
+    FacetPublishedField {
+        total_values,
+        autocomplete,
+        values,
+    }
 }
 
 fn rebuild_published_fields(state: &mut FacetState) {
@@ -744,9 +870,6 @@ fn apply_active_value(
     {
         return false;
     }
-    let exists_elsewhere = state.active_contributions.len() > 1
-        && active_value_exists_elsewhere(&state.active_contributions, path_str, field, value);
-
     let inserted = state
         .active_contributions
         .get_mut(path_str)
@@ -762,7 +885,10 @@ fn apply_active_value(
     {
         return false;
     }
-    if exists_elsewhere {
+    // Archived duplicates already returned; only new active-only values need the cross-path scan.
+    if state.active_contributions.len() > 1
+        && active_value_exists_elsewhere(&state.active_contributions, path_str, field, value)
+    {
         return false;
     }
 
@@ -867,21 +993,49 @@ fn publish_locked(snapshot: &Arc<RwLock<Arc<FacetPublishedSnapshot>>>, state: &F
     }
 }
 
-fn persist_state_locked(state_path: &Path, state: &mut FacetState) -> Result<()> {
-    if !state.dirty {
-        return Ok(());
+fn facet_cardinality_from_published(snapshot: &FacetPublishedSnapshot) -> FacetCardinalitySnapshot {
+    let mut counts = FacetCardinalitySnapshot::default();
+
+    for field in snapshot.fields.values() {
+        if field.total_values == 0 {
+            continue;
+        }
+        counts.populated_fields = counts.populated_fields.saturating_add(1);
+        counts.total_values = counts
+            .total_values
+            .saturating_add(field.total_values as u64);
+        counts.exposed_values = counts
+            .exposed_values
+            .saturating_add(field.values.len() as u64);
+        if field.autocomplete {
+            counts.autocomplete_fields = counts.autocomplete_fields.saturating_add(1);
+        }
     }
 
-    if let Some(parent) = state_path.parent() {
-        fs::create_dir_all(parent).with_context(|| {
-            format!(
-                "failed to prepare facet state directory {}",
-                parent.display()
-            )
-        })?;
-    }
+    counts
+}
 
-    let persisted = PersistedFacetState {
+#[cfg(test)]
+fn before_facet_disk_write_for_test(path: &Path) {
+    let hook = FACET_BEFORE_DISK_WRITE_HOOK
+        .lock()
+        .expect("facet disk-write hook mutex poisoned")
+        .clone();
+    if let Some(hook) = hook {
+        hook(path);
+    }
+}
+
+#[cfg(not(test))]
+fn before_facet_disk_write_for_test(_path: &Path) {}
+
+fn mark_dirty(state: &mut FacetState) {
+    state.dirty = true;
+    state.dirty_generation = state.dirty_generation.wrapping_add(1);
+}
+
+fn persisted_state_from_runtime_state(state: &FacetState) -> PersistedFacetState {
+    PersistedFacetState {
         version: FACET_STATE_VERSION,
         indexed_archived_paths: state.indexed_archived_paths.clone(),
         archived_fields: state
@@ -891,11 +1045,22 @@ fn persist_state_locked(state_path: &Path, state: &mut FacetState) -> Result<()>
             .map(|(field, store)| (field.clone(), store.persist()))
             .collect(),
         published: state.published.fields.clone(),
-    };
-    let payload =
-        encode_persisted_facet_state(&persisted).context("failed to serialize facet state")?;
+    }
+}
+
+fn persist_state_snapshot(state_path: &Path, payload: &[u8]) -> Result<()> {
+    before_facet_disk_write_for_test(state_path);
+    if let Some(parent) = state_path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to prepare facet state directory {}",
+                parent.display()
+            )
+        })?;
+    }
+
     let tmp_path = state_path.with_extension("bin.tmp");
-    fs::write(&tmp_path, &payload).with_context(|| {
+    fs::write(&tmp_path, payload).with_context(|| {
         format!(
             "failed to write temporary facet state {}",
             tmp_path.display()
@@ -908,7 +1073,6 @@ fn persist_state_locked(state_path: &Path, state: &mut FacetState) -> Result<()>
             state_path.display()
         )
     })?;
-    state.dirty = false;
     Ok(())
 }
 
@@ -1153,6 +1317,35 @@ mod tests {
     use super::*;
     use crate::flow::FlowFields;
     use allocative::size_of_unique_allocated_data;
+    use std::sync::Arc;
+    use std::sync::MutexGuard;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static FACET_DISK_WRITE_HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct FacetDiskWriteHookGuard {
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for FacetDiskWriteHookGuard {
+        fn drop(&mut self) {
+            *FACET_BEFORE_DISK_WRITE_HOOK
+                .lock()
+                .expect("facet disk-write hook mutex poisoned") = None;
+        }
+    }
+
+    fn install_facet_disk_write_hook(
+        hook: Arc<dyn Fn(&Path) + Send + Sync>,
+    ) -> FacetDiskWriteHookGuard {
+        let lock = FACET_DISK_WRITE_HOOK_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *FACET_BEFORE_DISK_WRITE_HOOK
+            .lock()
+            .expect("facet disk-write hook mutex poisoned") = Some(hook);
+        FacetDiskWriteHookGuard { _lock: lock }
+    }
 
     fn fields_with_protocol(protocol: &str) -> FlowFields {
         let mut fields = FlowFields::new();
@@ -1248,6 +1441,391 @@ mod tests {
     }
 
     #[test]
+    fn runtime_cardinality_snapshot_counts_published_proxy_state() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = FacetRuntime::new(tmp.path());
+        let active_path = Path::new("/tmp/flows-cardinality.journal");
+
+        runtime
+            .observe_active_contribution(
+                active_path,
+                &facet_contribution_from_flow_fields(&fields_with_protocol("6")),
+            )
+            .expect("observe protocol contribution");
+
+        for asn in 0..=FACET_VALUE_LIMIT {
+            let mut fields = FlowFields::new();
+            fields.insert("SRC_AS_NAME", format!("AS{asn:05} Provider-{asn:03}"));
+            runtime
+                .observe_active_contribution(
+                    active_path,
+                    &facet_contribution_from_flow_fields(&fields),
+                )
+                .expect("observe as-name contribution");
+        }
+
+        assert_eq!(
+            runtime.cardinality_snapshot(),
+            FacetCardinalitySnapshot {
+                populated_fields: 2,
+                total_values: (FACET_VALUE_LIMIT as u64) + 2,
+                exposed_values: 1,
+                autocomplete_fields: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn archive_only_published_rebuild_uses_archived_values_and_autocomplete_threshold() {
+        let mut archived_fields = empty_field_stores();
+
+        for asn in 0..=FACET_VALUE_LIMIT {
+            let mut fields = FlowFields::new();
+            fields.insert("SRC_AS_NAME", format!("AS{asn:05} Provider-{asn:03}"));
+            merge_global_contribution(
+                &mut archived_fields,
+                &facet_contribution_from_flow_fields(&fields),
+            );
+        }
+
+        let snapshot = published_snapshot_from_archived_and_active_contributions(
+            &archived_fields,
+            &BTreeMap::new(),
+        );
+        let src_as_name = snapshot
+            .fields
+            .get("SRC_AS_NAME")
+            .expect("src as name field");
+
+        assert_eq!(src_as_name.total_values, FACET_VALUE_LIMIT + 1);
+        assert!(
+            src_as_name.autocomplete,
+            "archive-only rebuild must preserve autocomplete promotion"
+        );
+        assert!(
+            src_as_name.values.is_empty(),
+            "autocomplete-promoted archive-only fields must not publish inline values"
+        );
+    }
+
+    #[test]
+    fn runtime_skips_persistence_when_active_contribution_is_unchanged() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = FacetRuntime::new(tmp.path());
+        let active_path = tmp.path().join("flows-unchanged-contribution.journal");
+        let contribution = facet_contribution_from_flow_fields(&fields_with_protocol("6"));
+
+        runtime
+            .observe_active_contribution(&active_path, &contribution)
+            .expect("observe active contribution");
+        runtime.persist_if_dirty().expect("persist initial state");
+
+        let state_path = tmp.path().join(FACET_STATE_FILE_NAME);
+        let writes = Arc::new(AtomicUsize::new(0));
+        let writes_for_hook = Arc::clone(&writes);
+        let _hook_guard = install_facet_disk_write_hook(Arc::new(move |path| {
+            if path == state_path {
+                writes_for_hook.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+
+        runtime
+            .observe_active_contribution(&active_path, &contribution)
+            .expect("observe duplicate active contribution");
+        runtime.persist_if_dirty().expect("persist unchanged state");
+
+        assert_eq!(
+            writes.load(Ordering::Relaxed),
+            0,
+            "unchanged active contributions must not rewrite facet state"
+        );
+    }
+
+    #[test]
+    fn runtime_skips_persistence_when_active_record_is_unchanged() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = FacetRuntime::new(tmp.path());
+        let active_path = tmp.path().join("flows-unchanged-record.journal");
+        let record = FlowRecord::from_fields(&fields_with_protocol("6"));
+
+        runtime
+            .observe_active_record(&active_path, &record)
+            .expect("observe active record");
+        runtime.persist_if_dirty().expect("persist initial state");
+
+        let state_path = tmp.path().join(FACET_STATE_FILE_NAME);
+        let writes = Arc::new(AtomicUsize::new(0));
+        let writes_for_hook = Arc::clone(&writes);
+        let _hook_guard = install_facet_disk_write_hook(Arc::new(move |path| {
+            if path == state_path {
+                writes_for_hook.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+
+        runtime
+            .observe_active_record(&active_path, &record)
+            .expect("observe duplicate active record");
+        runtime.persist_if_dirty().expect("persist unchanged state");
+
+        assert_eq!(
+            writes.load(Ordering::Relaxed),
+            0,
+            "unchanged active records must not rewrite facet state"
+        );
+    }
+
+    #[test]
+    fn runtime_persists_and_reloads_new_active_contribution_value() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = FacetRuntime::new(tmp.path());
+        let active_path = tmp.path().join("flows-changed-contribution.journal");
+        let first = facet_contribution_from_flow_fields(&fields_with_protocol("6"));
+        let second = facet_contribution_from_flow_fields(&fields_with_protocol("17"));
+
+        runtime
+            .observe_active_contribution(&active_path, &first)
+            .expect("observe first active contribution");
+        runtime.persist_if_dirty().expect("persist initial state");
+
+        let state_path = tmp.path().join(FACET_STATE_FILE_NAME);
+        let writes = Arc::new(AtomicUsize::new(0));
+        let writes_for_hook = Arc::clone(&writes);
+        let _hook_guard = install_facet_disk_write_hook(Arc::new(move |path| {
+            if path == state_path {
+                writes_for_hook.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+
+        runtime
+            .observe_active_contribution(&active_path, &second)
+            .expect("observe changed active contribution");
+        runtime.persist_if_dirty().expect("persist changed state");
+
+        assert_eq!(
+            writes.load(Ordering::Relaxed),
+            1,
+            "new active contribution values must persist once"
+        );
+        assert_eq!(
+            FacetRuntime::new(tmp.path())
+                .snapshot()
+                .fields
+                .get("PROTOCOL")
+                .expect("protocol field")
+                .total_values,
+            2
+        );
+    }
+
+    #[test]
+    fn runtime_active_duplicate_of_archived_value_does_not_republish_or_persist() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = FacetRuntime::new(tmp.path());
+        let archived_path = tmp.path().join("flows-archived-duplicate.journal");
+        let active_path = tmp.path().join("flows-active-duplicate.journal");
+        let contribution = facet_contribution_from_flow_fields(&fields_with_protocol("6"));
+
+        runtime
+            .observe_active_contribution(&archived_path, &contribution)
+            .expect("observe archived contribution");
+        runtime
+            .observe_rotation(
+                &archived_path,
+                &tmp.path().join("flows-archived-duplicate-next.journal"),
+            )
+            .expect("promote contribution to archived state");
+
+        assert_eq!(
+            runtime
+                .snapshot()
+                .fields
+                .get("PROTOCOL")
+                .expect("protocol field")
+                .total_values,
+            1
+        );
+
+        let state_path = tmp.path().join(FACET_STATE_FILE_NAME);
+        let writes = Arc::new(AtomicUsize::new(0));
+        let writes_for_hook = Arc::clone(&writes);
+        let _hook_guard = install_facet_disk_write_hook(Arc::new(move |path| {
+            if path == state_path {
+                writes_for_hook.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+
+        runtime
+            .observe_active_contribution(&active_path, &contribution)
+            .expect("observe archived duplicate on active path");
+        runtime
+            .persist_if_dirty()
+            .expect("persist duplicate active state");
+
+        assert_eq!(
+            runtime
+                .snapshot()
+                .fields
+                .get("PROTOCOL")
+                .expect("protocol field")
+                .total_values,
+            1,
+            "active duplicates of archived values must not inflate published facets"
+        );
+        assert_eq!(
+            writes.load(Ordering::Relaxed),
+            0,
+            "active duplicates of archived values must not rewrite facet state"
+        );
+    }
+
+    #[test]
+    fn runtime_active_duplicate_across_active_paths_counts_once() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = FacetRuntime::new(tmp.path());
+        let active_a = tmp.path().join("flows-active-a.journal");
+        let active_b = tmp.path().join("flows-active-b.journal");
+        let contribution = facet_contribution_from_flow_fields(&fields_with_protocol("6"));
+
+        runtime
+            .observe_active_contribution(&active_a, &contribution)
+            .expect("observe first active contribution");
+        runtime
+            .persist_if_dirty()
+            .expect("persist first active state");
+
+        let state_path = tmp.path().join(FACET_STATE_FILE_NAME);
+        let writes = Arc::new(AtomicUsize::new(0));
+        let writes_for_hook = Arc::clone(&writes);
+        let _hook_guard = install_facet_disk_write_hook(Arc::new(move |path| {
+            if path == state_path {
+                writes_for_hook.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+
+        runtime
+            .observe_active_contribution(&active_b, &contribution)
+            .expect("observe duplicate active contribution");
+        runtime
+            .persist_if_dirty()
+            .expect("persist duplicate active state");
+
+        assert_eq!(
+            runtime
+                .snapshot()
+                .fields
+                .get("PROTOCOL")
+                .expect("protocol field")
+                .total_values,
+            1,
+            "duplicate active values across files must publish once"
+        );
+        assert_eq!(
+            writes.load(Ordering::Relaxed),
+            0,
+            "duplicate active values across files must not rewrite facet state"
+        );
+
+        let state = runtime.state.lock().expect("lock facet state");
+        assert_eq!(
+            state.active_contributions.len(),
+            2,
+            "duplicate active files must still be retained for later rotation"
+        );
+    }
+
+    #[test]
+    fn runtime_persistence_skips_stale_snapshots() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = FacetRuntime::new(tmp.path());
+        let stale_path = String::from("/tmp/flows-stale.journal");
+        let fresh_path = String::from("/tmp/flows-fresh.journal");
+
+        let stale_snapshot = {
+            let mut state = runtime.state.lock().expect("lock facet state");
+            let stale = facet_contribution_from_flow_fields(&fields_with_protocol("6"));
+            merge_global_contribution(&mut state.archived_fields, &stale);
+            state.indexed_archived_paths.insert(stale_path.clone());
+            rebuild_published_fields(&mut state);
+            mark_dirty(&mut state);
+            runtime
+                .prepare_persist_snapshot_locked(&mut state)
+                .expect("prepare stale snapshot")
+                .expect("stale snapshot")
+        };
+
+        let fresh_snapshot = {
+            let mut state = runtime.state.lock().expect("lock facet state");
+            let fresh = facet_contribution_from_flow_fields(&fields_with_protocol("17"));
+            merge_global_contribution(&mut state.archived_fields, &fresh);
+            state.indexed_archived_paths.insert(fresh_path.clone());
+            rebuild_published_fields(&mut state);
+            mark_dirty(&mut state);
+            runtime
+                .prepare_persist_snapshot_locked(&mut state)
+                .expect("prepare fresh snapshot")
+                .expect("fresh snapshot")
+        };
+
+        runtime
+            .persist_snapshot(Some(fresh_snapshot))
+            .expect("persist fresh snapshot");
+        runtime
+            .persist_snapshot(Some(stale_snapshot))
+            .expect("skip stale snapshot");
+
+        let persisted = load_persisted_state(&runtime.state_path).expect("load persisted state");
+        assert!(persisted.indexed_archived_paths.contains(&stale_path));
+        assert!(
+            persisted.indexed_archived_paths.contains(&fresh_path),
+            "older persistence snapshots must not overwrite newer state"
+        );
+    }
+
+    #[test]
+    fn runtime_reconcile_persists_cleared_active_contributions() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = FacetRuntime::new(tmp.path());
+        let active_path = String::from("/tmp/flows-active.journal");
+        let contribution = facet_contribution_from_flow_fields(&fields_with_protocol("6"));
+
+        runtime
+            .observe_active_contribution(Path::new(&active_path), &contribution)
+            .expect("observe active contribution");
+        runtime.persist_if_dirty().expect("persist active state");
+        assert!(
+            FacetRuntime::new(tmp.path())
+                .snapshot()
+                .fields
+                .contains_key("PROTOCOL"),
+            "setup should persist the active published facet"
+        );
+
+        runtime
+            .apply_reconcile_plan(
+                FacetReconcilePlan {
+                    current_archived_paths: BTreeSet::new(),
+                    archived_files_to_scan: Vec::new(),
+                    active_files_to_scan: Vec::new(),
+                    rebuild_archived: false,
+                },
+                BTreeMap::new(),
+                BTreeMap::new(),
+            )
+            .expect("reconcile empty active state");
+
+        assert!(
+            FacetRuntime::new(tmp.path())
+                .snapshot()
+                .fields
+                .get("PROTOCOL")
+                .expect("protocol field")
+                .total_values
+                == 0,
+            "cleared active facets must not reload from stale persisted state"
+        );
+    }
+
+    #[test]
     fn runtime_autocomplete_reads_promoted_archived_sidecar_values() {
         let tmp = tempfile::tempdir().expect("create temp dir");
         let runtime = FacetRuntime::new(tmp.path());
@@ -1273,6 +1851,46 @@ mod tests {
         assert!(
             results.iter().any(|value| value == "AS110 EXAMPLE"),
             "expected promoted sidecar autocomplete to return archived values"
+        );
+    }
+
+    #[test]
+    fn runtime_rotation_does_not_hold_state_lock_during_disk_writes() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let runtime = Arc::new(FacetRuntime::new(tmp.path()));
+        let archived_path = tmp.path().join("flows-lock-scope.journal");
+        let active_path = tmp.path().join("flows-lock-scope-next.journal");
+
+        let mut fields = FlowFields::new();
+        fields.insert("SRC_AS_NAME", "AS64512 EXAMPLE".to_string());
+        let contribution = facet_contribution_from_flow_fields(&fields);
+        runtime
+            .observe_active_contribution(&archived_path, &contribution)
+            .expect("observe active contribution");
+
+        let hook_calls = Arc::new(AtomicUsize::new(0));
+        let hook_base = tmp.path().to_path_buf();
+        let hook_runtime = Arc::clone(&runtime);
+        let hook_counter = Arc::clone(&hook_calls);
+        let _hook_guard = install_facet_disk_write_hook(Arc::new(move |path| {
+            if !path.starts_with(&hook_base) {
+                return;
+            }
+            let guard = hook_runtime
+                .state
+                .try_lock()
+                .expect("facet state lock must be free before disk writes");
+            drop(guard);
+            hook_counter.fetch_add(1, Ordering::Relaxed);
+        }));
+
+        runtime
+            .observe_rotation(&archived_path, &active_path)
+            .expect("rotate file");
+
+        assert!(
+            hook_calls.load(Ordering::Relaxed) >= 2,
+            "rotation should perform sidecar and state writes through the hook"
         );
     }
 
