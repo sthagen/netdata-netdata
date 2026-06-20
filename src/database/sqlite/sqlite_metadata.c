@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "sqlite_metadata.h"
-#include "database/sqlite/vendored/sqlite3recover.h"
+#include "sqlite3recover.h"
 #include "health/health-alert-entry.h"
 
 #include "sqlite_db_migration.h"
@@ -511,7 +511,8 @@ done:
     SQLITE_FINALIZE(res);
 }
 
-#define SELECT_HOST_INFO "SELECT system_key, system_value FROM host_info WHERE host_id = @host_id"
+#define SELECT_HOST_INFO "SELECT system_key, system_value FROM host_info WHERE host_id = @host_id " \
+    "AND system_key IS NOT NULL AND system_value IS NOT NULL"
 
 void sql_build_host_system_info(nd_uuid_t *host_id, struct rrdhost_system_info *system_info)
 {

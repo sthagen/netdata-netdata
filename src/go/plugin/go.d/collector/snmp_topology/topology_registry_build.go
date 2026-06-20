@@ -32,7 +32,10 @@ func buildSingleMapTopologySnapshot(aggregate topologyObservationAggregate, opti
 		return topologyData{}, false
 	}
 	augmentTopologySnapshotLocals(&data, aggregate.snapshots)
-	applySNMPTopologyOutputPolicies(&data, options)
+	applySNMPTopologyShapePolicies(&data, options)
+	applyTopologyL3SubnetEnrichment(&data, aggregate)
+	applyTopologyOSPFAdjacencyEnrichment(&data, aggregate)
+	applyTopologyBGPAdjacencyEnrichment(&data, aggregate)
 	applyTopologyDepthFocusFilter(&data, options)
 	return data, true
 }
@@ -51,7 +54,7 @@ func buildProbableTopologySnapshot(aggregate topologyObservationAggregate, optio
 		return topologyData{}, false
 	}
 	augmentTopologySnapshotLocals(&strictData, aggregate.snapshots)
-	applySNMPTopologyOutputPolicies(&strictData, strictOptions)
+	applySNMPTopologyShapePolicies(&strictData, strictOptions)
 
 	probableOptions := options
 	probableOptions.MapType = topologyMapTypeAllDevicesLowConfidence
@@ -66,8 +69,11 @@ func buildProbableTopologySnapshot(aggregate topologyObservationAggregate, optio
 		return topologyData{}, false
 	}
 	augmentTopologySnapshotLocals(&probableData, aggregate.snapshots)
-	applySNMPTopologyOutputPolicies(&probableData, probableOptions)
+	applySNMPTopologyShapePolicies(&probableData, probableOptions)
 	markProbableDeltaLinks(&strictData, &probableData)
+	applyTopologyL3SubnetEnrichment(&probableData, aggregate)
+	applyTopologyOSPFAdjacencyEnrichment(&probableData, aggregate)
+	applyTopologyBGPAdjacencyEnrichment(&probableData, aggregate)
 	applyTopologyDepthFocusFilter(&probableData, options)
 	return probableData, true
 }

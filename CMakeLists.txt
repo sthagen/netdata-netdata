@@ -308,6 +308,10 @@ if(ENABLE_NETDATA_JOURNAL_FILE_READER OR ENABLE_PLUGIN_OTEL OR ENABLE_PLUGIN_OTE
 
     if(ENABLE_PLUGIN_NETFLOW)
       set(NETFLOW_PLUGIN_RUSTFLAGS "")
+      set(NETFLOW_PLUGIN_ENV_VARS
+              "NETDATA_BUILD_CACHE_DIR=${CACHE_DIR}"
+              "NETDATA_BUILD_LIB_DIR=${VARLIB_DIR}"
+              "NETDATA_BUILD_STOCK_DATA_DIR=${STOCK_DATA_DIR}")
 
       # We depend (transitively) on the `io-uring` crate which doesn't provide
       # prebuilt bindings for 32-bit arches. Considering this is a compile-time
@@ -318,8 +322,7 @@ if(ENABLE_NETDATA_JOURNAL_FILE_READER OR ENABLE_PLUGIN_OTEL OR ENABLE_PLUGIN_OTE
         # The workspace release profile still propagates fat LTO, single-codegen-unit,
         # and debuginfo settings through Rust dependencies on 32-bit builds. Override
         # Cargo's release profile too so the entire dependency graph stays linkable.
-        corrosion_set_env_vars(
-                netflow-plugin
+        list(APPEND NETFLOW_PLUGIN_ENV_VARS
                 "CARGO_PROFILE_RELEASE_DEBUG=0"
                 "CARGO_PROFILE_RELEASE_LTO=off"
                 "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8")
@@ -332,6 +335,8 @@ if(ENABLE_NETDATA_JOURNAL_FILE_READER OR ENABLE_PLUGIN_OTEL OR ENABLE_PLUGIN_OTE
       if(NETFLOW_PLUGIN_RUSTFLAGS)
         corrosion_add_target_rustflags(netflow-plugin ${NETFLOW_PLUGIN_RUSTFLAGS})
       endif()
+
+      corrosion_set_env_vars(netflow-plugin ${NETFLOW_PLUGIN_ENV_VARS})
     endif()
 endif()
 
@@ -519,6 +524,7 @@ endif()
 include(NetdataJSONC)
 include(NetdataYAML)
 include(NetdataBacktrace)
+include(NetdataSQLite)
 include(NetdataDlib)
 
 if(ENABLE_LEGACY_EBPF_PROGRAMS)
@@ -638,6 +644,8 @@ endif()
 if(ENABLE_LIBBACKTRACE)
     netdata_bundle_libbacktrace()
 endif()
+
+netdata_bundle_sqlite3()
 
 #
 # check source compilation
@@ -1206,6 +1214,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/locks/rw-spinlock-unittest.c
         src/libnetdata/atomics/atomic_flags.h
         src/libnetdata/atomics/atomics.h
+        src/libnetdata/atomics/single_writer.h
         src/libnetdata/locks/waitq.c
         src/libnetdata/locks/waitq.h
         src/libnetdata/object-state/object-state.c
@@ -1227,6 +1236,8 @@ set(LIBNETDATA_FILES
         src/libnetdata/os/get_system_pagesize.h
         src/libnetdata/os/hostname.c
         src/libnetdata/os/hostname.h
+        src/libnetdata/os/socket_egress_interface.c
+        src/libnetdata/os/socket_egress_interface.h
         src/libnetdata/exit/exit_initiated.c
         src/libnetdata/exit/exit_initiated.h
         src/libnetdata/os/disk_space.c
@@ -1747,11 +1758,6 @@ set(RRD_PLUGIN_FILES
         src/database/sqlite/sqlite_aclk_node.h
         src/database/sqlite/sqlite_aclk_alert.c
         src/database/sqlite/sqlite_aclk_alert.h
-        src/database/sqlite/vendored/sqlite3.c
-        src/database/sqlite/vendored/sqlite3.h
-        src/database/sqlite/vendored/sqlite3recover.c
-        src/database/sqlite/vendored/sqlite3recover.h
-        src/database/sqlite/vendored/dbdata.c
         src/web/api/queries/KolmogorovSmirnovDist.c
         src/web/api/queries/KolmogorovSmirnovDist.h
         src/database/rrdfunctions-inflight.c
@@ -1904,6 +1910,7 @@ set(STREAMING_PLUGIN_FILES
         src/streaming/stream-parents.c
         src/streaming/stream-handshake.c
         src/streaming/protocol/command-function.c
+        src/streaming/protocol/command-function-del.c
         src/streaming/protocol/command-host-labels.c
         src/streaming/protocol/command-chart-definition.c
         src/streaming/protocol/command-begin-set-end-v2.c
@@ -2060,10 +2067,14 @@ set(CGROUPS_PLUGIN_FILES
         src/collectors/cgroups.plugin/cgroup-internals.h
         src/collectors/cgroups.plugin/cgroup-discovery.c
         src/collectors/cgroups.plugin/cgroup-orchestrator.c
+        src/collectors/common-cgroups/cgroup-path.c
+        src/collectors/common-cgroups/cgroup-path.h
         src/collectors/cgroups.plugin/cgroup-charts.c
         src/collectors/cgroups.plugin/cgroup-top.c
         src/collectors/cgroups.plugin/cgroup-netipc.c
         "$<$<BOOL:${ENABLE_CGROUPS_LOOKUP_SERVER}>:src/collectors/cgroups.plugin/cgroup-lookup-netipc.c>"
+        "$<$<BOOL:${ENABLE_CGROUPS_LOOKUP_SERVER}>:src/collectors/cgroups.plugin/cgroup-lookup-resolver.c>"
+        "$<$<BOOL:${ENABLE_CGROUPS_LOOKUP_SERVER}>:src/collectors/cgroups.plugin/cgroup-lookup-resolver.h>"
         src/collectors/cgroups.plugin/cgroup-netipc.h
         src/collectors/cgroups.plugin/cgroup-snapshot-store.c
         src/collectors/cgroups.plugin/cgroup-snapshot-store.h
@@ -2489,6 +2500,8 @@ if(HAVE_LIBBACKTRACE)
     netdata_add_libbacktrace_to_target(libnetdata)
 endif()
 
+netdata_add_sqlite3_to_target(libnetdata)
+
 if(OS_WINDOWS)
         set(HAVE_ETW True)
         set(HAVE_WEL True)
@@ -2827,6 +2840,8 @@ if(ENABLE_PLUGIN_APPS)
                 src/collectors/collectors-ipc/ebpfgo_shared_memory.h
                 src/collectors/collectors-ipc/ebpfgo_shared_memory.c
                 src/collectors/apps.plugin/apps_ebpf_shared_memory.c
+                src/collectors/common-cgroups/cgroup-path.c
+                src/collectors/common-cgroups/cgroup-path.h
                 src/collectors/common-cgroups/cgroup-topology-rules.c
                 src/collectors/common-cgroups/cgroup-topology-rules.h
                 src/collectors/apps.plugin/apps-cgroups-path.c
@@ -3048,13 +3063,21 @@ if(OS_LINUX)
 
     add_executable(apps-cgroups-path-test EXCLUDE_FROM_ALL
             src/collectors/apps.plugin/tests/test_apps_cgroups_path.c
+            src/collectors/common-cgroups/cgroup-path.c
             src/collectors/apps.plugin/apps-cgroups-path.c)
     target_link_libraries(apps-cgroups-path-test libnetdata)
 
     add_executable(apps-cgroups-enrichment-test EXCLUDE_FROM_ALL
             src/collectors/apps.plugin/tests/test_apps_cgroups_enrichment.c
+            src/collectors/common-cgroups/cgroup-path.c
             src/collectors/common-cgroups/cgroup-topology-rules.c)
     target_link_libraries(apps-cgroups-enrichment-test libnetdata)
+
+    add_executable(cgroup-topology-rules-test EXCLUDE_FROM_ALL
+            src/collectors/common-cgroups/tests/test_cgroup_topology_rules.c
+            src/collectors/common-cgroups/cgroup-path.c
+            src/collectors/common-cgroups/cgroup-topology-rules.c)
+    target_link_libraries(cgroup-topology-rules-test libnetdata)
 
     add_executable(apps-lookup-protocol-test EXCLUDE_FROM_ALL
             src/collectors/apps.plugin/tests/test_apps_lookup_protocol.c)
@@ -3073,7 +3096,9 @@ if(ENABLE_CGROUPS_LOOKUP_SERVER)
     add_executable(cgroup-lookup-netipc-test EXCLUDE_FROM_ALL
             src/collectors/cgroups.plugin/tests/test_cgroup_lookup_netipc.c
             src/collectors/cgroups.plugin/cgroup-lookup-netipc.c
+            src/collectors/cgroups.plugin/cgroup-lookup-resolver.c
             src/collectors/cgroups.plugin/cgroup-snapshot-store.c
+            src/collectors/common-cgroups/cgroup-path.c
             src/collectors/cgroups.plugin/cgroup-orchestrator.c)
     target_compile_definitions(cgroup-lookup-netipc-test PRIVATE NETDATA_INTERNAL_CHECKS=1)
     target_link_libraries(cgroup-lookup-netipc-test libnetdata)
@@ -3345,6 +3370,8 @@ if(ENABLE_PLUGIN_NETWORK_VIEWER)
         if(OS_LINUX)
                 list(APPEND NETWORK_VIEWER_FILES
                         src/libnetdata/local-sockets/local-sockets.h
+                        src/collectors/common-cgroups/cgroup-path.c
+                        src/collectors/common-cgroups/cgroup-path.h
                         src/collectors/common-cgroups/cgroup-topology-rules.c
                         src/collectors/common-cgroups/cgroup-topology-rules.h
                         src/collectors/network-viewer.plugin/network-viewer-apps-lookup-client.c
@@ -3362,6 +3389,8 @@ if(ENABLE_PLUGIN_NETWORK_VIEWER)
         if(OS_FREEBSD)
                 list(APPEND NETWORK_VIEWER_FILES
                         src/libnetdata/local-sockets/local-sockets-freebsd.h
+                        src/collectors/common-cgroups/cgroup-path.c
+                        src/collectors/common-cgroups/cgroup-path.h
                         src/collectors/common-cgroups/cgroup-topology-rules.c
                         src/collectors/common-cgroups/cgroup-topology-rules.h
                         src/collectors/network-viewer.plugin/network-viewer-apps-lookup-client.h
@@ -3395,6 +3424,7 @@ if(ENABLE_PLUGIN_NETWORK_VIEWER)
 
                 add_executable(network-viewer-topology-containers-test EXCLUDE_FROM_ALL
                         src/collectors/network-viewer.plugin/tests/test_network_viewer_topology_containers.c
+                        src/collectors/common-cgroups/cgroup-path.c
                         src/collectors/common-cgroups/cgroup-topology-rules.c
                         src/collectors/network-viewer.plugin/network-viewer-topology-containers.c)
                 target_link_libraries(network-viewer-topology-containers-test libnetdata)

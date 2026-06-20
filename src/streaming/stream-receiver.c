@@ -153,6 +153,9 @@ static ssize_t receiver_read_uncompressed(struct receiver_state *r) {
 
         r->thread.uncompressed.read_len += bytes;
         r->thread.uncompressed.read_buffer[r->thread.uncompressed.read_len] = '\0';
+        r->thread.bytes_received += bytes;
+        if(likely(r->host))
+            single_writer_atomic_add(&r->host->stream.rcv.status.bytes_in, (uint64_t)bytes);
         pulse_stream_received_bytes(bytes);
     }
 
@@ -271,6 +274,9 @@ static ssize_t receiver_read_compressed(struct receiver_state *r) {
 
     if(bytes > 0) {
         r->thread.compressed.used += bytes;
+        r->thread.bytes_received += bytes;
+        if(likely(r->host))
+            single_writer_atomic_add(&r->host->stream.rcv.status.bytes_in, (uint64_t)bytes);
         worker_set_metric(WORKER_RECEIVER_JOB_BYTES_READ, (NETDATA_DOUBLE)bytes);
         pulse_stream_received_bytes(bytes);
     }
@@ -423,6 +429,11 @@ void stream_receiver_move_to_running_unsafe(struct stream_thread *sth, struct re
     rpt->thread.compressed.enabled = stream_decompression_initialize(rpt);
     buffered_reader_init(&rpt->thread.uncompressed);
 
+    // start fresh at admission: the no-traffic timeout must be measured from when we start
+    // reading (now), not from when the connection was accepted and queued.
+    rpt->thread.bytes_received = 0;
+    rpt->thread.last_traffic_ut = now_monotonic_usec();
+
     rpt->thread.line_buffer = buffer_create(sizeof(rpt->thread.uncompressed.read_buffer), NULL);
 
     // help preferred_sender_buffer() select the right buffer
@@ -516,16 +527,39 @@ static void stream_receiver_remove_internal(struct stream_thread *sth, struct re
     if(parser)
         count = parser->user.data_collections_count;
 
+    // gather diagnostics for a single, uniform disconnect line (same fields for every reason):
+    // bytes_in distinguishes "the child sent nothing" (network/silent) from "sent but unparsed";
+    // iface exposes the child's connection type (e.g. ppp0 cellular vs eth0) for log-side pivots.
+    size_t bytes_out = 0;
+    spinlock_lock(&rpt->thread.send_to_child.spinlock);
+    if(rpt->thread.send_to_child.scb)
+        bytes_out = stream_circular_buffer_stats_unsafe(rpt->thread.send_to_child.scb)->bytes_sent;
+    spinlock_unlock(&rpt->thread.send_to_child.spinlock);
+
+    char iface[64] = "";
+    if(rpt->host && rpt->host->rrdlabels)
+        rrdlabels_get_value_strcpyz(rpt->host->rrdlabels, iface, sizeof(iface), "_net_default_iface");
+
+    time_t connected_s = rpt->connected_since_s ? (now_realtime_sec() - rpt->connected_since_s) : 0;
+    long long idle_s = (long long)((now_monotonic_usec() - rpt->thread.last_traffic_ut) / USEC_PER_SEC);
+    double repl_pct = rpt->host ? rpt->host->stream.rcv.status.replication.percent : 0.0;
+
     errno_clear();
     nd_log(NDLS_DAEMON, NDLP_ERR,
-           "STREAM RCV[%zu] '%s' [from [%s]:%s]: "
-           "receiver disconnected (after %zu received messages): %s"
+           "STREAM RCV[%zu] '%s' [from [%s]:%s]: receiver disconnected: "
+           "reason=\"%s\" msgs=%zu bytes_in=%zu bytes_out=%zu connected=%llds idle=%llds repl=%.0f%% iface=%s"
            , sth->id
            , rpt->hostname ? rpt->hostname : "-"
            , rpt->remote_ip ? rpt->remote_ip : "-"
            , rpt->remote_port ? rpt->remote_port : "-"
+           , stream_handshake_error_to_string(reason)
            , count
-           , stream_handshake_error_to_string(reason));
+           , rpt->thread.bytes_received
+           , bytes_out
+           , (long long)connected_s
+           , idle_s
+           , repl_pct
+           , iface[0] ? iface : "-");
 
     internal_fatal(META_GET(&sth->run.meta, (Word_t)&rpt->thread.meta) == NULL,
                    "Receiver to be removed is not found in the list of receivers");
@@ -695,6 +729,8 @@ bool stream_receiver_send_data(struct stream_thread *sth, struct receiver_state 
             pulse_stream_sent_bytes(rc);
             rpt->thread.last_traffic_ut = now_ut;
             stream_circular_buffer_del_unsafe(scb, rc, now_ut);
+            if(likely(rpt->host))
+                single_writer_atomic_add(&rpt->host->stream.rcv.status.bytes_out, (uint64_t)rc);
             if (!stats->bytes_outstanding) {
                 rpt->thread.wanted = ND_POLL_READ;
                 if (!nd_poll_upd(sth->run.ndpl, rpt->sock.fd, rpt->thread.wanted))
@@ -1150,7 +1186,9 @@ RRDHOST_SET_RECEIVER_RESULT rrdhost_set_receiver(RRDHOST *host, struct receiver_
         rrdhost_flag_clear(host, RRDHOST_FLAG_ORPHAN);
         rrdhost_set_health_evloop_iteration(host);
 
-        host->stream.rcv.status.connections++;
+        // atomic: read lock-free by the pulse traversal (this write is under receiver_lock, but the
+        // read side has no lock; the connect path is rare so the atomic RMW cost is irrelevant)
+        __atomic_add_fetch(&host->stream.rcv.status.connections, 1, __ATOMIC_RELAXED);
         streaming_receiver_connected();
 
         host->receiver = rpt;
