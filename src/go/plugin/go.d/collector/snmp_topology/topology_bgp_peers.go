@@ -3,8 +3,9 @@
 package snmptopology
 
 import (
-	"sort"
 	"strings"
+
+	"github.com/netdata/netdata/go/plugins/plugin/go.d/collector/snmp_topology/internal/topologyutil"
 
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/collector/snmp/ddsnmp"
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/collector/snmp/ddsnmp/ddprofiledefinition"
@@ -40,20 +41,20 @@ func topologyBGPPeerFromRow(row ddsnmp.BGPRow) (topologyBGPPeer, bool) {
 		return topologyBGPPeer{}, false
 	}
 
-	neighbor := firstNonEmptyString(row.Identity.Neighbor, row.Tags["neighbor"])
-	remoteAS := firstNonEmptyString(row.Identity.RemoteAS, row.Tags["remote_as"])
+	neighbor := topologyutil.FirstNonEmptyString(row.Identity.Neighbor, row.Tags["neighbor"])
+	remoteAS := topologyutil.FirstNonEmptyString(row.Identity.RemoteAS, row.Tags["remote_as"])
 	if strings.TrimSpace(neighbor) == "" || strings.TrimSpace(remoteAS) == "" {
 		return topologyBGPPeer{}, false
 	}
 
 	peer := topologyBGPPeer{
 		RoutingInstance:       topologyBGPRoutingInstance(row),
-		NeighborIP:            topologyBGPPeerAddressValue(neighbor),
+		NeighborIP:            topologyutil.NormalizeBGPPeerAddress(neighbor),
 		RemoteAS:              strings.TrimSpace(remoteAS),
-		LocalIP:               topologyBGPPeerAddressValue(row.Descriptors.LocalAddress),
+		LocalIP:               topologyutil.NormalizeBGPPeerAddress(row.Descriptors.LocalAddress),
 		LocalAS:               strings.TrimSpace(row.Descriptors.LocalAS),
-		LocalIdentifier:       normalizeBGPRouterID(row.Descriptors.LocalIdentifier),
-		PeerIdentifier:        normalizeBGPRouterID(row.Descriptors.PeerIdentifier),
+		LocalIdentifier:       topologyutil.NormalizeBGPRouterID(row.Descriptors.LocalIdentifier),
+		PeerIdentifier:        topologyutil.NormalizeBGPRouterID(row.Descriptors.PeerIdentifier),
 		PeerType:              strings.TrimSpace(row.Descriptors.PeerType),
 		BGPVersion:            strings.TrimSpace(row.Descriptors.BGPVersion),
 		Description:           strings.TrimSpace(row.Descriptors.Description),
@@ -65,29 +66,15 @@ func topologyBGPPeerFromRow(row ddsnmp.BGPRow) (topologyBGPPeer, bool) {
 	return peer, true
 }
 
-func topologyBGPPeerAddressValue(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if ip := normalizeNonUnspecifiedIPAddress(value); ip != "" {
-		return ip
-	}
-	if normalizeIPAddress(value) != "" {
-		return ""
-	}
-	return value
-}
-
 func topologyBGPRoutingInstance(row ddsnmp.BGPRow) string {
-	return firstNonEmptyString(row.Identity.RoutingInstance, row.Tags["routing_instance"], "default")
+	return topologyutil.FirstNonEmptyString(row.Identity.RoutingInstance, row.Tags["routing_instance"], "default")
 }
 
 func topologyBGPPeerCacheKey(row ddsnmp.BGPRow, peer topologyBGPPeer) string {
 	if key := strings.TrimSpace(row.StructuralID); key != "" {
 		return key
 	}
-	return topologyL3SubnetLinkKeyParts(
+	return topologyutil.JoinKeyParts(
 		row.OriginProfileID,
 		row.Table,
 		row.RowKey,
@@ -102,7 +89,7 @@ func (c *topologyCache) snapshotBGPPeers(localDeviceID string) []topologyBGPPeer
 		return nil
 	}
 
-	keys := sortedMapKeys(c.bgpPeersByKey)
+	keys := topologyutil.SortedMapKeys(c.bgpPeersByKey)
 	rows := make([]topologyBGPPeer, 0, len(keys))
 	for _, key := range keys {
 		row := c.bgpPeersByKey[key]
@@ -113,17 +100,6 @@ func (c *topologyCache) snapshotBGPPeers(localDeviceID string) []topologyBGPPeer
 		rows = append(rows, row)
 	}
 	return rows
-}
-
-func normalizeBGPRouterID(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if ip := normalizeNonUnspecifiedIPAddress(value); ip != "" {
-		return ip
-	}
-	return value
 }
 
 func topologyBGPAdminStatus(row ddsnmp.BGPRow) string {
@@ -173,24 +149,4 @@ func topologyBGPInt64Ptr(value ddsnmp.BGPInt64) *int64 {
 	}
 	v := value.Value
 	return &v
-}
-
-func isBGPPeerEstablished(row topologyBGPPeer) bool {
-	return strings.EqualFold(strings.TrimSpace(row.State), string(ddprofiledefinition.BGPPeerStateEstablished))
-}
-
-func sortTopologyBGPPeerRows(rows []map[string]any) {
-	sort.Slice(rows, func(i, j int) bool {
-		return topologyBGPPeerActorRowSortKey(rows[i]) < topologyBGPPeerActorRowSortKey(rows[j])
-	})
-}
-
-func topologyBGPPeerActorRowSortKey(row map[string]any) string {
-	return strings.Join([]string{
-		anyStringValue(row["routing_instance"]),
-		anyStringValue(row["remote_as"]),
-		topologyBGPPeerAddressValue(anyStringValue(row["neighbor_ip"])),
-		anyStringValue(row["peer_identifier"]),
-		anyStringValue(row["state"]),
-	}, "\x00")
 }
