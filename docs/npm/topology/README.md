@@ -10,46 +10,46 @@ endmeta-->
 
 # Network Topologies
 
-Netdata shows you **how your network is actually connected** — which device links to which, and where each part of your infrastructure sits — and it builds that picture automatically from the devices you're already monitoring.
+Netdata shows you how your network is connected — which device links to which, and where each part of your infrastructure sits — built automatically from the devices you already monitor.
 
-This section is for the teams who need the real shape of the network: to trace a path, find what's downstream of a failing link, or see how a site is wired — without drawing it by hand or keeping a diagram up to date.
+![Network topology overview](https://www.netdata.cloud/img/network/snmp-topology-overview.png)
 
-## Built automatically from your devices
+The topology view, assembled automatically from the devices you already monitor — Layer 2 and Layer 3 links, kept current as devices come and go.
 
-When Netdata monitors your SNMP devices, it also reads what they already know about their neighbors and assembles the topology from it — with no extra setup:
+## Built from your devices
+
+When Netdata monitors your SNMP devices, it reads what they already know about their neighbors and assembles the topology, with no extra setup:
 
 - **LLDP and CDP** — the neighbor each device advertises (device, port, platform).
 - **Forwarding (FDB) and ARP tables** — which MAC and IP addresses are seen on which switch ports.
 - **Spanning Tree (STP)** — which Layer 2 links are forwarding and which are blocked.
-- **BGP and OSPF** — the Layer 3 routing relationships between your routers.
+- **BGP and OSPF** — the Layer 3 routing relationships between routers.
 
-The result is a live Layer 2 and Layer 3 map of your network, kept current as devices come and go. Because it's built from the same devices you're polling, it stays in step with your metrics and traps — when a trap or an alert points at a device, you can already see where that device sits.
+The result is a live Layer 2 and Layer 3 map, kept current as devices come and go. Each link carries the evidence behind it — how it was discovered and how confident Netdata is in it — so a confirmed link is distinguishable from an inferred one.
 
 ## What you can do with it
 
-- **See the real wiring** — device-to-device links across your network, instead of a stale diagram.
+- **See the real wiring** — device-to-device links across your network.
 - **Trace a path** — follow how two points connect, hop by hop.
 - **Find what's affected** — what sits downstream of a link or device that's in trouble.
 - **Locate an endpoint** — which switch port an address is on, cross-referenced from forwarding and neighbor data.
 
-Each link carries the evidence behind it — how it was discovered and how confident Netdata is in it — so you can tell a freshly-confirmed link from one that's inferred.
+## Beyond the device fabric
 
-## More than the device fabric
+The same topology view brings in other infrastructure, each in the same form so it sits alongside your device topology:
 
-The same topology view brings in other parts of your infrastructure, each in the same form so they sit alongside your device topology rather than in a separate tool:
+- **Live network connections** — what your hosts and services are talking to right now (`topology:network-connections`).
+- **Netdata streaming** — how your Agents connect to each other (`topology:streaming`).
+- **VMware vSphere** — datacenters, clusters, resource pools, hosts, VMs, datastores, and networks (`topology:vsphere`).
+- **Cato Networks** — Cato SASE sites, devices, POPs, and BGP peers (`topology:cato_networks`).
 
-- **Live network connections** — what your hosts and services are actually talking to, right now.
-- **Netdata streaming** — how your Netdata Agents connect to each other.
-- **vSphere** — your VMware datacenters, clusters, resource pools, hosts, VMs, datastores, datastore clusters, and networks.
-- **Cato Networks** — your Cato SASE sites, devices, POPs, and BGP peers.
+The device fabric (`topology:snmp`), live connections, and streaming come up automatically; vSphere and Cato come from their own collectors, configured separately.
 
-The device fabric, live connections, and Agent streaming come up automatically; **vSphere** and **Cato Networks** come from their own collectors, which you configure separately. Each is its own view — `topology:snmp` for the device fabric, `topology:network-connections` for live connections, `topology:streaming` for the Agent mesh, plus `topology:vsphere` and `topology:cato_networks` — and Netdata Cloud overlays them into one picture.
+![Live network connections function](https://www.netdata.cloud/img/dashboard-screens/functions-network-connections.png)
 
-## One topology across every site
-
-Each hub builds the topology for its own part of the network, and **Netdata Cloud aggregates them into one** — a single topology of your entire network, however many Agents and sites you run. Scaling out adds detail to the same picture; it never fragments it.
+Live host and service connections (`topology:network-connections`) appear in the same topology view, alongside your device fabric.
 
 ## Where to start
 
-- Topology comes up on its own once you're [monitoring devices](/docs/npm/device-metrics/README.md) — open the topology view in Netdata to see it.
+- Topology comes up on its own once you're [monitoring devices](/docs/npm/device-metrics/README.md) — open the topology view in Netdata.
 - The entries in this section list each discovery method and source, and what each one contributes to the map.
