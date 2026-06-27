@@ -21,7 +21,7 @@ source files for evidence.
   `src/go/plugin/go.d/docs/migrate-v1-to-v2.md`
 - Runtime/chart lifecycle: `src/go/plugin/framework/chartengine/README.md`
 - Template format: `src/go/plugin/framework/charttpl/README.md`
-- Host scopes/vnodes: `.agents/sow/specs/go-v2-host-scope.md`
+- Host scopes/vnodes: `.agents/skills/project-writing-go-modules-framework-v2/go-v2-host-scope.md`
 - Primary modern example: `src/go/plugin/go.d/collector/cato_networks/`.
   Use focused pieces from it, not the whole collector shape.
 - Older V2 collectors can still be useful for local patterns, but review them
@@ -74,13 +74,13 @@ source files for evidence.
   registry to bridge Function dispatch. The Function is still job-backed:
   publication waits for the canonical job to be running and available, and
   dispatch rejects unavailable jobs before calling `MethodHandler`.
-- Shared job-backed Functions are published only while at least one running job
-  is available. By default, every running job is available for every shared
-  Function. If a collector needs runtime readiness gating per shared Function,
-  implement `collectorapi.FunctionAvailability`; keep
-  `FunctionAvailable(functionID)` cheap and non-blocking.
+- Shared and instance job-backed Functions are published only while their
+  backing running jobs are available. By default, every running job is available
+  for every shared or instance Function. If a collector needs runtime readiness
+  gating per job-backed Function, implement `collectorapi.FunctionAvailability`;
+  keep `FunctionAvailable(functionID)` cheap and non-blocking.
   `funcapi.FunctionConfig.Available` applies to `AgentFunctions`, not
-  job-backed `SharedFunctions`.
+  job-backed `SharedFunctions` or `InstanceFunctions`.
 - `collectorapi.Creator.InstancePolicy` defaults to
   `InstancePolicyPerJob`. Use `InstancePolicySingle` only for collectors that
   are intentionally one canonical job per agent. Single-instance configs MUST
