@@ -42,7 +42,6 @@ This guide will show you how simple it is to get started with Netdata and experi
   />
 </div>
 
-
 unhideme-->
 
 ## [1. Sign in & Access Your Space](/src/claim/README.md)
@@ -63,52 +62,18 @@ Getting started is as simple as visiting [app.netdata.cloud](https://app.netdata
 
 ## [2. Connect a Node & See Instant Results](/src/claim/README.md)
 
-**Connect Your First Agent**
-Once logged into Netdata Cloud, you'll see connection instructions. There are three easy ways to connect:
-
-<details>
-<summary><strong>Method 1: Through the Cloud Interface</strong></summary><br/>
-
-1. Navigate to **Space Settings** (⚙️) on the left sidebar below the spaces list
-2. Select **Nodes** tab
-3. Click the **"+"** button to add a new node
-4. Copy and run the generated connection command
-
-</details>
-
-<details>
-<summary><strong>Method 2: From the Nodes Tab</strong></summary><br/>
-
-1. Go to the **Nodes** tab in your Room
-2. Click **Add nodes** button
-3. Follow the step-by-step instructions
-
-</details>
-
-<details>
-<summary><strong>Method 3: Via Integrations Page</strong></summary><br/>
-
-1. Visit the **Integrations** page
-2. Select your OS or container environment
-3. Execute the provided connection command
-
-</details>
+Connect your Agent to your Space to start streaming live metrics within seconds. Whether you're installing Netdata for the first time or connecting an Agent that's already running, the [connect documentation](/src/claim/README.md) covers every method — from the one-command installer for new nodes to the [UI, configuration file, and environment variable options for existing Agents](/src/claim/README.md#connect-existing-agent).
 
 :::tip
 
-**The One-Command Solution:**
-All methods will show you a command like this:
+**For new installations**, Netdata Cloud generates a personalized version of this command for you:
 
 ```bash
 bash <(curl -Ss https://get.netdata.cloud/kickstart.sh) --claim-token YOUR_TOKEN --claim-rooms YOUR_ROOMS --claim-url https://app.netdata.cloud
 ```
 
-:::
-
-:::info
-
 <details>
-<summary><strong>What this single command does:</strong></summary><br/>
+<summary><strong>What this single command does</strong></summary><br/>
 
 - Automatically detects your operating system
 - Installs the latest Netdata Agent
@@ -125,7 +90,7 @@ Within seconds of connection, you'll experience the power of real-time observabi
 
 - **Your node appears live in your Space**
 - **Charts immediately start streaming real-time data**
-- **System Overview dashboard populates automatically**
+- **Overview charts populate automatically for every section**
 - **All metrics update with 1-second granularity**
 - **Zero additional configuration required**
 
@@ -133,7 +98,7 @@ Within seconds of connection, you'll experience the power of real-time observabi
 
 **Automatic Dashboards:**
 
-- **System Overview** - Fully automated dashboard showing all your nodes
+- **[Overview charts](/docs/dashboards-and-charts/metrics-tab-and-single-node-tabs.md#how-the-dashboard-is-organized)** - Automatically arranged at the start of every dashboard section to summarize its metrics
 - **Nodes Tab** - Unified view of all infrastructure with key metrics
 - **Composite Charts** - Data from multiple nodes combined intelligently
 - **Real-Time Updates** - Every metric updates with 1-second granularity
@@ -212,12 +177,7 @@ Configure alerts to reach you through:
 - **Example**: Create rooms for "Production", "Development", "Database Servers"
 
 **Team Collaboration:**
-Click "Invite Users" in your Space sidebar to add team members. Set appropriate access levels:
-
-- **Admins** - Full control over Spaces, Rooms, and billing
-- **Managers** - Room and user management
-- **Troubleshooters** - Monitoring and analysis access
-- **Observers** - View-only access to specific rooms
+Click "Invite Users" in your Space sidebar to add team members and assign each one a role (Admin, Manager, Troubleshooter, Observer, or Billing). See [Set Up Team Access](/docs/netdata-cloud/organize-your-infrastructure-invite-your-team.md#set-up-team-access) for what each role can do.
 
 :::tip
 
@@ -228,7 +188,7 @@ Click "Invite Users" in your Space sidebar to add team members. Set appropriate 
 **Organize by Your Needs:**
 
 | **Category**       | **Examples**                         |
-| ------------------ | ------------------------------------ |
+|--------------------|--------------------------------------|
 | **By Service**     | Web servers, databases, applications |
 | **By Location**    | Data centers, cloud regions          |
 | **By Team**        | DevOps, SRE, development teams       |
@@ -248,7 +208,7 @@ Click "Invite Users" in your Space sidebar to add team members. Set appropriate 
 ### Traditional Monitoring vs Netdata
 
 | **Traditional Monitoring**                       |        | **Netdata**                                        |
-| ------------------------------------------------ | :----: | -------------------------------------------------- |
+|--------------------------------------------------|:------:|----------------------------------------------------|
 | **Navigate complex interfaces** during incidents |        | **Get instant analysis** with natural language     |
 | **Build dashboards** during incidents            | **VS** | **Automatic dashboards** with zero configuration   |
 | **Manually correlate data** across systems       |        | **AI-powered correlation** and root cause analysis |
@@ -261,13 +221,13 @@ Experience the future of infrastructure monitoring with AI that actually works. 
 
 **AI Features Overview:**
 
-| **Capability**           | **What It Does**                    | **Access**                           |
-| ------------------------ | ----------------------------------- | ------------------------------------ |
-| **AI Chat with Netdata** | Ask questions in natural language   | Available now for all deployments    |
-| **AI DevOps Copilot**    | CLI-based AI automation             | Available now with MCP tools         |
-| **AI Insights**          | Professional reports in 2-3 minutes | Paid plans get unlimited reports |
-| **Anomaly Advisor**      | Find root causes in minutes         | Available to all users               |
-| **ML Anomaly Detection** | Continuous anomaly detection        | Free for everyone                    |
+| **Capability**           | **What It Does**                    | **Access**                        |
+|--------------------------|-------------------------------------|-----------------------------------|
+| **AI Chat with Netdata** | Ask questions in natural language   | Available now for all deployments |
+| **AI DevOps Copilot**    | CLI-based AI automation             | Available now with MCP tools      |
+| **AI Insights**          | Professional reports in 2-3 minutes | Paid plans get unlimited reports  |
+| **Anomaly Advisor**      | Find root causes in minutes         | Available to all users            |
+| **ML Anomaly Detection** | Continuous anomaly detection        | Free for everyone                 |
 
 #### Ask Questions & Get Answers
 

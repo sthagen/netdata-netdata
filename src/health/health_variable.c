@@ -36,9 +36,13 @@ struct variable_lookup_job {
 };
 
 static void variable_lookup_add_result_with_score(struct variable_lookup_job *vbd, NETDATA_DOUBLE n, RRDSET *st, const char *source __maybe_unused) {
-    if(vbd->score.last_rrdset != st && vbd->rc->rrdset) {
-        vbd->score.last_rrdset = st;
-        vbd->score.last_score = rrdlabels_common_count(vbd->rc->rrdset->rrdlabels, st->rrdlabels);
+    if(vbd->score.last_rrdset != st) {
+        RRDSET *alert_st = rrdcalc_rrdset_read_lock(vbd->rc);
+        if(alert_st) {
+            vbd->score.last_rrdset = st;
+            vbd->score.last_score = rrdlabels_common_count(alert_st->rrdlabels, st->rrdlabels);
+            rrdcalc_rrdset_read_unlock(alert_st);
+        }
     }
 
     if(vbd->result.used >= vbd->result.size) {
@@ -350,10 +354,12 @@ bool alert_variable_lookup_internal(STRING *variable, void *data, NETDATA_DOUBLE
     if (strendswith_lengths(vbd.dimension, vbd.dimension_length, "_raw", 4)) {
         vbd.dimension_length -= 4;
         vbd.dimension_selection = DIM_SELECT_RAW;
+        string_freez(vbd.dim);
         vbd.dim = string_strndupz(vbd.dimension, vbd.dimension_length);
     } else if (strendswith_lengths(vbd.dimension, vbd.dimension_length, "_last_collected_t", 17)) {
         vbd.dimension_length -= 17;
         vbd.dimension_selection = DIM_SELECT_LAST_COLLECTED;
+        string_freez(vbd.dim);
         vbd.dim = string_strndupz(vbd.dimension, vbd.dimension_length);
     }
 

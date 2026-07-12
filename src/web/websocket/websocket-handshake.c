@@ -27,6 +27,9 @@ void websocket_threads_init(void) {
         websocket_threads[i].cmd.pipe[PIPE_WRITE] = -1;
         websocket_threads[i].cmd.buffer = NULL;
         websocket_threads[i].cmd.buffer_size = 0;
+        websocket_threads[i].cmd.broadcast_pending = false;
+        websocket_threads[i].cmd.broadcast_payload_size = 0;
+        websocket_threads[i].cmd.broadcast_payload_read = 0;
     }
 }
 
@@ -412,7 +415,7 @@ short int websocket_handle_handshake(struct web_client *w) {
             return web_client_permission_denied_acl(w);
         }
 
-        if (netdata_is_protected_by_bearer && !mcp_api_key_verified) {
+        if (netdata_bearer_protection_is_enabled() && !mcp_api_key_verified) {
             w->response.data->content_type = CT_TEXT_PLAIN;
             buffer_flush(w->response.data);
             buffer_strcat(w->response.data,

@@ -22,12 +22,7 @@ Older Windows and Windows Server releases are end-of-life and are more likely to
 
 ## Access and Limitations
 
-How you view monitoring data depends on your subscription and deployment mode:
-
-- Paid/enterprise standalone Windows Agents can use the local dashboard at <http://localhost:19999>.
-- Free standalone Windows Agents collect metrics, but the local dashboard is locked. Use [Netdata Cloud](https://app.netdata.cloud) to view monitoring data.
-- Air-gapped free standalone installations cannot use Netdata Cloud, so monitoring data cannot be viewed in that setup.
-- Child Agents streaming to a Linux-based Netdata parent do not show monitoring data in the parent dashboard for free users.
+On Windows, whether you can view monitoring data on the local dashboard at <http://localhost:19999> depends on your Netdata Cloud plan and deployment mode. On the free Community tier, standalone Agents collect metrics but the local dashboard is locked — view your data in [Netdata Cloud](https://app.netdata.cloud) instead. For the full details by plan and deployment mode (including air-gapped and streaming setups), see [Access Control and Feature Availability](/docs/netdata-oss-limitations.md).
 
 ## Download the Windows Installer (MSI)
 
@@ -86,6 +81,36 @@ $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest https://github.com/n
 3. Grant Administrator privileges when prompted.
 4. Complete the setup wizard.
 
+### Claim dialog (GUI installer)
+
+During the wizard you'll see a **Connect to the Cloud** dialog. These fields register the Windows Agent with your Netdata Cloud Space — they are the GUI equivalent of the silent-install `TOKEN`, `ROOMS`, `PROXY`, and `INSECURE` options.
+
+| Field       | What it's for                                                                                     |
+|-------------|---------------------------------------------------------------------------------------------------|
+| Claim Token | The claim token from your Netdata Cloud Space.                                                    |
+| Rooms ID(s) | The Room(s) you want to add this Agent to.                                                        |
+| Proxy URL   | (Optional) A proxy address, if your network requires one to reach Netdata Cloud.                  |
+| Cloud URL   | The Netdata Cloud endpoint. Defaults to `https://app.netdata.cloud`.                              |
+| Insecure    | (Optional) Disables TLS hostname verification when the Agent contacts the Netdata Cloud endpoint. |
+
+:::warning The Claim dialog connects to Netdata Cloud only
+
+The **Cloud URL** and **Insecure** fields connect the Agent to **Netdata Cloud**. They cannot be used to connect this Agent to another local or on-premises Netdata node.
+
+If your goal is to stream metrics to a Parent on your local network, entering a local address such as `http://192.168.0.x:19999` as the Cloud URL and checking **Insecure** will **not** set up streaming. The local dashboard at `http://localhost:19999` is this Agent's own web UI — it is not something you connect to through this dialog.
+
+To stream to a local Parent, configure `stream.conf` on the Child instead. The streaming destination uses Netdata's streaming protocol, not an `http://` URL:
+
+```text
+[stream]
+    enabled = yes
+    destination = PARENT_IP:19999
+```
+
+See the [Parent-Child Configuration Reference](../../src/streaming/README.md) for the full setup, and the [Streaming Routing Reference](../../docs/streaming-routing.md) for routing options.
+
+:::
+
 ## Offline (Air-gapped) Installation
 
 Use this method to install Netdata on a Windows system with no internet access.
@@ -108,7 +133,7 @@ msiexec /qn /i netdata-x64.msi
 
 :::note
 
-This offline method uses `msiexec /qn` with a locally available MSI. Netdata Cloud is unavailable in air-gapped environments, so standalone Agents run in local mode only. On Windows Server versions earlier than 2019, the *automated download* commands in this document may fail due to TLS compatibility issues, so download the MSI on another machine first or use the [GUI installer](#graphical-installation-gui).
+This offline method uses `msiexec /qn` with a locally available MSI. On Windows Server versions earlier than 2019, the *automated download* commands in this document may fail due to TLS compatibility issues, so download the MSI on another machine first or use the [GUI installer](#graphical-installation-gui).
 
 :::
 
@@ -120,7 +145,7 @@ After installation, verify that the Netdata service is running:
 Get-Service netdata
 ```
 
-If your subscription and installation mode allow local monitoring, open <http://localhost:19999> to access the Netdata Dashboard.
+Open <http://localhost:19999> to access the Netdata Dashboard. See [Access and Limitations](#access-and-limitations) for when the local dashboard is available.
 
 ## License Information
 
@@ -253,10 +278,15 @@ On Windows, `edit-config` opens files with the `nano` editor.
 | Exit                  | `Ctrl + X`                                     |
 | Exit with save prompt | `Ctrl + X`, then `Y` to save or `N` to discard |
 
+## Uninstalling Netdata on Windows
+
+The MSI uninstall removes the Netdata binaries and the Windows service, but it does **not** remove your metric database, cache, or edited configuration files. To uninstall the Agent and completely delete the data it leaves behind, see [Uninstall Netdata](/packaging/installer/UNINSTALL.md).
+
 ## Related Windows documentation
 
 - [Service Control](/docs/netdata-agent/start-stop-restart.md#windows) — Start, stop, restart, and check status of the Netdata Agent
 - [Switching Install Types and Release Channels on Windows](/docs/install/windows-release-channels.md)
+- [Uninstall Netdata](/packaging/installer/UNINSTALL.md) — Remove Netdata from Windows, including the metric database and configuration the MSI uninstall leaves behind
 
 ## FAQ
 

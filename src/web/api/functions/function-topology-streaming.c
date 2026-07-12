@@ -86,8 +86,11 @@ static void streaming_topology_agent_id_for_host(RRDHOST *host, char *dst, size_
     char host_guid[UUID_STR_LEN];
     if(streaming_topology_host_guid(host, host_guid, sizeof(host_guid)))
         snprintf(dst, dst_size, "%s", host_guid);
-    else if(host)
-        snprintf(dst, dst_size, "%s", rrdhost_hostname(host));
+    else if(host) {
+        RRDHOST_IDENTITY identity = rrdhost_identity_acquire(host);
+        snprintf(dst, dst_size, "%s", string2str(identity.hostname));
+        rrdhost_identity_release(&identity);
+    }
     else
         dst[0] = '\0';
 }
@@ -178,8 +181,11 @@ static void streaming_topology_actor_id_for_host(RRDHOST *host, char *dst, size_
     char host_guid[UUID_STR_LEN];
     if(streaming_topology_host_guid(host, host_guid, sizeof(host_guid)))
         streaming_topology_actor_id_from_guid(host_guid, dst, dst_size);
-    else if(host)
-        snprintf(dst, dst_size, "hostname:%s", rrdhost_hostname(host));
+    else if(host) {
+        RRDHOST_IDENTITY identity = rrdhost_identity_acquire(host);
+        snprintf(dst, dst_size, "hostname:%s", string2str(identity.hostname));
+        rrdhost_identity_release(&identity);
+    }
     else
         snprintf(dst, dst_size, "host:unknown");
 }
@@ -900,6 +906,7 @@ static void streaming_topology_v1_collect_actors(
 
         char actor_id[256];
         streaming_topology_actor_id_for_host(host, actor_id, sizeof(actor_id));
+        RRDHOST_IDENTITY identity = rrdhost_identity_acquire(host);
 
         STREAMING_TOPOLOGY_V1_ACTOR *actor = streaming_topology_v1_add_actor(payload, actor_id);
         actor->host = host;
@@ -907,8 +914,8 @@ static void streaming_topology_v1_collect_actors(
             streaming_topology_v1_node_type(host, &status, parent_child_count));
         streaming_topology_host_guid(host, actor->machine_guid, sizeof(actor->machine_guid));
         streaming_topology_v1_uuid_str(host->node_id, actor->node_id, sizeof(actor->node_id));
-        streaming_topology_v1_strncpy(actor->hostname, sizeof(actor->hostname), rrdhost_hostname(host));
-        streaming_topology_v1_strncpy(actor->display_name, sizeof(actor->display_name), rrdhost_hostname(host));
+        streaming_topology_v1_strncpy(actor->hostname, sizeof(actor->hostname), string2str(identity.hostname));
+        streaming_topology_v1_strncpy(actor->display_name, sizeof(actor->display_name), string2str(identity.hostname));
         streaming_topology_v1_strncpy(actor->severity, sizeof(actor->severity),
             streaming_topology_v1_severity(host, &status));
         streaming_topology_v1_strncpy(actor->ephemerality, sizeof(actor->ephemerality),
@@ -919,8 +926,8 @@ static void streaming_topology_v1_collect_actors(
             rrdhost_streaming_status_to_string(status.stream.status));
         streaming_topology_v1_strncpy(actor->ml_status, sizeof(actor->ml_status),
             rrdhost_ml_status_to_string(status.ml.status));
-        streaming_topology_v1_strncpy(actor->agent_name, sizeof(actor->agent_name), rrdhost_program_name(host));
-        streaming_topology_v1_strncpy(actor->agent_version, sizeof(actor->agent_version), rrdhost_program_version(host));
+        streaming_topology_v1_strncpy(actor->agent_name, sizeof(actor->agent_name), string2str(identity.prog_name));
+        streaming_topology_v1_strncpy(actor->agent_version, sizeof(actor->agent_version), string2str(identity.prog_version));
         streaming_topology_v1_strncpy(actor->health_status, sizeof(actor->health_status),
             rrdhost_health_status_to_string(status.health.status));
         rrdlabels_get_value_strcpyz(host->rrdlabels, actor->os_name, sizeof(actor->os_name), "_os_name");
@@ -937,6 +944,7 @@ static void streaming_topology_v1_collect_actors(
         }
 
         streaming_topology_v1_collect_actor_labels(payload, payload->actors_used - 1, actor);
+        rrdhost_identity_release(&identity);
     }
     dfe_done(host);
 
@@ -1108,22 +1116,25 @@ static void streaming_topology_v1_collect_links(
         if(!streaming_topology_v1_actor_index_get(payload, target_actor_id, &dst_actor))
             continue;
 
+        RRDHOST_IDENTITY identity = rrdhost_identity_acquire(host);
+
         streaming_topology_v1_add_link_if_new(
             payload,
             src_actor,
             dst_actor,
             link_type,
             rrdhost_ingest_status_to_string(status.ingest.status),
-            rrdhost_hostname(host),
+            string2str(identity.hostname),
             ((uint64_t)(status.ingest.since ? status.ingest.since : now)) * USEC_PER_SEC,
             now_ut,
             status.ingest.hops,
-            strcmp(link_type, "virtual") != 0 ? status.host->stream.rcv.status.connections : 0,
+            strcmp(link_type, "virtual") != 0 ? status.ingest.id : 0,
             strcmp(link_type, "virtual") != 0 ? status.ingest.replication.instances : 0,
             strcmp(link_type, "virtual") != 0 ? status.ingest.replication.completion : 0,
             strcmp(link_type, "virtual") != 0 ? status.ingest.collected.metrics : 0,
             strcmp(link_type, "virtual") != 0 ? status.ingest.collected.instances : 0,
             strcmp(link_type, "virtual") != 0 ? status.ingest.collected.contexts : 0);
+        rrdhost_identity_release(&identity);
     }
     dfe_done(host);
 
@@ -1225,7 +1236,9 @@ static void streaming_topology_v1_collect_actor_detail_rows(
             row->actor = i;
             row->path_actor = localhost_actor;
             row->path_index = sp_ctx.next_index;
-            streaming_topology_v1_strncpy(row->hostname, sizeof(row->hostname), rrdhost_hostname(localhost));
+            RRDHOST_IDENTITY identity = rrdhost_identity_acquire(localhost);
+            streaming_topology_v1_strncpy(row->hostname, sizeof(row->hostname), string2str(identity.hostname));
+            rrdhost_identity_release(&identity);
             streaming_topology_host_guid(localhost, row->host_id, sizeof(row->host_id));
             streaming_topology_v1_uuid_str(localhost->node_id, row->node_id, sizeof(row->node_id));
             row->hops = status.ingest.hops;
@@ -1788,8 +1801,76 @@ static void streaming_topology_v1_emit_actor_modal(BUFFER *wb, const char *actor
     buffer_json_object_close(wb);
 }
 
+static int streaming_topology_v1_string_ptr_cmp(const void *left, const void *right) {
+    const char *left_string = *(const char * const *)left;
+    const char *right_string = *(const char * const *)right;
+    return strcmp(left_string ? left_string : "", right_string ? right_string : "");
+}
+
+static bool streaming_topology_v1_label_matches_actor_type(
+    const STREAMING_TOPOLOGY_V1_PAYLOAD *payload,
+    const STREAMING_TOPOLOGY_V1_ACTOR_LABEL *label,
+    const char *actor_type) {
+    if(!payload || !label || !actor_type || label->actor >= payload->actors_used)
+        return false;
+
+    return strcmp(payload->actors[label->actor].type, actor_type) == 0;
+}
+
+static bool streaming_topology_v1_search_label_key_exists(const char **keys, size_t keys_used, const char *key) {
+    if(!key || !*key)
+        return true;
+
+    for(size_t i = 0; i < keys_used; i++) {
+        if(strcmp(keys[i], key) == 0)
+            return true;
+    }
+
+    return false;
+}
+
+static void streaming_topology_v1_emit_actor_search_label_keys(
+    BUFFER *wb,
+    const STREAMING_TOPOLOGY_V1_PAYLOAD *payload,
+    const char *actor_type) {
+    const char **keys = NULL;
+    size_t keys_used = 0;
+    size_t keys_size = 0;
+
+    if(payload) {
+        for(size_t i = 0; i < payload->labels_used; i++) {
+            const STREAMING_TOPOLOGY_V1_ACTOR_LABEL *label = &payload->labels[i];
+            if(strcmp(label->kind, "host_label") != 0)
+                continue;
+
+            if(!streaming_topology_v1_label_matches_actor_type(payload, label, actor_type))
+                continue;
+
+            if(streaming_topology_v1_search_label_key_exists(keys, keys_used, label->key))
+                continue;
+
+            if(keys_used == keys_size) {
+                keys_size = keys_size ? keys_size * 2 : 16;
+                keys = reallocz(keys, keys_size * sizeof(*keys));
+            }
+            keys[keys_used++] = label->key;
+        }
+    }
+
+    if(keys_used > 1)
+        qsort(keys, keys_used, sizeof(*keys), streaming_topology_v1_string_ptr_cmp);
+
+    buffer_json_member_add_array(wb, "label_keys");
+    for(size_t i = 0; i < keys_used; i++)
+        buffer_json_add_array_item_string(wb, keys[i]);
+    buffer_json_array_close(wb);
+
+    freez(keys);
+}
+
 static void streaming_topology_v1_emit_actor_type(
     BUFFER *wb,
+    const STREAMING_TOPOLOGY_V1_PAYLOAD *payload,
     const char *id,
     const char *label,
     const char *color_slot,
@@ -1823,8 +1904,12 @@ static void streaming_topology_v1_emit_actor_type(
             buffer_json_add_array_item_string(wb, "hostname");
             buffer_json_add_array_item_string(wb, "machine_guid");
             buffer_json_add_array_item_string(wb, "node_id");
+            buffer_json_add_array_item_string(wb, "agent_name");
             buffer_json_add_array_item_string(wb, "agent_version");
+            buffer_json_add_array_item_string(wb, "os_name");
+            buffer_json_add_array_item_string(wb, "architecture");
             buffer_json_array_close(wb);
+            streaming_topology_v1_emit_actor_search_label_keys(wb, payload, id);
         }
         buffer_json_object_close(wb);
         buffer_json_member_add_object(wb, "presentation");
@@ -1981,22 +2066,22 @@ static void streaming_topology_v1_emit_table_type(
     buffer_json_object_close(wb);
 }
 
-static void streaming_topology_v1_emit_type_registry(BUFFER *wb) {
+static void streaming_topology_v1_emit_type_registry(BUFFER *wb, const STREAMING_TOPOLOGY_V1_PAYLOAD *payload) {
     buffer_json_member_add_object(wb, "types");
     {
         buffer_json_member_add_object(wb, "actor_types");
         {
             streaming_topology_v1_emit_actor_type(
-                wb, "parent", "Netdata Parent", "primary", "parent", true,
+                wb, payload, "parent", "Netdata Parent", "primary", "parent", true,
                 "metric", "retained_node_count", "emphasized", "stronger", true, "dst_actor");
             streaming_topology_v1_emit_actor_type(
-                wb, "child", "Netdata Child", "primary", "netdata-agent", false,
+                wb, payload, "child", "Netdata Child", "primary", "netdata-agent", false,
                 "fixed", NULL, "normal", "normal", false, NULL);
             streaming_topology_v1_emit_actor_type(
-                wb, "vnode", "Virtual Node", "warning", "netdata-agent", false,
+                wb, payload, "vnode", "Virtual Node", "warning", "netdata-agent", false,
                 "fixed", NULL, "normal", "normal", false, NULL);
             streaming_topology_v1_emit_actor_type(
-                wb, "stale", "Stale Node", "dim", "netdata-agent", false,
+                wb, payload, "stale", "Stale Node", "dim", "netdata-agent", false,
                 "fixed", NULL, "compact", "weaker", false, NULL);
         }
         buffer_json_object_close(wb);
@@ -2961,7 +3046,9 @@ int function_streaming_topology(BUFFER *wb, const char *function, BUFFER *payloa
                 buffer_json_member_add_uuid(wb, "node_id", localhost->node_id.uuid);
             if(localhost_guid[0])
                 buffer_json_member_add_string(wb, "machine_guid", localhost_guid);
-            buffer_json_member_add_string(wb, "agent_version", rrdhost_program_version(localhost));
+            RRDHOST_IDENTITY identity = rrdhost_identity_acquire(localhost);
+            buffer_json_member_add_string(wb, "agent_version", string2str(identity.prog_version));
+            rrdhost_identity_release(&identity);
             buffer_json_member_add_string(wb, "plugin", "netdata");
             buffer_json_member_add_array(wb, "capabilities");
             buffer_json_add_array_item_string(wb, "topology-v1");
@@ -2988,7 +3075,7 @@ int function_streaming_topology(BUFFER *wb, const char *function, BUFFER *payloa
         }
         buffer_json_object_close(wb);
 
-        streaming_topology_v1_emit_type_registry(wb);
+        streaming_topology_v1_emit_type_registry(wb, &topology);
         streaming_topology_v1_emit_presentation(wb);
         streaming_topology_v1_emit_actor_table(wb, &topology);
         streaming_topology_v1_emit_link_table(wb, &topology);

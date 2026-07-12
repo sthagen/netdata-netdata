@@ -288,7 +288,10 @@ static SIMPLE_PATTERN_RESULT simple_pattern_matches_extract_with_length(SIMPLE_P
     for(m = root; m ; m = m->next) {
         char *ws = wildcarded;
         size_t wss = wildcarded_size;
-        if(unlikely(ws)) *ws = '\0';
+        if(unlikely(wss)) {
+            if(unlikely(ws))
+                *ws = '\0';
+        }
 
         if (match_pattern(m, str, len, ws, &wss)) {
             if (m->negative) return SP_MATCHED_NEGATIVE;
@@ -385,8 +388,8 @@ static void scan_is_potential_name(struct simple_pattern *p, int *alpha, int *co
             }
             if (p->mode != SIMPLE_PATTERN_EXACT)
                 *wildcards = 1;
-            p = p->child;
         }
+        p = p->child;
     }
 }
 

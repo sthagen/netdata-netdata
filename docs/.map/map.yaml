@@ -6,7 +6,7 @@ sidebar:
     items:
       - meta:
           label: Enterprise Evaluation Guide
-          edit_url: https://github.com/netdata/netdata/edit/master/docs/netdata-enterprise-evaluation-corrected.md
+          edit_url: https://github.com/netdata/netdata/edit/master/docs/netdata-enterprise-evaluation.md
           keywords:
             - real-time observability
             - infrastructure monitoring
@@ -174,6 +174,10 @@ sidebar:
           - meta:
               label: Disk & Retention
               edit_url: https://github.com/netdata/netdata/edit/master/docs/netdata-agent/sizing-netdata-agents/disk-requirements-and-retention.md
+          - meta:
+              label: Impact on Cloud VMs
+              edit_url: https://github.com/netdata/netdata/edit/master/docs/impact-on-resources.md
+              description: Recommended VM sizing and the resource impact of running Netdata on cloud VMs (AWS, Azure, GCP).
       - meta:
           label: Configuration
           edit_url: https://github.com/netdata/netdata/edit/master/docs/netdata-agent/configuration/README.md
@@ -277,6 +281,10 @@ sidebar:
             - node id
             - claimed id
             - identity
+            - vnode
+            - virtual node
+            - dyncfg
+            - dynamic configuration
       - meta:
           label: VM Templates
           edit_url: https://github.com/netdata/netdata/edit/master/docs/learn/vm-templates.md
@@ -430,8 +438,11 @@ sidebar:
           label: Collectors configuration
           edit_url: https://github.com/netdata/netdata/edit/master/src/collectors/REFERENCE.md
       - meta:
-          label: Service discovery
-          edit_url: https://github.com/netdata/agent-service-discovery/edit/master/README.md
+          label: Service Discovery
+          edit_url: https://github.com/netdata/netdata/edit/master/src/collectors/SERVICE-DISCOVERY.md
+        items:
+          - type: integration_placeholder
+            integration_kind: service_discovery
       - meta:
           label: StatsD
           edit_url: https://github.com/netdata/netdata/edit/master/src/collectors/statsd.plugin/README.md
@@ -441,7 +452,7 @@ sidebar:
           description: Monitor containers and virtual machines via Linux cgroups, with friendly name resolution for Docker, Kubernetes, Podman, LXC, libvirt, Proxmox, and more.
       - meta:
           label: OpenTelemetry Metrics
-          edit_url: https://github.com/netdata/netdata/edit/master/src/crates/netdata-otel/otel-plugin/README.md
+          edit_url: https://github.com/netdata/netdata/edit/master/src/crates/otel-plugin/README.md
           description: Ingesting storing and visualizing OpenTelemetry metrics
           path: OpenTelemetry
       - meta:
@@ -451,6 +462,16 @@ sidebar:
         items:
           - type: integration_placeholder
             integration_kind: secretstore
+      - meta:
+          label: Chart Template Format
+          edit_url: https://github.com/netdata/netdata/edit/master/src/go/plugin/framework/charttpl/README.md
+          description: Define dynamic Netdata chart groups, instances, labels, dimensions, lifecycle, and presentation using declarative templates.
+          keywords: [charts, templates, collectors, dimensions, labels]
+      - meta:
+          label: AWS CloudWatch Profile Format
+          edit_url: https://github.com/netdata/netdata/edit/master/src/go/plugin/go.d/collector/cloudwatch/profile-format.md
+          description: Define CloudWatch namespaces, supported regions, resource dimensions, metrics, statistics, and dynamic charts in reusable profiles.
+          keywords: [aws, cloudwatch, profiles, collectors, metrics]
       - type: integration_placeholder
         integration_kind: collectors
   # Exporting Metrics
@@ -899,7 +920,7 @@ sidebar:
               label: Chat with Netdata
               edit_url: https://github.com/netdata/netdata/edit/master/docs/netdata-ai/mcp/ai-chat-netdata.md
           - meta:
-              label: MCP Clients
+              label: Supported AI Clients
               edit_url: https://github.com/netdata/netdata/edit/master/docs/netdata-ai/mcp/mcp-clients/ai-devops-copilot.md
             items:
               - meta:
@@ -929,6 +950,9 @@ sidebar:
               - meta:
                   label: OpenCode
                   edit_url: https://github.com/netdata/netdata/edit/master/docs/netdata-ai/mcp/mcp-clients/opencode.md
+          - meta:
+              label: MCP Connections
+              edit_url: https://github.com/netdata/netdata/edit/master/docs/netdata-ai/mcp/mcp-connections.md
   # Dashboards and Charts
   - meta:
       label: Dashboards and Charts

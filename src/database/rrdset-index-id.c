@@ -282,7 +282,7 @@ static void rrdset_react_callback(const DICTIONARY_ITEM *item __maybe_unused, vo
     RRDHOST *host = st->rrdhost;
 
     st->collector_tid = gettid_cached();
-    st->last_accessed_time_s = now_realtime_sec();
+    rrdset_touch_last_accessed_time_s(st);
 
     if(ctr->react_action & (RRDSET_REACT_NEW | RRDSET_REACT_PLUGIN_UPDATED | RRDSET_REACT_MODULE_UPDATED)) {
         if (ctr->react_action & RRDSET_REACT_NEW) {
@@ -310,6 +310,20 @@ void rrdset_index_init(RRDHOST *host) {
     rrdset_index_byname_init(host);
 }
 
+void rrdset_index_flush(RRDHOST *host) {
+    // empty the indexes but keep them allocated and the host pointers valid,
+    // so that in-flight queries holding acquired charts can still release them
+    // through rrdset_acquired_release() after the host is archived;
+    // the indexes are destroyed only in rrdhost_free_unlinked(), after the
+    // host has been removed from the indexes and cannot be found by new queries
+
+    // flush the name index first (it is a view of the id index)
+    dictionary_flush(host->rrdset_root_index_name);
+
+    // then flush the id index
+    dictionary_flush(host->rrdset_root_index);
+}
+
 void rrdset_index_destroy(RRDHOST *host) {
     // destroy the name index first
     dictionary_destroy(host->rrdset_root_index_name);
@@ -320,8 +334,8 @@ void rrdset_index_destroy(RRDHOST *host) {
     host->rrdset_root_index = NULL;
 }
 
-static inline RRDSET *rrdset_index_add(RRDHOST *host, const char *id, struct rrdset_constructor *st_ctr) {
-    return dictionary_set_advanced(host->rrdset_root_index, id, -1, NULL, sizeof(RRDSET), st_ctr);
+static inline const DICTIONARY_ITEM *rrdset_index_add_and_acquire(RRDHOST *host, const char *id, struct rrdset_constructor *st_ctr) {
+    return dictionary_set_and_acquire_item_advanced(host->rrdset_root_index, id, -1, NULL, sizeof(RRDSET), st_ctr);
 }
 
 static inline void rrdset_index_del(RRDHOST *host, RRDSET *st) {
@@ -344,7 +358,7 @@ RRDSET *rrdset_find(RRDHOST *host, const char *id, bool include_obsolete) {
         if(!include_obsolete && !rrdset_is_discoverable(st))
             return NULL;
 
-        st->last_accessed_time_s = now_realtime_sec();
+        rrdset_touch_last_accessed_time_s(st);
     }
 
     return(st);
@@ -365,6 +379,12 @@ RRDSET *rrdset_find_bytype(RRDHOST *host, const char *type, const char *id, bool
 RRDSET_ACQUIRED *rrdset_find_and_acquire(RRDHOST *host, const char *id, bool include_obsolete) {
     netdata_log_debug(D_RRD_CALLS, "rrdset_find_and_acquire() for host %s, chart %s", rrdhost_hostname(host), id);
 
+    // the index stays allocated for the whole life of the host (archiving only
+    // flushes it); this guard is defense-in-depth for callers racing with
+    // rrdhost_free_unlinked()
+    if (unlikely(!host->rrdset_root_index))
+        return NULL;
+
     RRDSET_ACQUIRED *sta = (RRDSET_ACQUIRED *)dictionary_get_and_acquire_item(host->rrdset_root_index, id);
     if(sta) {
         RRDSET *st = dictionary_acquired_item_value((const DICTIONARY_ITEM *)sta);
@@ -374,7 +394,7 @@ RRDSET_ACQUIRED *rrdset_find_and_acquire(RRDHOST *host, const char *id, bool inc
                 return NULL;
             }
 
-            st->last_accessed_time_s = now_realtime_sec();
+            rrdset_touch_last_accessed_time_s(st);
         }
     }
 
@@ -451,23 +471,26 @@ RRDSET *rrdset_create_custom(
 
     struct rrdset_constructor ctr;
 
-    RRDSET *st = NULL;
-    while(!st) {
-        st = rrdset_index_find(host, chart_full_id);
-        if(st) {
-            if(spinlock_trylock(&st->destroy_lock)) {
-                rrdset_isnot_obsolete___safe_from_collector_thread(st);
-                spinlock_unlock(&st->destroy_lock);
+    const DICTIONARY_ITEM *st_item = NULL;
+    while(!st_item) {
+        const DICTIONARY_ITEM *existing_item = dictionary_get_and_acquire_item(host->rrdset_root_index, chart_full_id);
+        if(existing_item) {
+            RRDSET *existing_st = dictionary_acquired_item_value(existing_item);
+            if(spinlock_trylock(&existing_st->destroy_lock)) {
+                rrdset_isnot_obsolete___safe_from_collector_thread(existing_st);
+                spinlock_unlock(&existing_st->destroy_lock);
             }
             else {
 #ifdef FSANITIZE_ADDRESS
                 fprintf(stderr, "rrdset_create_custom() - chart '%s' of host '%s' is being deleted but we need it. Retrying...\n",
                         chart_full_id, rrdhost_hostname(host));
 #endif
-                st = NULL;
+                dictionary_acquired_item_release(host->rrdset_root_index, existing_item);
                 microsleep(1 * USEC_PER_MS);
                 continue;
             }
+
+            dictionary_acquired_item_release(host->rrdset_root_index, existing_item);
         }
 
         ctr = (struct rrdset_constructor){
@@ -488,8 +511,10 @@ RRDSET *rrdset_create_custom(
             .history_entries = history_entries,
         };
 
-        st = rrdset_index_add(host, chart_full_id, &ctr);
+        st_item = rrdset_index_add_and_acquire(host, chart_full_id, &ctr);
     }
+
+    RRDSET *st = dictionary_acquired_item_value(st_item);
 
     bool name_updated = false;
     if(!st->name) {
@@ -511,6 +536,7 @@ RRDSET *rrdset_create_custom(
         rrdset_metadata_updated(st);
     }
 
+    dictionary_acquired_item_release(host->rrdset_root_index, st_item);
     return st;
 }
 

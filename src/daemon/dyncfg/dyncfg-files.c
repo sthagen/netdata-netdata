@@ -3,6 +3,12 @@
 #include "dyncfg-internals.h"
 #include "dyncfg.h"
 
+// Upper bound for a dyncfg payload loaded from disk. Payloads are configuration
+// documents (normally a few KB); anything beyond this is treated as a corrupt or
+// oversized file. Mirrors MAX_SETTINGS_SIZE_BYTES used for settings payloads, so
+// a bad file cannot force an unbounded heap allocation (mallocz fatals on OOM).
+#define DYNCFG_MAX_PAYLOAD_SIZE (20 * 1024 * 1024)
+
 void dyncfg_file_delete(const char *id) {
     CLEAN_CHAR_P *escaped_id = dyncfg_escape_id_for_filename(id);
     char filename[FILENAME_MAX];
@@ -151,7 +157,6 @@ void dyncfg_file_load(const char *d_name) {
             rc = fseek(fp, 0, SEEK_END);
             if (!rc) {
                 total_size = ftell(fp);                      // Total size of the file
-                actual_size = total_size - saved_position;   // Calculate remaining content size
                 rc = fseek(fp, saved_position, SEEK_SET);    // Reset file pointer to the beginning of the payload
             }
         }
@@ -164,6 +169,27 @@ void dyncfg_file_load(const char *d_name) {
             dyncfg_cleanup(&tmp);
             return;
         }
+
+        if (total_size < saved_position) {
+            nd_log(NDLS_DAEMON, NDLP_ERR,
+                   "DYNCFG: payload position %ld is beyond file size %ld for file '%s'. Ignoring it.",
+                   saved_position, total_size, filename);
+            fclose(fp);
+            dyncfg_cleanup(&tmp);
+            return;
+        }
+
+        actual_size = (size_t)(total_size - saved_position); // Calculate remaining content size
+
+        if (actual_size > DYNCFG_MAX_PAYLOAD_SIZE) {
+            nd_log(NDLS_DAEMON, NDLP_ERR,
+                   "DYNCFG: payload size %zu exceeds the maximum allowed %d for file '%s'. Ignoring it.",
+                   actual_size, DYNCFG_MAX_PAYLOAD_SIZE, filename);
+            fclose(fp);
+            dyncfg_cleanup(&tmp);
+            return;
+        }
+
         // Use actual_size instead of content_length to handle the whole remaining file
         tmp.dyncfg.payload = buffer_create(actual_size, NULL);
         tmp.dyncfg.payload->content_type = content_type;
@@ -245,15 +271,37 @@ static bool dyncfg_read_file_to_buffer(const char *filename, BUFFER *dst) {
         return false;
     }
 
-    buffer_flush(dst);
-    buffer_need_bytes(dst, st.st_size + 1); // +1 for the terminating zero
-
-    ssize_t r = read(fd, (char*)dst->buffer, st.st_size);
-    if(unlikely(r == -1)) {
+    if(unlikely(st.st_size < 0 || (uintmax_t)st.st_size > UINT32_MAX - 2)) {
         close(fd);
         return false;
     }
-    dst->len = r;
+
+    size_t file_size = (size_t)st.st_size;
+
+    buffer_flush(dst);
+    buffer_need_bytes(dst, file_size + 1); // +1 for the terminating zero
+
+    size_t bytes_read = 0;
+    while(bytes_read < file_size) {
+        size_t bytes_to_read = file_size - bytes_read;
+        if(bytes_to_read > (size_t)SSIZE_MAX)
+            bytes_to_read = (size_t)SSIZE_MAX;
+
+        ssize_t r = read(fd, &dst->buffer[bytes_read], bytes_to_read);
+        if(likely(r > 0)) {
+            bytes_read += (size_t)r;
+            continue;
+        }
+
+        if(unlikely(r == -1 && errno == EINTR))
+            continue;
+
+        buffer_flush(dst);
+        close(fd);
+        return false;
+    }
+
+    dst->len = bytes_read;
     dst->buffer[dst->len] = '\0';
 
     close(fd);

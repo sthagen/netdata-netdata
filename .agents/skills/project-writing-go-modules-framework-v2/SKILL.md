@@ -115,15 +115,38 @@ source files for evidence.
 - Do NOT rely on chartengine's metric-name suffix inference for generated
   Netdata metrics. Suffix inference is only a fallback and MUST NOT be used as
   the correctness mechanism for V2 collector charts.
+- Histogram bucket charts use range bucket values from `metrix.ReadFlatten()`
+  and chartengine forces them to `heatmap`. Bucket dimensions are named by the
+  bare `le` upper-bound value and ordered numerically with `+Inf` last. Do NOT
+  add collector-local cumulative-bucket workaround metrics or a bucket-mode
+  option for V2 charts.
 - Put multipliers, divisors, hidden flags, and float formatting in the chart
   template, not ad hoc chart-emission code.
-- `metrix` registers a descriptor per metric NAME permanently (no unregister), so
-  re-registering a name with a changed kind, summary quantile set, or histogram
-  bounds PANICS. When a name's contract can drift across cycles, keep the per-name
-  handle for the job lifetime and SKIP a drifted series instead of re-registering.
+- `metrix` keeps ONE descriptor per metric NAME, resolved atomically at commit and
+  BOUNDED: a name idle past its retention window (`expireAfterSuccessCycles +
+  descriptorGraceCycles`, both configurable on `NewCollectorStore(...)`) is evicted
+  and can then re-register with a changed contract. Within that window the
+  descriptor is authoritative — re-registering a TRULY-LIVE name with a changed
+  kind / summary quantiles / histogram bounds fails the commit (loud), an idle name
+  is superseded, and Init-time (out-of-cycle) registration still panics
+  synchronously on conflict.
+- If a collector caches per-name handles ACROSS cycles, it MUST NOT keep them for
+  the job lifetime: couple their lifetime to the descriptor window via the optional
+  `metrix.DescriptorRetention` accessor (`DescriptorRetentionWindow()`,
+  `SuccessfulCommits()`), or a stale handle drift-skips a changed-contract name
+  forever after `metrix` evicts the descriptor. The prometheus writer
+  (`collector/prometheus/writer.go`) is the reference; see
+  `src/go/pkg/metrix/README.md` ("Descriptor Lifecycle and Retention").
 - To reproduce a V1 chart context in a migration, inject `context_namespace` (the
   fixed prefix, or `prefix.<app>` per job) so autogen rebuilds `prefix.<metric>` /
   `prefix.<app>.<metric>` without hand-built chart IDs.
+- When a collector builds its chart template at RUNTIME (not a static `charts.yaml`):
+  - Emit it with `charttpl.Spec.MarshalTemplate()` (runs `Validate()` only, then
+    marshals with `yaml.v2`, the decoder's library). Do NOT hand-roll `Validate()` +
+    `yaml.Marshal`, and do NOT marshal with `yaml.v3`.
+  - If you mutate a `charttpl.Group` borrowed from a shared profile/catalog, deep-copy
+    it first with `Group.Clone()` so per-job edits cannot corrupt the shared template.
+    A `Group` you decoded yourself per job is already owned and needs no clone.
 - Skip empty distributions -- e.g. a summary whose every quantile is NaN -- so a
   chart waits for real data, matching how scalar NaN values are already skipped.
 - For dynamic surfaces whose label sets churn, `metrix`'s `Vec` handle cache is
@@ -173,6 +196,18 @@ source files for evidence.
 - Full collection failure SHOULD still return an error with context so the job
   retry path handles it. Limit only fail-soft warnings/errors where collection
   continues with partial or stale data.
+
+## Chart Label Identity
+
+- Labels used by `instances.by_labels` or a dimension `name_from_label` define
+  chart or dimension identity. Changing one creates a new chart or dimension;
+  collectors MUST NOT use identity churn merely to refresh metadata.
+- `label_promotion` defines non-identity chart metadata. Chartengine reconciles
+  its effective intersection on existing charts and emits a complete
+  replacement only when it changes.
+- Collectors MUST continue publishing numeric samples at their required cadence.
+  A label-only replacement updates chart metadata; it is not a substitute for
+  numeric sample-and-hold output.
 
 ## Host Scopes
 

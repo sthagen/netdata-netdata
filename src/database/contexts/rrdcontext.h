@@ -46,7 +46,7 @@ STRING *rrdinstance_acquired_units_dup(RRDINSTANCE_ACQUIRED *ria);
 RRDLABELS *rrdinstance_acquired_labels(RRDINSTANCE_ACQUIRED *ria);
 DICTIONARY *rrdinstance_acquired_functions(RRDINSTANCE_ACQUIRED *ria);
 RRDHOST *rrdinstance_acquired_rrdhost(RRDINSTANCE_ACQUIRED *ria);
-RRDSET *rrdinstance_acquired_rrdset(RRDINSTANCE_ACQUIRED *ria);
+RRDSET_ACQUIRED *rrdinstance_acquired_rrdset_acquire(RRDINSTANCE_ACQUIRED *ria);
 
 bool rrdinstance_acquired_belongs_to_context(RRDINSTANCE_ACQUIRED *ria, RRDCONTEXT_ACQUIRED *rca);
 time_t rrdinstance_acquired_update_every(RRDINSTANCE_ACQUIRED *ria);
@@ -79,7 +79,7 @@ typedef enum {
     RRDCONTEXT_OPTION_SHOW_UUIDS         = (1 << 7),
     RRDCONTEXT_OPTION_SHOW_HIDDEN        = (1 << 8),
     RRDCONTEXT_OPTION_RFC3339            = (1 << 9),  // Return timestamps in RFC3339 format
-    RRDCONTEXT_OPTION_SKIP_ID            = (1 << 31), // internal use
+    RRDCONTEXT_OPTION_SKIP_ID            = (1U << 31), // internal use
 } RRDCONTEXT_TO_JSON_OPTIONS;
 
 #define RRDCONTEXT_OPTIONS_ALL (RRDCONTEXT_OPTION_SHOW_METRICS|RRDCONTEXT_OPTION_SHOW_INSTANCES|RRDCONTEXT_OPTION_SHOW_LABELS|RRDCONTEXT_OPTION_SHOW_QUEUED|RRDCONTEXT_OPTION_SHOW_FLAGS|RRDCONTEXT_OPTION_SHOW_DELETED|RRDCONTEXT_OPTION_SHOW_UUIDS|RRDCONTEXT_OPTION_SHOW_HIDDEN)

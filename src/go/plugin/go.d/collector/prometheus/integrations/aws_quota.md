@@ -21,10 +21,17 @@ Module: prometheus
 
 ## Overview
 
-Monitor AWS service quotas for effective resource usage and cost management.
+Monitor AWS Service Quotas exposed by aws_quota_exporter.
+
+This integration complements the
+[Amazon CloudWatch](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/cloudwatch/integrations/amazon_cloudwatch.md) collector,
+which queries runtime metrics from CloudWatch. The integrations use different AWS data sources and do
+not replace one another.
 
 
-Metrics are gathered by periodically sending HTTP requests to [aws_quota_exporter](https://github.com/emylincon/aws_quota_exporter).
+Netdata periodically scrapes Prometheus metrics from
+[aws_quota_exporter](https://github.com/emylincon/aws_quota_exporter), which obtains quota information
+from AWS Service Quotas rather than CloudWatch.
 
 
 This collector is supported on all platforms.
@@ -479,6 +486,3 @@ docker logs netdata 2>&1 | grep prometheus
 ### Disappearing or sparse metrics not clearing alerts
 
 When a metric disappears from the Prometheus endpoint response (for example, a gauge that is only exposed when its value is greater than 0), Netdata does not require any special value to stop tracking it. The Prometheus collector automatically detects metrics that are no longer present in the scrape response. After 10 consecutive collection cycles where the metric is absent, the associated chart is automatically removed and any alerts on that chart will clear. You do not need to send a special value (such as 0, NaN, or StaleNaN) — simply omitting the metric from the response is sufficient. Note that during the 10-cycle grace period, the last known value remains and alerts may not clear immediately.
-
-
-

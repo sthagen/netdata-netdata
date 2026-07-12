@@ -205,7 +205,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [Linux Audit Subsystem](https://github.com/netdata/netdata/blob/master/src/collectors/debugfs.plugin/integrations/linux_audit_subsystem.md) | Monitors Linux kernel audit subsystem status via NETLINK_AUDIT. |
 | [Linux kernel SLAB allocator statistics](https://github.com/netdata/netdata/blob/master/src/collectors/slabinfo.plugin/integrations/linux_kernel_slab_allocator_statistics.md) | Collects metrics on kernel SLAB cache utilization to monitor the low-level performance impact of workloads in the kernel. |
 | [Linux ZSwap](https://github.com/netdata/netdata/blob/master/src/collectors/debugfs.plugin/integrations/linux_zswap.md) | Collects zswap performance metrics on Linux systems. |
-| [macOS](https://github.com/netdata/netdata/blob/master/src/collectors/macos.plugin/integrations/macos.md) | Monitor macOS metrics for efficient operating system performance. |
+| [macOS](https://github.com/netdata/netdata/blob/master/src/collectors/macos.plugin/integrations/macos.md) | Monitor macOS metrics for efficient operating system performance, power sources, thermal pressure, sensors, fans, storage, and networking. |
 | [Memory Statistics](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/memory_statistics.md) | Linux Virtual memory subsystem. |
 | [Memory Statistics (Win)](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/memory_statistics_win.md) | This collector monitors swap and memory pool statistics on Windows systems. |
 | [Memory Usage](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/memory_usage.md) | `/proc/meminfo` provides detailed information about the system's current memory usage. |
@@ -316,8 +316,9 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 
 | Integration | Description |
 |-------------|-------------|
-| [AWS EC2 Compute instances](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/aws_ec2_compute_instances.md) | Track AWS EC2 instances key metrics for optimized performance and cost management. |
-| [AWS Quota](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/aws_quota.md) | Monitor AWS service quotas for effective resource usage and cost management. |
+| [Amazon CloudWatch](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/cloudwatch/integrations/amazon_cloudwatch.md) | Monitor AWS infrastructure through Amazon CloudWatch. |
+| [AWS EC2 Compute instances](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/aws_ec2_compute_instances.md) | Monitor Amazon EC2 inventory and capacity information exposed by AWS EC2 Exporter. |
+| [AWS Quota](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/aws_quota.md) | Monitor AWS Service Quotas exposed by aws_quota_exporter. |
 | [Azure API Management](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/azure_monitor/integrations/azure_api_management.md) | :::info |
 | [Azure App Service](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/azure_monitor/integrations/azure_app_service.md) | :::info |
 | [Azure Application Gateway](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/azure_monitor/integrations/azure_application_gateway.md) | :::info |
@@ -361,7 +362,6 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [BOSH](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/bosh.md) | Keep an eye on BOSH deployment metrics for improved cloud orchestration and resource management. |
 | [Cloud Foundry](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/cloud_foundry.md) | Track Cloud Foundry platform metrics for optimized application deployment and management. |
 | [Cloud Foundry Firehose](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/cloud_foundry_firehose.md) | Monitor Cloud Foundry Firehose metrics for comprehensive platform diagnostics and management. |
-| [CloudWatch](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/cloudwatch.md) | Monitor AWS CloudWatch metrics for comprehensive AWS resource management and performance optimization. |
 | [Concourse](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/concourse.md) | Monitor Concourse CI/CD pipeline metrics for optimized workflow management and deployment. |
 | [Dynatrace](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/dynatrace.md) | Monitor Dynatrace APM metrics for comprehensive application performance management. |
 | [GCP GCE](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/gcp_gce.md) | Keep an eye on Google Cloud Platform Compute Engine metrics for efficient cloud resource management and performance. |
@@ -371,7 +371,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [Hubble](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/hubble.md) | Monitor Hubble network observability metrics for efficient network visibility and management. |
 | [Jenkins](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/jenkins.md) | Track Jenkins continuous integration server metrics for efficient development and build management. |
 | [Linode](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/linode.md) | Monitor Linode cloud hosting metrics for efficient virtual server management and performance. |
-| [OpenTelemetry](https://github.com/netdata/netdata/blob/master/src/crates/netdata-otel/otel-plugin/integrations/opentelemetry.md) | This plugin enables the Netdata Agent to receive OpenTelemetry metrics and logs via the OTLP/gRPC protocol from any compatible source — collectors, SDKs, or instrumented applications. |
+| [OpenTelemetry](https://github.com/netdata/netdata/blob/master/src/crates/otel-plugin/integrations/opentelemetry.md) | This plugin enables the Netdata Agent to receive OpenTelemetry metrics and logs via the OTLP/gRPC protocol from any compatible source — collectors, SDKs, or instrumented applications. |
 | [Puppet](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/puppet/integrations/puppet.md) | This collector monitors Puppet metrics, including JVM heap and non-heap memory, CPU usage, and file descriptors. |
 | [Spacelift](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/spacelift.md) | Track Spacelift infrastructure-as-code (IaC) platform metrics for efficient infrastructure automation and management. |
 | [Zerto](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/zerto.md) | Monitor Zerto disaster recovery and data protection metrics for efficient backup and recovery management. |

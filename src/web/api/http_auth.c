@@ -44,15 +44,16 @@ static void bearer_token_delete_from_disk(nd_uuid_t *token) {
 }
 
 static void bearer_token_cleanup(bool force) {
-    static time_t attempts = 0;
+    static uint32_t cleanup_attempts = 0;
 
-    if(++attempts % 1000 != 0 && !force)
+    uint32_t attempts = __atomic_add_fetch(&cleanup_attempts, 1, __ATOMIC_RELAXED);
+    if(attempts % 1000 != 0 && !force)
         return;
 
     time_t now_s = now_realtime_sec();
 
     struct bearer_token *z;
-    dfe_start_read(netdata_authorized_bearers, z) {
+    dfe_start_write(netdata_authorized_bearers, z) {
         if(z->expires_s < now_s) {
             nd_uuid_t uuid;
             if(uuid_parse_flexi(z_dfe.name, uuid) == 0)
@@ -341,8 +342,11 @@ bool web_client_bearer_token_auth(struct web_client *w, const char *v) {
 }
 
 void bearer_tokens_init(void) {
-    netdata_is_protected_by_bearer =
-        inicfg_get_boolean(&netdata_config, CONFIG_SECTION_WEB, "bearer token protection", netdata_is_protected_by_bearer);
+    netdata_bearer_protection_set_enabled(inicfg_get_boolean(
+        &netdata_config,
+        CONFIG_SECTION_WEB,
+        "bearer token protection",
+        netdata_bearer_protection_is_enabled()));
 
     netdata_authorized_bearers = dictionary_create_advanced(
         DICT_OPTION_DONT_OVERWRITE_VALUE | DICT_OPTION_FIXED_SIZE,

@@ -25,7 +25,11 @@ static void update_cygpath_env(void) {
     char win_path[MAX_PATH];
 
     // Convert Cygwin root path to Windows path
-    cygwin_conv_path(CCP_POSIX_TO_WIN_A, "/", win_path, sizeof(win_path));
+    errno_clear();
+    if(cygwin_conv_path(CCP_POSIX_TO_WIN_A, "/", win_path, sizeof(win_path)) != 0) {
+        nd_log(NDLS_COLLECTORS, NDLP_ERR, "Cannot convert Cygwin/MSYS2 base path to Windows path: %s", strerror(errno));
+        return;
+    }
 
     nd_setenv("NETDATA_CYGWIN_BASE_PATH", win_path, 1);
 
@@ -58,12 +62,17 @@ void spawn_server_destroy(SPAWN_SERVER *server) {
 }
 
 static BUFFER *argv_to_windows(const char **argv) {
-    BUFFER *wb = buffer_create(0, NULL);
-
     // argv[0] is the path
-    size_t b_size = strlen(argv[0]) * 2 + FILENAME_MAX;
+    ssize_t converted_size = cygwin_conv_path(CCP_POSIX_TO_WIN_A | CCP_ABSOLUTE, argv[0], NULL, 0);
+    if(converted_size <= 0)
+        return NULL;
+
+    size_t b_size = (size_t)converted_size;
     CLEAN_CHAR_P *b = mallocz(b_size);
-    cygwin_conv_path(CCP_POSIX_TO_WIN_A | CCP_ABSOLUTE, argv[0], b, b_size);
+    if(cygwin_conv_path(CCP_POSIX_TO_WIN_A | CCP_ABSOLUTE, argv[0], b, b_size) != 0)
+        return NULL;
+
+    BUFFER *wb = buffer_create(0, NULL);
 
     for(size_t i = 0; argv[i] ;i++) {
         const char *s = (i == 0) ? b : argv[i];
@@ -161,6 +170,13 @@ SPAWN_INSTANCE* spawn_server_exec(SPAWN_SERVER *server, int stderr_fd __maybe_un
     instance->request_id = __atomic_add_fetch(&server->request_id, 1, __ATOMIC_RELAXED);
 
     CLEAN_BUFFER *wb = argv_to_windows(argv);
+    if(!wb) {
+        nd_log(NDLS_COLLECTORS, NDLP_ERR,
+               "SPAWN PARENT: Cannot convert command path for request No %zu, command: %s",
+               instance->request_id, argv[0]);
+        goto cleanup;
+    }
+
     char *command = (char *)buffer_tostring(wb);
 
     if (pipe(pipe_stdin) == -1) {
@@ -250,6 +266,8 @@ SPAWN_INSTANCE* spawn_server_exec(SPAWN_SERVER *server, int stderr_fd __maybe_un
         nd_log(NDLS_COLLECTORS, NDLP_ERR,
                "SPAWN PARENT: cannot CreateProcess() for request No %zu, command: %s",
                instance->request_id, command);
+        if(env_block)
+            FreeEnvironmentStrings(env_block);
         goto cleanup;
     }
 

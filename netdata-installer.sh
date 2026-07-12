@@ -219,12 +219,12 @@ USAGE: ${PROGRAM} [options]
   --internal-systemd-journal Enable the internal journal file reader instead of using libsystemd
   --enable-plugin-otel Enable the Netdata OpenTelemetry plugin. Default: disabled
   --disable-plugin-otel Explicitly disable the Netdata OpenTelemetry plugin.
-  --enable-plugin-otel-signal-viewer Enable the OTel signal viewer plugin. Default: disabled
-  --disable-plugin-otel-signal-viewer Explicitly disable the OTel signal viewer plugin.
   --enable-plugin-netflow    Enable the NetFlow/IPFIX/sFlow flow analysis plugin. Default: disabled.
   --disable-plugin-netflow   Explicitly disable the NetFlow/IPFIX/sFlow flow analysis plugin.
   --enable-plugin-ibm        Enable the IBM ecosystem monitoring plugin. Default: disabled
   --disable-plugin-ibm       Explicitly disable the IBM ecosystem monitoring plugin.
+  --enable-plugin-scripts    Enable the scripts.d plugin. Default: Enabled when possible.
+  --disable-plugin-scripts   Explicitly disable the scripts.d plugin.
   --enable-exporting-kinesis Enable AWS Kinesis exporting connector. Default: enable it when libaws_cpp_sdk_kinesis
                              and its dependencies are available.
   --disable-exporting-kinesis Explicitly disable AWS Kinesis exporting connector.
@@ -269,9 +269,8 @@ ENABLE_PYTHON=1
 ENABLE_CHARTS=1
 ENABLE_NETFLOW=0
 ENABLE_OTEL=0
-ENABLE_OTEL_SIGNAL_VIEWER=0
 ENABLE_IBM=0
-ENABLE_SCRIPTS=0
+ENABLE_SCRIPTS=1
 FORCE_LEGACY_CXX=0
 NETDATA_CMAKE_OPTIONS="${NETDATA_CMAKE_OPTIONS-}"
 REMOVE_BUILD=1
@@ -317,8 +316,6 @@ while [ -n "${1}" ]; do
     "--internal-systemd-journal") USE_RUST_JOURNAL_FILE=1 ;;
     "--enable-plugin-otel") ENABLE_OTEL=1 ;;
     "--disable-plugin-otel") ENABLE_OTEL=0 ;;
-    "--enable-plugin-otel-signal-viewer") ENABLE_OTEL_SIGNAL_VIEWER=1 ;;
-    "--disable-plugin-otel-signal-viewer") ENABLE_OTEL_SIGNAL_VIEWER=0 ;;
     "--enable-plugin-ibm") ENABLE_IBM=1 ;;
     "--disable-plugin-ibm") ENABLE_IBM=0 ;;
     "--enable-plugin-scripts") ENABLE_SCRIPTS=1 ;;
@@ -905,19 +902,9 @@ if [ "$(id -u)" -eq 0 ]; then
     fi
   fi
 
-  if [ -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/otel-signal-viewer-plugin" ]; then
-    run chown "root:${NETDATA_GROUP}" "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/otel-signal-viewer-plugin"
-    capabilities=0
-    if ! iscontainer && command -v setcap 1> /dev/null 2>&1; then
-      run chmod 0750 "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/otel-signal-viewer-plugin"
-      if run setcap cap_dac_read_search+ep "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/otel-signal-viewer-plugin"; then
-        capabilities=1
-      fi
-    fi
-
-    if [ $capabilities -eq 0 ]; then
-      run chmod 4750 "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/otel-signal-viewer-plugin"
-    fi
+  if [ -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/macos-logs.plugin" ]; then
+    run chown "root:${NETDATA_GROUP}" "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/macos-logs.plugin"
+    run chmod 4750 "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/macos-logs.plugin"
   fi
 
   if [ -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/perf.plugin" ]; then

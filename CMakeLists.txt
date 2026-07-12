@@ -92,6 +92,13 @@ set(NETDATA_RUNTIME_PREFIX "${CMAKE_INSTALL_PREFIX}")
 include(NetdataPlatform)
 include(NetdataCompilerFlags)
 
+if(OS_MACOS)
+  enable_language(OBJC)
+  if(OSLOG AND FOUNDATION)
+    add_compile_definitions(HAVE_OSLOG)
+  endif()
+endif()
+
 set(CONFIG_H_DIR ${CMAKE_BINARY_DIR})
 set(CONFIG_H ${CONFIG_H_DIR}/config.h)
 
@@ -184,8 +191,7 @@ mark_as_advanced(ENABLE_DASHBOARD)
 option(ENABLE_PLUGIN_GO "Enable metric collectors written in Go" ${DEFAULT_FEATURE_STATE})
 cmake_dependent_option(ENABLE_ND_MCP "Build nd-mcp stdio-to-websocket bridge for MCP integration" ${DEFAULT_FEATURE_STATE} "ENABLE_PLUGIN_GO" False)
 option(ENABLE_PLUGIN_SCRIPTS "Enable the experimental scripts plugin (Nagios compatibility module)" ON)
-option(ENABLE_PLUGIN_OTEL "Enable collection of OpenTelemetry metrics and logs" ${DEFAULT_FEATURE_STATE})
-cmake_dependent_option(ENABLE_PLUGIN_OTEL_SIGNAL_VIEWER "Enable OTel signal viewer plugin" ${DEFAULT_FEATURE_STATE} "NOT OS_WINDOWS" False)
+cmake_dependent_option(ENABLE_PLUGIN_OTEL "Enable collection of OpenTelemetry metrics and logs" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
 cmake_dependent_option(ENABLE_PLUGIN_NETFLOW "Enable NetFlow/IPFIX/sFlow flow analysis plugin" False "NOT OS_WINDOWS" False)
 option(ENABLE_PLUGIN_PYTHON "Enable metric collectors written in Python" ${DEFAULT_FEATURE_STATE})
 
@@ -203,7 +209,7 @@ cmake_dependent_option(ENABLE_PLUGIN_EBPF "Enable Linux eBPF metric collection" 
 cmake_dependent_option(ENABLE_LEGACY_EBPF_PROGRAMS "Enable eBPF programs for kernels without BTF support" True "ENABLE_PLUGIN_EBPF" False)
 mark_as_advanced(ENABLE_LEGACY_EBPF_PROGRAMS)
 cmake_dependent_option(ENABLE_PLUGIN_LOCAL_LISTENERS "Enable local listening socket tracking (including service auto-discovery support)" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
-cmake_dependent_option(ENABLE_PLUGIN_NETWORK_VIEWER "Enable network viewer functionality" ${DEFAULT_FEATURE_STATE} "OS_LINUX OR OS_WINDOWS OR OS_FREEBSD" False)
+cmake_dependent_option(ENABLE_PLUGIN_NETWORK_VIEWER "Enable network viewer functionality" ${DEFAULT_FEATURE_STATE} "OS_LINUX OR OS_WINDOWS OR OS_FREEBSD OR OS_MACOS" False)
 cmake_dependent_option(ENABLE_PLUGIN_NFACCT "Enable Linux NFACCT metric collection" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
 cmake_dependent_option(ENABLE_PLUGIN_PERF "Enable Linux performance counter monitoring" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
 cmake_dependent_option(ENABLE_PLUGIN_SLABINFO "Enable Linux kernel SLAB allocator monitoring" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
@@ -244,7 +250,7 @@ mark_as_advanced(FORCE_LEGACY_LIBBPF)
 cmake_dependent_option(ENABLE_NETDATA_JOURNAL_FILE_READER "Enable netdata's journal file reader implementation" False "ENABLE_PLUGIN_SYSTEMD_JOURNAL" False)
 
 # Setup Rust/Corrosion for plugins that need it
-if(ENABLE_NETDATA_JOURNAL_FILE_READER OR ENABLE_PLUGIN_OTEL OR ENABLE_PLUGIN_OTEL_SIGNAL_VIEWER OR ENABLE_PLUGIN_NETFLOW)
+if(ENABLE_NETDATA_JOURNAL_FILE_READER OR ENABLE_PLUGIN_OTEL OR ENABLE_PLUGIN_NETFLOW)
     include(FetchContent)
     FetchContent_Declare(
         Corrosion
@@ -269,9 +275,6 @@ if(ENABLE_NETDATA_JOURNAL_FILE_READER OR ENABLE_PLUGIN_OTEL OR ENABLE_PLUGIN_OTE
     if(ENABLE_PLUGIN_OTEL)
         list(APPEND _WORKSPACE_CRATES otel-plugin)
     endif()
-    if(ENABLE_PLUGIN_OTEL_SIGNAL_VIEWER)
-        list(APPEND _WORKSPACE_CRATES otel-signal-viewer-plugin)
-    endif()
     if(ENABLE_PLUGIN_NETFLOW)
         list(APPEND _WORKSPACE_CRATES netflow-plugin)
     endif()
@@ -286,24 +289,24 @@ if(ENABLE_NETDATA_JOURNAL_FILE_READER OR ENABLE_PLUGIN_OTEL OR ENABLE_PLUGIN_OTE
       else()
         corrosion_add_target_rustflags(otel-plugin --cfg=tracing_unstable)
       endif()
-    endif()
 
-    if(ENABLE_PLUGIN_OTEL_SIGNAL_VIEWER)
-      set(OTEL_SIGNAL_VIEWER_RUSTFLAGS --cfg=tracing_unstable)
-
-      # We depend (transitively) on the `io-uring` crate which doesn't provide
-      # prebuilt bindings for 32-bit arches. Considering this is a compile-time
-      # and not a runtime dependency (because we don't use foyer's io-uring
-      # engine), we can simply skip the check.
+      # The workspace release profile propagates fat LTO, single-codegen-unit,
+      # and debuginfo settings through the whole dependency graph. On 32-bit
+      # targets that makes rustc-LLVM exhaust the ~3 GB process address space
+      # during codegen ("rustc-LLVM ERROR: out of memory"). Override Cargo's
+      # release profile so the otel-plugin build stays within budget.
       if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        list(APPEND OTEL_SIGNAL_VIEWER_RUSTFLAGS --cfg=io_uring_skip_arch_check)
+        # We depend (transitively) on the `io-uring` crate which doesn't provide
+        # prebuilt bindings for 32-bit arches. Considering this is a compile-time
+        # and not a runtime dependency (because we don't use foyer's io-uring
+        # engine), we can simply skip the check.
+        corrosion_add_target_rustflags(otel-plugin --cfg=io_uring_skip_arch_check)
+        corrosion_set_env_vars(
+                otel-plugin
+                "CARGO_PROFILE_RELEASE_DEBUG=0"
+                "CARGO_PROFILE_RELEASE_LTO=off"
+                "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8")
       endif()
-
-      if(STATIC_BUILD)
-        list(APPEND OTEL_SIGNAL_VIEWER_RUSTFLAGS "-C" "target-feature=+crt-static")
-      endif()
-
-      corrosion_add_target_rustflags(otel-signal-viewer-plugin ${OTEL_SIGNAL_VIEWER_RUSTFLAGS})
     endif()
 
     if(ENABLE_PLUGIN_NETFLOW)
@@ -959,7 +962,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/aral/aral.h
         src/libnetdata/avl/avl.c
         src/libnetdata/avl/avl.h
-        src/libnetdata/bitmap/bitmap64.h
+        src/libnetdata/avl/avl-types.h
         src/libnetdata/buffer/buffer.c
         src/libnetdata/buffer/buffer.h
         src/libnetdata/buffer/functions_fields.c
@@ -971,6 +974,8 @@ set(LIBNETDATA_FILES
         src/libnetdata/circular_buffer/circular_buffer.h
         src/libnetdata/clocks/clocks.c
         src/libnetdata/clocks/clocks.h
+        src/libnetdata/clocks/clocks-internals.h
+        src/libnetdata/clocks/clocks-unittest.c
         src/libnetdata/completion/completion.c
         src/libnetdata/completion/completion.h
         src/libnetdata/datetime/iso8601.c
@@ -1681,6 +1686,8 @@ set(INTERNAL_COLLECTORS_FILES
         src/collectors/common-contexts/mem-pgfaults.h
         src/collectors/common-contexts/mem-available.h
         src/collectors/common-contexts/power-supply.h
+        src/collectors/common-contexts/hw-sensors.h
+        src/collectors/common-contexts/hw-sensors-function.h
 )
 
 set(INTERCOMMUNICATION_COLLECTORS_FILES
@@ -2096,6 +2103,21 @@ set(MACOS_PLUGIN_FILES
         src/collectors/macos.plugin/macos_sysctl.c
         src/collectors/macos.plugin/macos_mach_smi.c
         src/collectors/macos.plugin/macos_fw.c
+        src/collectors/macos.plugin/macos_power.c
+        src/collectors/macos.plugin/macos_iohid.c
+        src/collectors/macos.plugin/macos_iohid.h
+        src/collectors/macos.plugin/macos_smc.c
+        src/collectors/macos.plugin/macos_smc.h
+        src/collectors/macos.plugin/macos_gpu.c
+        src/collectors/macos.plugin/macos_sensors.c
+        src/collectors/macos.plugin/macos_powermetrics.c
+        src/collectors/macos.plugin/macos_nvme.c
+)
+
+set(MACOS_LOGS_PLUGIN_FILES
+        src/collectors/macos-logs.plugin/macos-logs.c
+        src/collectors/macos-logs.plugin/macos-logs.h
+        src/collectors/macos-logs.plugin/macos-logs-oslog.m
 )
 
 set(FREEBSD_PLUGIN_FILES
@@ -3171,6 +3193,16 @@ if(OS_WINDOWS)
                 DESTINATION usr/libexec/netdata/plugins.d)
 endif()
 
+if(OS_MACOS AND OSLOG AND FOUNDATION)
+        add_executable(macos-logs.plugin ${MACOS_LOGS_PLUGIN_FILES})
+        target_compile_options(macos-logs.plugin PRIVATE "$<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>")
+        target_link_libraries(macos-logs.plugin libnetdata ${FOUNDATION} ${OSLOG})
+
+        install(TARGETS macos-logs.plugin
+                COMPONENT plugin-macos-logs
+                DESTINATION usr/libexec/netdata/plugins.d)
+endif()
+
 if(ENABLE_PLUGIN_EBPF)
     set(EBPF_PLUGIN_FILES
             src/collectors/ebpf.plugin/ebpf.c
@@ -3356,6 +3388,14 @@ if(ENABLE_PLUGIN_LOCAL_LISTENERS)
                 DESTINATION usr/libexec/netdata/plugins.d)
 endif()
 
+if(OS_LINUX AND MNL_FOUND)
+        add_executable(local-sockets-mnl-test EXCLUDE_FROM_ALL
+                src/libnetdata/local-sockets/tests/test_local_sockets_mnl.c)
+        target_compile_options(local-sockets-mnl-test PRIVATE ${MNL_CFLAGS_OTHER})
+        target_include_directories(local-sockets-mnl-test PRIVATE ${MNL_INCLUDE_DIRS})
+        target_link_libraries(local-sockets-mnl-test libnetdata ${MNL_LIBRARIES})
+endif()
+
 if(ENABLE_PLUGIN_NETWORK_VIEWER)
         if(USE_LTO AND CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_SIZEOF_VOID_P EQUAL 4)
                 # GCC still performs LTO when linking slim LTO static archives into a
@@ -3368,19 +3408,23 @@ if(ENABLE_PLUGIN_NETWORK_VIEWER)
                 endforeach()
         endif()
 
+        set(NETWORK_VIEWER_COMMON_FILES
+                src/collectors/common-cgroups/cgroup-path.c
+                src/collectors/common-cgroups/cgroup-path.h
+                src/collectors/common-cgroups/cgroup-topology-rules.c
+                src/collectors/common-cgroups/cgroup-topology-rules.h
+                src/collectors/network-viewer.plugin/network-viewer-apps-lookup-client.h
+                src/collectors/network-viewer.plugin/network-viewer-topology-containers.c
+                src/collectors/network-viewer.plugin/network-viewer-topology-containers.h
+                src/collectors/network-viewer.plugin/network-viewer.c
+        )
+
         set(NETWORK_VIEWER_FILES)
         if(OS_LINUX)
                 list(APPEND NETWORK_VIEWER_FILES
                         src/libnetdata/local-sockets/local-sockets.h
-                        src/collectors/common-cgroups/cgroup-path.c
-                        src/collectors/common-cgroups/cgroup-path.h
-                        src/collectors/common-cgroups/cgroup-topology-rules.c
-                        src/collectors/common-cgroups/cgroup-topology-rules.h
                         src/collectors/network-viewer.plugin/network-viewer-apps-lookup-client.c
-                        src/collectors/network-viewer.plugin/network-viewer-apps-lookup-client.h
-                        src/collectors/network-viewer.plugin/network-viewer-topology-containers.c
-                        src/collectors/network-viewer.plugin/network-viewer-topology-containers.h
-                        src/collectors/network-viewer.plugin/network-viewer.c
+                        ${NETWORK_VIEWER_COMMON_FILES}
                 )
         endif()
         if(OS_WINDOWS)
@@ -3391,14 +3435,13 @@ if(ENABLE_PLUGIN_NETWORK_VIEWER)
         if(OS_FREEBSD)
                 list(APPEND NETWORK_VIEWER_FILES
                         src/libnetdata/local-sockets/local-sockets-freebsd.h
-                        src/collectors/common-cgroups/cgroup-path.c
-                        src/collectors/common-cgroups/cgroup-path.h
-                        src/collectors/common-cgroups/cgroup-topology-rules.c
-                        src/collectors/common-cgroups/cgroup-topology-rules.h
-                        src/collectors/network-viewer.plugin/network-viewer-apps-lookup-client.h
-                        src/collectors/network-viewer.plugin/network-viewer-topology-containers.c
-                        src/collectors/network-viewer.plugin/network-viewer-topology-containers.h
-                        src/collectors/network-viewer.plugin/network-viewer.c
+                        ${NETWORK_VIEWER_COMMON_FILES}
+                )
+        endif()
+        if(OS_MACOS)
+                list(APPEND NETWORK_VIEWER_FILES
+                        src/libnetdata/local-sockets/local-sockets-macos.h
+                        ${NETWORK_VIEWER_COMMON_FILES}
                 )
         endif()
 
@@ -3774,23 +3817,13 @@ if(ENABLE_PLUGIN_OTEL)
                       RUNTIME DESTINATION usr/libexec/netdata/plugins.d
                       COMPONENT plugin-otel)
 
-    install(FILES src/crates/netdata-otel/otel-plugin/configs/otel.d/v1/metrics/hostmetrics-receiver.yaml
+    install(FILES src/crates/otel-ingestor/configs/otel.d/v1/metrics/hostmetrics-receiver.yaml
             COMPONENT plugin-otel
             DESTINATION usr/lib/netdata/conf.d/otel.d/v1/metrics)
 
     install(DIRECTORY COMPONENT plugin-otel DESTINATION etc/netdata/otel.d/v1/metrics)
 endif()
 
-#
-# otel-signal-viewer
-#
-# Handle OTel signal viewer plugin
-if(ENABLE_PLUGIN_OTEL_SIGNAL_VIEWER)
-    corrosion_install(TARGETS otel-signal-viewer-plugin
-                      PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
-                      RUNTIME DESTINATION usr/libexec/netdata/plugins.d
-                      COMPONENT plugin-otel-signal-viewer)
-endif()
 
 #
 # netflow-plugin
@@ -3968,27 +4001,15 @@ install(PROGRAMS
 # otel config
 #
 if(ENABLE_PLUGIN_OTEL)
-    configure_file(src/crates/netdata-otel/otel-plugin/configs/otel.yaml.in
-                   src/crates/netdata-otel/otel-plugin/configs/otel.yaml
+    configure_file(src/crates/otel-plugin/configs/otel.yaml.in
+                   src/crates/otel-plugin/configs/otel.yaml
                    @ONLY)
 
-    install(FILES ${CMAKE_BINARY_DIR}/src/crates/netdata-otel/otel-plugin/configs/otel.yaml
+    install(FILES ${CMAKE_BINARY_DIR}/src/crates/otel-plugin/configs/otel.yaml
             COMPONENT plugin-otel
             DESTINATION usr/lib/netdata/conf.d)
 endif()
 
-#
-# otel-signal-viewer config
-#
-if(ENABLE_PLUGIN_OTEL_SIGNAL_VIEWER)
-    configure_file(src/crates/netdata-log-viewer/otel-signal-viewer-plugin/configs/otel-signal-viewer.yaml.in
-                   src/crates/netdata-log-viewer/otel-signal-viewer-plugin/configs/otel-signal-viewer.yaml
-                   @ONLY)
-
-    install(FILES ${CMAKE_BINARY_DIR}/src/crates/netdata-log-viewer/otel-signal-viewer-plugin/configs/otel-signal-viewer.yaml
-            COMPONENT plugin-otel-signal-viewer
-            DESTINATION usr/lib/netdata/conf.d)
-endif()
 
 #
 # statsd
@@ -4585,6 +4606,17 @@ if(ENABLE_PLUGIN_GO)
             COMPONENT plugin-go
             DESTINATION usr/lib/netdata/conf.d/go.d/prometheus.profiles/default)
 
+    install(DIRECTORY
+            COMPONENT plugin-go
+            DESTINATION usr/lib/netdata/conf.d/go.d/cloudwatch.profiles)
+    install(DIRECTORY
+            COMPONENT plugin-go
+            DESTINATION usr/lib/netdata/conf.d/go.d/cloudwatch.profiles/default)
+    file(GLOB GO_CLOUDWATCH_PROFILE_FILES src/go/plugin/go.d/config/go.d/cloudwatch.profiles/default/*.yaml)
+    install(FILES ${GO_CLOUDWATCH_PROFILE_FILES}
+            COMPONENT plugin-go
+            DESTINATION usr/lib/netdata/conf.d/go.d/cloudwatch.profiles/default)
+
     if(BUILD_FOR_PACKAGING)
         install(FILES
                 ${PKG_FILES_PATH}/copyright
@@ -4652,3 +4684,16 @@ include(NetdataRenderDocs)
 #
 
 include(Packaging)
+
+#
+# Optional convenience: wire the netdata-build MCP server (packaging/tools/
+# automation/mcp) into a local agent client. Explicit one-off — `ninja setup-mcp`
+# — not part of the build (no ALL). Mutates the USER's global opencode/Claude
+# config for this checkout; never touches the repo. See the tool's README.
+#
+add_custom_target(setup-mcp
+        COMMAND python3
+                "${CMAKE_SOURCE_DIR}/packaging/tools/automation/mcp/scripts/setup_mcp.py"
+                --tool all --source-dir "${CMAKE_SOURCE_DIR}"
+        USES_TERMINAL
+        COMMENT "Configuring netdata-build MCP server for opencode/Claude Code (global config)")
