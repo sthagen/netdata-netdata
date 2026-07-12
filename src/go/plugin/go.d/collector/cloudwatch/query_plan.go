@@ -47,6 +47,33 @@ type queryGroupKey struct {
 	period int
 }
 
+type seriesOwnership struct {
+	firstWord uint64
+	overflow  []uint64
+}
+
+func (o *seriesOwnership) claim(ordinal int) bool {
+	word := ordinal / 64
+	mask := uint64(1) << uint(ordinal%64)
+	if word == 0 {
+		if o.firstWord&mask != 0 {
+			return false
+		}
+		o.firstWord |= mask
+		return true
+	}
+
+	index := word - 1
+	if index >= len(o.overflow) {
+		o.overflow = append(o.overflow, make([]uint64, index-len(o.overflow)+1)...)
+	}
+	if o.overflow[index]&mask != 0 {
+		return false
+	}
+	o.overflow[index] |= mask
+	return true
+}
+
 func (q plannedQuery) groupKey() queryGroupKey {
 	return queryGroupKey{target: q.target, region: q.region, period: q.period}
 }
@@ -63,16 +90,20 @@ func (c *Collector) invalidateQueryPlan() {
 // discovery, and tag snapshots. Those inputs change on a much slower cadence than
 // Collect, so rebuilding only on invalidation avoids repeating per-series
 // allocations during every collection cycle.
-func (c *Collector) currentQueryPlan() []plannedQuery {
+func (c *Collector) currentQueryPlan() ([]plannedQuery, error) {
 	if !c.planDirty {
-		return c.queryPlan
+		return c.queryPlan, nil
+	}
+	next, err := c.buildQueryPlan()
+	if err != nil {
+		return nil, err
 	}
 	previous := c.queryPlan
-	c.queryPlan = c.buildQueryPlan()
+	c.queryPlan = next
 	c.queryGroups, c.queriesByGroup = groupQueryPlan(c.queryPlan)
 	c.observations.reconcilePlan(previous, c.queryPlan)
 	c.planDirty = false
-	return c.queryPlan
+	return c.queryPlan, nil
 }
 
 func groupQueryPlan(plan []plannedQuery) ([]queryGroupKey, map[queryGroupKey][]plannedQuery) {
@@ -103,17 +134,29 @@ func queryWindow(now time.Time, period, queryOffset int) (start, end time.Time) 
 	return time.Unix(endSec-periodSec, 0).UTC(), time.Unix(endSec, 0).UTC()
 }
 
-// buildQueryPlan follows compiled scope order and keeps the first query for each
-// final emitted identity. This resolves dynamic overlap when distinct targets later
-// resolve to the same account and discover the same resource.
-func (c *Collector) buildQueryPlan() []plannedQuery {
+// buildQueryPlan follows compiled scope order and assigns each selected exported
+// series to its earliest matching rule. An unknown tag-filter result reserves only
+// that scope's selected series from lower rules, which keeps failures fail-closed
+// without blocking disjoint selections.
+func (c *Collector) buildQueryPlan() ([]plannedQuery, error) {
 	if c.plan == nil {
-		return nil
+		return nil, nil
 	}
 	var plan []plannedQuery
 	idx := 0
-	seen := make(map[string]struct{})
+	type instancePresentation struct {
+		labels    []metrix.Label
+		tagLabels []metrix.Label
+		dims      []cwtypes.Dimension
+	}
+	owned := make(map[string]seriesOwnership)
+	presentations := make(map[string]instancePresentation)
 	shadowed := 0
+	reserved := 0
+	maxInstances := c.Limits.MaxInstances
+	if maxInstances <= 0 {
+		maxInstances = defaultMaxInstances
+	}
 	for _, scope := range c.plan.Scopes {
 		resolved, ok := c.resolvedTargetByRef(scope.Target.Name)
 		if !ok {
@@ -121,37 +164,100 @@ func (c *Collector) buildQueryPlan() []plannedQuery {
 		}
 		prof := scope.Profile
 		nDims := len(prof.Config.Instance.Dimensions)
+		dimNames := prof.Config.DimensionNames()
+		join := c.plan.TagJoins[prof.Name]
+		membershipUnknown := scope.hasTagFilter() && c.tags.membershipUnknown(scope.TagMembershipID)
 		instances := c.discovery.Instances[discoveryKey{Target: scope.Target.Name, Profile: prof.Name, Region: scope.Region}]
 		for _, inst := range instances {
 			if len(inst.DimensionValues) != nDims {
 				continue // defensive: snapshot/profile mismatch
 			}
-			labels, dims := c.instanceLabelsAndDims(resolved.accountID, prof, scope.Region, inst)
-			tagLabels := c.tagLabelsFor(scope.Target.Name, resolved.accountID, scope.Region, prof, inst.DimensionValues)
-			queries := c.metricQueries(scope.Target.Name, prof, scope.Region, labels, tagLabels, dims, &idx)
-			for _, query := range queries {
-				key := finalSeriesKey(query.seriesName, query.labels)
-				if _, ok := seen[key]; ok {
+			instanceKey := finalInstanceKey(prof.Name, resolved.accountID, scope.Region, prof.Config.Instance.Dimensions, inst.DimensionValues)
+			if scope.hasTagFilter() {
+				if join == nil {
+					reserved += reserveSelectedSeries(owned, instanceKey, scope.SelectedSeries)
+					continue
+				}
+				joinKey, ok := join.instanceJoinKey(dimNames, inst.DimensionValues)
+				if !ok {
+					reserved += reserveSelectedSeries(owned, instanceKey, scope.SelectedSeries)
+					continue
+				}
+				selected := c.tags.membershipSelected(scope.TagMembershipID, joinKey)
+				if !selected && !membershipUnknown {
+					continue
+				}
+				if !selected {
+					reserved += reserveSelectedSeries(owned, instanceKey, scope.SelectedSeries)
+					continue
+				}
+			}
+
+			selected := make([]compiledSeries, 0, len(scope.SelectedSeries))
+			ownership := owned[instanceKey]
+			for _, series := range scope.SelectedSeries {
+				if !ownership.claim(series.Ordinal) {
 					shadowed++
 					continue
 				}
-				seen[key] = struct{}{}
-				plan = append(plan, query)
+				selected = append(selected, series)
 			}
+			owned[instanceKey] = ownership
+			if len(selected) == 0 {
+				continue
+			}
+
+			presentation, ok := presentations[instanceKey]
+			if !ok {
+				if len(presentations) == maxInstances {
+					return nil, fmt.Errorf("CloudWatch query plan contains more than limits.max_instances=%d final instances", maxInstances)
+				}
+				labels, dims := c.instanceLabelsAndDims(resolved.accountID, prof, scope.Region, inst)
+				presentation = instancePresentation{
+					labels: labels, dims: dims,
+					tagLabels: c.tagLabelsFor(scope.Target.Name, resolved.accountID, scope.Region, prof, join, inst.DimensionValues),
+				}
+				presentations[instanceKey] = presentation
+			}
+			queries := c.seriesQueries(scope.Target.Name, prof, scope.Region, selected, presentation.labels, presentation.tagLabels, presentation.dims, &idx)
+			plan = append(plan, queries...)
 		}
 	}
 	if shadowed > 0 {
 		c.Limit(logKeyRuleShadowed, 1, recurringLogEvery).
-			Warningf("CloudWatch collection rules shadowed %d duplicate final series; earliest rule/target order owns each series", shadowed)
+			Warningf("CloudWatch collection rules shadowed %d duplicate exported series; earliest matching rule/target order owns each series", shadowed)
 	}
-	return plan
+	if reserved > 0 {
+		c.Limit(logKeyTagRefreshFailed+"_reserved", 1, recurringLogEvery).
+			Warningf("CloudWatch resource tag filtering reserved %d exported series from lower-priority rules while membership was unknown", reserved)
+	}
+	return plan, nil
 }
 
-func finalSeriesKey(seriesName string, labels []metrix.Label) string {
+func reserveSelectedSeries(owned map[string]seriesOwnership, instanceKey string, series []compiledSeries) int {
+	ownership := owned[instanceKey]
+	reserved := 0
+	for _, item := range series {
+		if !ownership.claim(item.Ordinal) {
+			continue
+		}
+		reserved++
+	}
+	owned[instanceKey] = ownership
+	return reserved
+}
+
+func finalInstanceKey(profileName, accountID, region string, dimensions []cwprofiles.InstanceDimension, values []string) string {
 	var key strings.Builder
-	key.WriteString(seriesName)
-	for _, label := range labels {
-		key.WriteString("\x00" + label.Key + "\x00" + label.Value)
+	writeLengthPrefixed(&key, profileName)
+	writeLengthPrefixed(&key, accountID)
+	writeLengthPrefixed(&key, region)
+	for i, dimension := range dimensions {
+		if dimension.IsConstant() {
+			continue
+		}
+		writeLengthPrefixed(&key, dimension.Label)
+		writeLengthPrefixed(&key, values[i])
 	}
 	return key.String()
 }
@@ -180,39 +286,36 @@ func (c *Collector) instanceLabelsAndDims(accountID string, prof cwprofiles.Reso
 	return labels, dims
 }
 
-// metricQueries builds the planned queries for one instance: one per
-// (metric × statistic), allocating sequential q<idx> ids through idx.
-func (c *Collector) metricQueries(targetRef string, prof cwprofiles.ResolvedProfile, region string, labels, tagLabels []metrix.Label, dims []cwtypes.Dimension, idx *int) []plannedQuery {
-	var out []plannedQuery
-	for _, m := range prof.Config.Metrics {
-		period := prof.Config.EffectivePeriod(m)
-		for _, stat := range m.Statistics {
-			token := cwprofiles.NormalizeStatistic(stat)
-			id := fmt.Sprintf("q%d", *idx)
-			*idx++
-			out = append(out, plannedQuery{
-				id:         id,
-				target:     targetRef,
-				region:     region,
-				period:     period,
-				seriesName: cwprofiles.ExportedSeriesName(prof.Name, m.ID, token),
-				labels:     labels,
-				tagLabels:  tagLabels,
-				nilAsZero:  m.EmitZeroOnNoData(token),
-				query: cwtypes.MetricDataQuery{
-					Id: aws.String(id),
-					MetricStat: &cwtypes.MetricStat{
-						Metric: &cwtypes.Metric{
-							Namespace:  aws.String(prof.Config.Namespace),
-							MetricName: aws.String(m.MetricName),
-							Dimensions: dims,
-						},
-						Period: aws.Int32(int32(period)),
-						Stat:   aws.String(cwprofiles.StatString(token)),
+// seriesQueries builds the planned queries for one instance from its compiled
+// selected-series descriptors, allocating sequential q<idx> ids through idx.
+func (c *Collector) seriesQueries(targetRef string, prof cwprofiles.ResolvedProfile, region string, series []compiledSeries, labels, tagLabels []metrix.Label, dims []cwtypes.Dimension, idx *int) []plannedQuery {
+	out := make([]plannedQuery, 0, len(series))
+	for _, selected := range series {
+		m := prof.Config.Metrics[selected.MetricIndex]
+		id := fmt.Sprintf("q%d", *idx)
+		(*idx)++
+		out = append(out, plannedQuery{
+			id:         id,
+			target:     targetRef,
+			region:     region,
+			period:     selected.Period,
+			seriesName: selected.Name,
+			labels:     labels,
+			tagLabels:  tagLabels,
+			nilAsZero:  m.EmitZeroOnNoData(selected.Statistic),
+			query: cwtypes.MetricDataQuery{
+				Id: aws.String(id),
+				MetricStat: &cwtypes.MetricStat{
+					Metric: &cwtypes.Metric{
+						Namespace:  aws.String(prof.Config.Namespace),
+						MetricName: aws.String(m.MetricName),
+						Dimensions: dims,
 					},
+					Period: aws.Int32(int32(selected.Period)),
+					Stat:   aws.String(cwprofiles.StatString(selected.Statistic)),
 				},
-			})
-		}
+			},
+		})
 	}
 	return out
 }

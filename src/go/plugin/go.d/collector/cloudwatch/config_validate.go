@@ -12,10 +12,12 @@ import (
 )
 
 const (
-	maxCredentialSources = 64
-	maxTargets           = 64
-	maxRules             = 256
-	maxReferencesPerRule = 256
+	maxCredentialSources  = 64
+	maxTargets            = 64
+	maxRules              = 256
+	maxReferencesPerRule  = 256
+	maxResourceTagFilters = 50
+	maxResourceTagValues  = 20
 )
 
 var configNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
@@ -29,6 +31,8 @@ func validateConfigStructure(cfg Config) error {
 	return errors.Join(
 		credentialErr,
 		targetErr,
+		validateResourceTagFilters("rule_defaults.filters.resource_tags", cfg.RuleDefaults.Filters.ResourceTags),
+		validateResourceTagLabels("labels.resource_tags", cfg.Labels.ResourceTags),
 		validateRules(cfg, targetNames),
 	)
 }
@@ -42,6 +46,8 @@ func validateRawLimits(cfg Config) error {
 		return fmt.Errorf("'targets' contains %d entries; maximum is %d", len(cfg.Targets), maxTargets)
 	case len(cfg.Rules) > maxRules:
 		return fmt.Errorf("'rules' contains %d entries; maximum is %d", len(cfg.Rules), maxRules)
+	case len(cfg.RuleDefaults.Filters.ResourceTags) > maxResourceTagFilters:
+		return fmt.Errorf("'rule_defaults.filters.resource_tags' contains %d entries; maximum is %d", len(cfg.RuleDefaults.Filters.ResourceTags), maxResourceTagFilters)
 	}
 	for i, rule := range cfg.Rules {
 		path := fmt.Sprintf("rules[%d]", i)
@@ -54,6 +60,40 @@ func validateRawLimits(cfg Config) error {
 			return fmt.Errorf("%s.profiles.include contains %d entries; maximum is %d", path, len(rule.Profiles.Include), maxReferencesPerRule)
 		case rule.Profiles != nil && len(rule.Profiles.Exclude) > maxReferencesPerRule:
 			return fmt.Errorf("%s.profiles.exclude contains %d entries; maximum is %d", path, len(rule.Profiles.Exclude), maxReferencesPerRule)
+		case rule.Filters != nil && rule.Filters.ResourceTags != nil && len(*rule.Filters.ResourceTags) > maxResourceTagFilters:
+			return fmt.Errorf("%s.filters.resource_tags contains %d entries; maximum is %d", path, len(*rule.Filters.ResourceTags), maxResourceTagFilters)
+		case len(rule.Metrics) > maxReferencesPerRule:
+			return fmt.Errorf("%s.metrics contains %d entries; maximum is %d", path, len(rule.Metrics), maxReferencesPerRule)
+		}
+		if err := validateRawMetricSelectorLimits(path+".metrics", rule.Metrics); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRawMetricSelectorLimits(path string, selectors []ProfileMetricSelectorConfig) error {
+	expanded := 0
+	for i, selector := range selectors {
+		groupPath := fmt.Sprintf("%s[%d]", path, i)
+		if len(selector.Statistics) > maxReferencesPerRule {
+			return fmt.Errorf("%s.statistics contains %d entries; maximum is %d", groupPath, len(selector.Statistics), maxReferencesPerRule)
+		}
+		if len(selector.Include) > maxReferencesPerRule {
+			return fmt.Errorf("%s.include contains %d entries; maximum is %d", groupPath, len(selector.Include), maxReferencesPerRule)
+		}
+		for j, metric := range selector.Include {
+			if len(metric.Statistics) > maxReferencesPerRule {
+				return fmt.Errorf("%s.include[%d].statistics contains %d entries; maximum is %d", groupPath, j, len(metric.Statistics), maxReferencesPerRule)
+			}
+			count := len(metric.Statistics)
+			if metric.Statistics == nil {
+				count = len(selector.Statistics)
+			}
+			expanded += count
+			if expanded > maxReferencesPerRule {
+				return fmt.Errorf("%s expands to more than %d metric/statistic selections", path, maxReferencesPerRule)
+			}
 		}
 	}
 	return nil
@@ -172,18 +212,137 @@ func validateRules(cfg Config, targetNames map[string]struct{}) error {
 		if err := validateRuleRegions(path, rule.Regions); err != nil {
 			errs = append(errs, err)
 		}
-		for _, field := range []struct {
-			name  string
-			value any
-		}{
-			{name: "filters", value: rule.Filters},
-			{name: "labels", value: rule.Labels},
-			{name: "series", value: rule.Series},
-			{name: "query", value: rule.Query},
-		} {
-			if field.value != nil {
-				errs = append(errs, fmt.Errorf("%s.%s is reserved for a later phase", path, field.name))
+		if rule.Filters != nil && rule.Filters.ResourceTags != nil {
+			errs = append(errs, validateResourceTagFilters(path+".filters.resource_tags", *rule.Filters.ResourceTags))
+		}
+		if rule.Metrics != nil {
+			errs = append(errs, validateMetricSelectors(path+".metrics", rule.Metrics))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateMetricSelectors(path string, selectors []ProfileMetricSelectorConfig) error {
+	if len(selectors) == 0 {
+		return fmt.Errorf("%s must contain at least one profile group", path)
+	}
+	seenProfiles := make(map[string]struct{}, len(selectors))
+	var errs []error
+	for i, selector := range selectors {
+		groupPath := fmt.Sprintf("%s[%d]", path, i)
+		if err := validateCanonicalString(groupPath+".profile", selector.Profile); err != nil {
+			errs = append(errs, err)
+		} else if selector.Profile == "" {
+			errs = append(errs, fmt.Errorf("%s.profile must not be empty", groupPath))
+		} else if _, ok := seenProfiles[selector.Profile]; ok {
+			errs = append(errs, fmt.Errorf("%s contains duplicate profile %q", path, selector.Profile))
+		} else {
+			seenProfiles[selector.Profile] = struct{}{}
+		}
+		errs = append(errs, validateMetricStatistics(groupPath+".statistics", selector.Statistics))
+		if len(selector.Include) == 0 {
+			errs = append(errs, fmt.Errorf("%s.include must contain at least one metric", groupPath))
+			continue
+		}
+
+		seenMetrics := make(map[string]struct{}, len(selector.Include))
+		for j, metric := range selector.Include {
+			metricPath := fmt.Sprintf("%s.include[%d]", groupPath, j)
+			if err := validateCanonicalString(metricPath+".name", metric.Name); err != nil {
+				errs = append(errs, err)
+			} else if metric.Name == "" {
+				errs = append(errs, fmt.Errorf("%s.name must not be empty", metricPath))
+			} else if _, ok := seenMetrics[metric.Name]; ok {
+				errs = append(errs, fmt.Errorf("%s.include contains duplicate metric %q", groupPath, metric.Name))
+			} else {
+				seenMetrics[metric.Name] = struct{}{}
 			}
+			errs = append(errs, validateMetricStatistics(metricPath+".statistics", metric.Statistics))
+			if metric.Statistics == nil && selector.Statistics == nil {
+				errs = append(errs, fmt.Errorf("%s must define statistics or inherit them from %s.statistics", metricPath, groupPath))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateMetricStatistics(path string, statistics []string) error {
+	if statistics != nil && len(statistics) == 0 {
+		return fmt.Errorf("%s must contain at least one entry when present", path)
+	}
+	seen := make(map[string]struct{}, len(statistics))
+	var errs []error
+	for i, raw := range statistics {
+		itemPath := fmt.Sprintf("%s[%d]", path, i)
+		if err := validateCanonicalString(itemPath, raw); err != nil {
+			errs = append(errs, err)
+		}
+		statistic := normalizeMetricStatistic(raw)
+		if statistic == "" {
+			errs = append(errs, fmt.Errorf("%s is not valid (use Average|Minimum|Maximum|Sum|SampleCount|p<N>)", itemPath))
+			continue
+		}
+		if _, ok := seen[statistic]; ok {
+			errs = append(errs, fmt.Errorf("%s contains duplicate statistic %q", path, raw))
+		} else {
+			seen[statistic] = struct{}{}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateResourceTagFilters(path string, filters []ResourceTagFilterConfig) error {
+	seenKeys := make(map[string]struct{}, len(filters))
+	var errs []error
+	for i, filter := range filters {
+		itemPath := fmt.Sprintf("%s[%d]", path, i)
+		if filter.Key == "" {
+			errs = append(errs, fmt.Errorf("%s.key must not be empty", itemPath))
+		} else if _, ok := seenKeys[filter.Key]; ok {
+			errs = append(errs, fmt.Errorf("%s contains duplicate key %q", path, filter.Key))
+		} else {
+			seenKeys[filter.Key] = struct{}{}
+		}
+		if len(filter.Values) == 0 {
+			errs = append(errs, fmt.Errorf("%s.values must contain at least one value", itemPath))
+		} else if len(filter.Values) > maxResourceTagValues {
+			errs = append(errs, fmt.Errorf("%s.values contains %d entries; maximum is %d", itemPath, len(filter.Values), maxResourceTagValues))
+		}
+		seenValues := make(map[string]struct{}, len(filter.Values))
+		for j, value := range filter.Values {
+			if _, ok := seenValues[value]; ok {
+				errs = append(errs, fmt.Errorf("%s.values contains a duplicate value at index %d", itemPath, j))
+			} else {
+				seenValues[value] = struct{}{}
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateResourceTagLabels(path string, labels []ResourceTagLabelConfig) error {
+	seenKeys := make(map[string]struct{}, len(labels))
+	seenLabels := make(map[string]struct{}, len(labels))
+	var errs []error
+	for i, entry := range labels {
+		itemPath := fmt.Sprintf("%s[%d]", path, i)
+		if entry.Key == "" {
+			errs = append(errs, fmt.Errorf("%s.key must not be empty", itemPath))
+		} else if _, ok := seenKeys[entry.Key]; ok {
+			errs = append(errs, fmt.Errorf("%s contains duplicate key %q", path, entry.Key))
+		} else {
+			seenKeys[entry.Key] = struct{}{}
+		}
+		label := entry.Label
+		if label == "" {
+			label = sanitizeLabel(entry.Key)
+		}
+		if !labelKeyRe.MatchString(label) {
+			errs = append(errs, fmt.Errorf("%s.label %q is not a valid label key", itemPath, label))
+		} else if _, ok := seenLabels[label]; ok {
+			errs = append(errs, fmt.Errorf("%s contains duplicate label %q", path, label))
+		} else {
+			seenLabels[label] = struct{}{}
 		}
 	}
 	return errors.Join(errs...)

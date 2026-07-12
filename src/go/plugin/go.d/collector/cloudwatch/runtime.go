@@ -13,6 +13,7 @@ type collectionPlan struct {
 	Targets  []*collectionTarget
 	Scopes   []collectionScope
 	Profiles []cwprofiles.ResolvedProfile
+	TagJoins map[string]*tagJoin
 }
 
 type collectionTarget struct {
@@ -22,9 +23,22 @@ type collectionTarget struct {
 }
 
 type collectionScope struct {
-	Target  *collectionTarget
-	Profile cwprofiles.ResolvedProfile
-	Region  string
+	Target          *collectionTarget
+	Profile         cwprofiles.ResolvedProfile
+	Region          string
+	TagFilter       []resourceTagFilter
+	TagMembershipID int
+	SelectedSeries  []compiledSeries
+}
+
+func (s collectionScope) hasTagFilter() bool { return len(s.TagFilter) > 0 }
+
+type compiledSeries struct {
+	Ordinal     int
+	MetricIndex int
+	Statistic   string
+	Name        string
+	Period      int
 }
 
 func (c *Collector) ensurePlan() error {

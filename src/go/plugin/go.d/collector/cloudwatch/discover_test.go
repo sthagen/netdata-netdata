@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -77,6 +78,7 @@ func dimProfile(namespace string, period int, dimNames ...string) cwprofiles.Pro
 		Namespace: namespace,
 		Period:    period,
 		Instance:  cwprofiles.InstanceSpec{Dimensions: dims},
+		Metrics:   []cwprofiles.Metric{{ID: "m", MetricName: "M", Statistics: []string{"average"}}},
 	}
 }
 
@@ -416,15 +418,78 @@ func TestCollector_DiscoveryGroupsDeduplicateCompatibleNamespaceScans(t *testing
 	assert.Equal(t, 1, fake.calls, "compatible profiles share one ListMetrics scan")
 }
 
-func TestCollector_DiscoveryGroupsKeepRecentlyActiveBehaviorSeparate(t *testing.T) {
+func TestCollector_DiscoveryGroupsDeduplicateProfileAcrossTagPolicies(t *testing.T) {
+	falseValue := false
+	filters := func(value string) *RuleFiltersConfig {
+		entries := []ResourceTagFilterConfig{{Key: "environment", Values: []string{value}}}
+		return &RuleFiltersConfig{ResourceTags: &entries}
+	}
+	cfg := validBaseConfig()
+	cfg.Rules[0].Profiles = &ProfileSelectorConfig{Defaults: &falseValue, Include: []string{"ec2"}}
+	cfg.Rules[0].Filters = filters("production")
+	cfg.Rules = append(cfg.Rules, RuleConfig{
+		Name: "staging", Targets: []string{"base"}, Regions: []string{"us-east-1"},
+		Profiles: &ProfileSelectorConfig{Defaults: &falseValue, Include: []string{"ec2"}},
+		Filters:  filters("staging"),
+	})
+	plan, _, err := compileTestConfig(t, cfg)
+	require.NoError(t, err)
+	require.Len(t, plan.Scopes, 2, "different tag policies remain distinct collection scopes")
+	assert.NotNil(t, plan.TagJoins["ec2"], "profile association is validated and compiled once")
+
 	c := New()
-	fast := resolved("fast", dimProfile("AWS/Shared", 300, "Id"))
-	slow := resolved("slow", dimProfile("AWS/Shared", 86400, "Id"))
-	setSingleTargetPlan(c, "000000000000", []string{"us-east-1"}, []cwprofiles.ResolvedProfile{fast, slow})
+	c.plan = plan
+	c.resolvedByRef = map[string]resolvedTarget{
+		"base": {target: plan.Targets[0], accountID: "000000000000"},
+	}
 
 	groups := c.discoveryGroups()
-	require.Len(t, groups, 2)
-	assert.NotEqual(t, groups[0].RecentlyActive, groups[1].RecentlyActive)
+	require.Len(t, groups, 1)
+	require.Len(t, groups[0].Profiles, 1, "shared discovery contains one matcher per profile")
+	assert.Equal(t, "ec2", groups[0].Profiles[0].Name)
+}
+
+func TestCollector_DiscoveryGroupsCoalesceToLeastRestrictiveRecentlyActivePolicy(t *testing.T) {
+	c := New()
+	fastProfile := dimProfile("AWS/Shared", 300, "Id")
+	fastProfile.Metrics = append(fastProfile.Metrics,
+		cwprofiles.Metric{ID: "daily", MetricName: "Daily", Statistics: []string{"average"}, Period: 86400})
+	fast := resolved("fast", fastProfile)
+	slow := resolved("slow", dimProfile("AWS/Shared", 86400, "Id"))
+	setSingleTargetPlan(c, "000000000000", []string{"us-east-1"}, []cwprofiles.ResolvedProfile{fast, slow})
+	c.plan.Scopes[0].SelectedSeries = c.plan.Scopes[0].SelectedSeries[:1]
+
+	groups := c.discoveryGroups()
+	require.Len(t, groups, 1, "one namespace must produce one ListMetrics scan")
+	assert.False(t, groups[0].RecentlyActive, "one long-period profile makes the shared scan unfiltered")
+	assert.Equal(t, []string{"fast", "slow"}, []string{groups[0].Profiles[0].Name, groups[0].Profiles[1].Name})
+
+	fake := &nsCloudWatch{byNS: map[string][]cwtypes.Metric{"AWS/Shared": {}}}
+	results := discoverAll(context.Background(), func(_, _ string) (cloudwatchClient, error) { return fake, nil }, groups, 5, 0)
+	require.Len(t, results, 1)
+	assert.Equal(t, 1, fake.calls, "the unfiltered superset scan replaces a redundant filtered sibling scan")
+}
+
+func TestCollector_DiscoveryGroupsUseUnionOfSelectedSeriesPeriods(t *testing.T) {
+	c := New()
+	profile := cwprofiles.ResolvedProfile{Name: "mixed", Config: cwprofiles.Profile{
+		Namespace: "AWS/Shared", Period: 300,
+		Instance: cwprofiles.InstanceSpec{Dimensions: []cwprofiles.InstanceDimension{{Name: "Id", Label: "id"}}},
+		Metrics: []cwprofiles.Metric{
+			{ID: "fast", MetricName: "Fast", Statistics: []string{"average"}},
+			{ID: "slow", MetricName: "Slow", Statistics: []string{"average"}, Period: 86400},
+		},
+	}}
+	setSingleTargetPlan(c, "000000000000", []string{"us-east-1"}, []cwprofiles.ResolvedProfile{profile})
+	all := compileProfileSeries(profile)
+	c.plan.Scopes[0].SelectedSeries = all[:1]
+	second := c.plan.Scopes[0]
+	second.SelectedSeries = all[1:]
+	c.plan.Scopes = append(c.plan.Scopes, second)
+
+	groups := c.discoveryGroups()
+	require.Len(t, groups, 1, "one profile must not trigger duplicate ListMetrics streams")
+	assert.False(t, groups[0].RecentlyActive, "one selected daily series disables PT3H for the shared profile matcher")
 }
 
 func TestBuildDiscoverySnapshot_FailSoftCarriesForward(t *testing.T) {
@@ -452,6 +517,50 @@ func TestDiscoverySnapshot_Expired(t *testing.T) {
 	assert.False(t, snap.expired(time.Unix(1299, 0)))
 	assert.True(t, snap.expired(time.Unix(1300, 0)))
 	assert.True(t, snap.expired(time.Unix(1500, 0)))
+}
+
+func BenchmarkDiscoverProfileGroupPolicyCount(b *testing.B) {
+	const instances = 1000
+	catalog, err := cwprofiles.DefaultCatalog()
+	if err != nil {
+		b.Fatal(err)
+	}
+	metrics := make([]cwtypes.Metric, instances)
+	for i := range instances {
+		metrics[i] = mkMetric("CPUUtilization", "InstanceId", fmt.Sprintf("i-%d", i))
+	}
+	for _, policies := range []int{1, 4} {
+		b.Run(fmt.Sprintf("policies=%d", policies), func(b *testing.B) {
+			cfg := resourceTagPolicyConfig(policies)
+			cfg.applyDefaults()
+			plan, _, err := compileConfig(cfg, catalog)
+			if err != nil {
+				b.Fatal(err)
+			}
+			c := New()
+			c.plan = plan
+			c.resolvedByRef = map[string]resolvedTarget{
+				"base": {target: plan.Targets[0], accountID: "000000000000"},
+			}
+			groups := c.discoveryGroups()
+			if len(groups) != 1 || len(groups[0].Profiles) != 1 {
+				b.Fatalf("got %d groups with %d profiles, want one shared group/profile", len(groups), len(groups[0].Profiles))
+			}
+			client := &nsCloudWatch{byNS: map[string][]cwtypes.Metric{"AWS/EC2": metrics}}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				got, err := discoverProfileGroup(context.Background(), client, groups[0])
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(got["ec2"]) != instances {
+					b.Fatalf("discovered %d instances, want %d", len(got["ec2"]), instances)
+				}
+			}
+		})
+	}
 }
 
 // dimValues extracts the dimension-value slices for stable comparison.
@@ -495,15 +604,18 @@ func TestCollector_refreshDiscovery_TTLCaching(t *testing.T) {
 	assert.Equal(t, 2, c.discovery.totalInstances())
 	callsAfterFirst := fakes["us-east-1"].calls
 	assert.Positive(t, callsAfterFirst)
+	c.tagFetchPlan = []tagFetchGroup{{key: tagFetchKey{target: "topology-sentinel"}}}
 
 	// Within TTL: no refetch.
 	require.NoError(t, c.refreshDiscovery(context.Background()))
 	assert.Equal(t, callsAfterFirst, fakes["us-east-1"].calls, "must not refetch within TTL")
+	assert.Len(t, c.tagFetchPlan, 1, "cached tag topology follows the discovery lifetime")
 
 	// After TTL: refetch.
 	c.now = func() time.Time { return base.Add(301 * time.Second) }
 	require.NoError(t, c.refreshDiscovery(context.Background()))
 	assert.Greater(t, fakes["us-east-1"].calls, callsAfterFirst, "must refetch after TTL")
+	assert.Nil(t, c.tagFetchPlan, "a new discovery snapshot invalidates tag fetch topology")
 }
 
 func TestCollector_refreshDiscovery_TotalFailureFirstPassErrors(t *testing.T) {
@@ -605,16 +717,16 @@ func regionsOf(m map[string]map[string][]cwtypes.Metric) []string {
 	return out
 }
 
-func TestProfileUsesRecentlyActive(t *testing.T) {
+func TestSelectedSeriesUseRecentlyActive(t *testing.T) {
 	ec2 := dimProfile("AWS/EC2", 300, "InstanceId")
 	s3 := dimProfile("AWS/S3", 86400, "BucketName")
 
-	assert.True(t, profileUsesRecentlyActive(ec2, true))
-	assert.False(t, profileUsesRecentlyActive(ec2, false))
-	assert.False(t, profileUsesRecentlyActive(s3, true), "daily period must disable PT3H")
+	assert.True(t, selectedSeriesUseRecentlyActive(compileProfileSeries(cwprofiles.ResolvedProfile{Name: "ec2", Config: ec2}), true))
+	assert.False(t, selectedSeriesUseRecentlyActive(compileProfileSeries(cwprofiles.ResolvedProfile{Name: "ec2", Config: ec2}), false))
+	assert.False(t, selectedSeriesUseRecentlyActive(compileProfileSeries(cwprofiles.ResolvedProfile{Name: "s3", Config: s3}), true), "daily period must disable PT3H")
 
 	// A per-metric override beyond 3h also disables PT3H for the whole profile.
 	mixed := dimProfile("AWS/Custom", 300, "Id")
 	mixed.Metrics = []cwprofiles.Metric{{ID: "m", MetricName: "M", Statistics: []string{"average"}, Period: 86400}}
-	assert.False(t, profileUsesRecentlyActive(mixed, true))
+	assert.False(t, selectedSeriesUseRecentlyActive(compileProfileSeries(cwprofiles.ResolvedProfile{Name: "mixed", Config: mixed}), true))
 }

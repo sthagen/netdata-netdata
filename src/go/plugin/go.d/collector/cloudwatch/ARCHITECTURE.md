@@ -148,22 +148,33 @@ compiler state, and installed execution plan:
 
 - YAML and JSON use normal typed decoding; unknown keys are ignored. `Config.validate`
   decides whether the resulting configuration is valid during `Init` / `Check`.
-  Known future rule fields (`filters`, `labels`, `series`, and `query`) remain typed
-  so non-null values are rejected until their implementation phases land; null is
-  equivalent to omission.
 - Named credential sources describe only credential acquisition. Named targets
   describe monitored identities and optional role assumption. Ordered rules bind
-  targets to profile selectors and regions.
+  targets to profile selectors, optional exact metric/statistic allowlists,
+  regions, and effective resource-tag predicates. Omitting `metrics` selects every
+  exported series from the selected profiles. When present, `metrics` contains one
+  group per narrowed profile: group statistics are inherited by included exact
+  MetricNames unless an entry supplies a replacement statistics list.
+- `rule_defaults.filters.resource_tags` is inherited when a rule omits
+  `filters.resource_tags`; a present list replaces the default and `[]` disables it.
+  Predicates are canonicalized once: exact case-sensitive keys are ANDed and the
+  exact values for one key are ORed.
 - `compileConfig` coordinates a private staged compiler that resolves every reference, rejects unused credential/target
-  definitions, applies profile defaults/include/exclude semantics, intersects
+  definitions, applies profile defaults/include/exclude semantics, rejects duplicate
+  profile groups/MetricNames/normalized statistics, resolves inherited and replaced
+  statistics into canonical exact exported-series descriptors, intersects
   intrinsic supported regions, enforces target/role partition consistency, and
   emits immutable ordered scopes.
-- Exact duplicate target/profile/region scopes are removed statically with one
-  bounded aggregate diagnostic per affected rule. Same-account cross-target overlap remains until discovery,
-  where final emitted-series identity can be evaluated correctly.
+- Ordered policy scopes and tag-membership identities are separate. Scopes with the
+  same target/profile/region/predicate share one membership identity, and already-owned
+  exported series are removed statically with one bounded aggregate diagnostic per
+  affected rule. A partially overlapping scope retains its unshadowed series.
+  Same-account cross-target overlap remains until discovery, where final instance
+  identity can be evaluated correctly. Scopes with different predicates remain
+  ordered policy scopes even when they share one discovery scan.
 - Fixed internal caps bound credentials, 64 targets, rules, list references,
   candidate-scope evaluation, and compiled scopes. Overflow fails compilation and never installs a partial plan;
-  these safeguards are not public tuning settings.
+  `limits.max_instances` is the separate public bound on final selected instances.
 
 ## Discovery
 
@@ -174,8 +185,12 @@ Discovery then finds which *instances* of those profiles exist per target and re
 `discover.go`. `refreshDiscovery` re-runs only when the snapshot TTL
 (`discovery.refresh_every`, default 300s) has expired.
 
-- `discoveryGroups` coalesces compiled scopes by target, region, namespace, and
-  `RecentlyActive` behavior. `discoverAll` fans out over those groups concurrently
+- `discoveryGroups` coalesces compiled scopes by target, region, and namespace.
+  Each target/profile/region matcher first uses the union of its selected-series
+  periods; the shared namespace scan then takes the least restrictive result, so
+  one long-period participant disables PT3H instead of creating a redundant
+  filtered ListMetrics stream beside the unfiltered superset.
+  `discoverAll` fans out over those groups concurrently
   (bounded by `apiConcurrency`), with one CloudWatch client per (target, region).
 - `discoverProfileGroup` pages `ListMetrics` once for the shared namespace and
   applies every grouped profile matcher while streaming the response.
@@ -187,17 +202,17 @@ Discovery then finds which *instances* of those profiles exist per target and re
   (`constantDimensionsHold`, fail-closed), so a constant dimension can never merge
   distinct instances onto one unlabeled series.
 - **Recently-active-only** is period-aware: the `ListMetrics RecentlyActive=PT3H`
-  filter is applied only when every metric in the profile has a period ≤ 3h.
-  PT3H is the only value CloudWatch accepts, so applying it to a daily profile
-  (S3) would hide the metric most of the day. Configurable
-  (`discovery.recently_active_only`, default true).
+  filter is applied only when every selected series participating in the shared
+  target/region/namespace scan has a period ≤ 3h. PT3H is the only value CloudWatch
+  accepts, so applying it to a daily profile (S3) would hide the metric most of
+  the day. Configurable (`discovery.recently_active_only`, default true).
 - **Snapshot + carry-forward**: `buildDiscoverySnapshot` stores instances for
   successful targets and **carries forward the previous instances for errored
   targets**, so a transient per-region/namespace failure never drops series.
   Only a first-ever pass where every scope errors is fatal; after any
   snapshot exists, discovery errors are warnings.
-- A warning fires at ≥1000 discovered instances (a cost signal); collection is
-  never truncated.
+- A warning fires at ≥1000 discovered instances as an early cost signal. The
+  separate final-instance limit is applied later, after tag filtering and overlap.
 
 ## Query Planning And Scheduling
 
@@ -205,13 +220,24 @@ Discovery then finds which *instances* of those profiles exist per target and re
 
 - `currentQueryPlan` reuses an immutable blueprint until a target resolves or a
   discovery/tag snapshot changes. `buildQueryPlan` emits one `plannedQuery` per
-  `instance × metric × statistic` when that blueprint is invalidated.
+  `instance × selected exported series` when that blueprint is invalidated.
   Identity labels are `{account_id, region}` plus one label per identifying
   instance dimension (a `constant` dimension is sent in the query but not
   labeled). The exported series name is `<profile>.<metric_id>_<statistic>`.
-- Compiled scope order and a final-series identity set enforce rule precedence:
-  the first rule/target that produces a series owns it. This catches dynamic
-  overlap when distinct targets resolve to the same account and see the same resource.
+- Resource-tag membership is applied before selected-series expansion. Compiled
+  scope order and `{final instance, exported series}` ownership enforce rule precedence:
+  the first matching rule/target owns each overlapping series. Unknown tag membership
+  reserves only the scope's selected series, so disjoint lower-rule selections remain
+  eligible while failures stay fail-closed. This also catches dynamic overlap when
+  distinct targets resolve to the same account and see the same resource.
+- The first scope that emits any series for a final instance supplies one immutable
+  identity/dimension/tag-label presentation reused by sibling series, even when later
+  siblings are owned by another target. Chart-level mutable labels therefore remain
+  deterministic.
+- `limits.max_instances` counts final instances that emit at least one selected series,
+  not planned metric
+  queries. Overflow rejects the rebuilt plan atomically and leaves the previous
+  immutable plan installed; there is no first-N truncation.
 - Queries are grouped by `queryGroupKey{target, region, period}` — the batch unit
   (shared client and time window) and the scheduling unit.
 - The `observationStore` keeps a per-(target, region, period) `nextQueryAt`. `dueGroups`
@@ -279,53 +305,63 @@ Discovery then finds which *instances* of those profiles exist per target and re
   the series gaps until fresh data, and a stale value is never re-emitted.
   Without an explicit override, only `rate: true` metrics at `sum` or
   `sample_count` default to zero; every other statistic gaps. The cache otherwise
-  persists until the instance leaves discovery and `pruneObserved` drops it.
-- `pruneObserved` drops both cached series and per-(target, region, period) schedule entries
+  persists until the instance leaves discovery and `reconcilePlan` drops it.
+- `reconcilePlan` drops both cached series and per-(target, region, period) schedule entries
   absent from the current plan when that immutable plan is rebuilt, so removed resources
   stop being re-emitted and a group that later reappears is queried on its first cycle
   back rather than waiting for a stale schedule entry to expire.
 
-## Tag Enrichment (`tags.go`, `tagjoin.go`, `tagresolve.go`)
+## Resource Tag Filtering And Labels (`tags.go`, `tag_fetch.go`, `tagjoin.go`, `tagresolve.go`)
 
-Opt-in (`tags` config, empty by default). When set, the collector attaches selected
-AWS resource tags as **non-identity** chart labels, so `i-0abc123` also carries
-`owner`/`project`/`name`/… without changing series identity. It slots into the cycle
-between discovery and query planning:
+Resource-tag predicates select instances before query expansion. Separately,
+`labels.resource_tags` copies selected AWS tags to **non-identity** chart labels.
+Both use one resolution stage between discovery and query planning:
 
 ```text
 refreshDiscovery → refreshTags → buildQueryPlan → … → observe
 ```
 
-- **Client + cache.** A Resource Groups Tagging API (RGTA) client is built per
-  `{target, region}` (the same generic `clientCache[T]` as the CloudWatch client).
-  `refreshTags` runs on the discovery TTL and is best-effort: a per-`{target, region}`
-  failure keeps that scope's **last-known** tags (a first-run failure yields none) and
-  never fails the cycle. With no tags configured, no RGTA client is ever built.
-- **Resolution (`tagresolve.go`).** `resolveTagPlan` turns the allowlist into a
-  per-profile `awsKey → label` plan, once. It is **non-fatal**: an entry whose label is
-  empty/invalid, collides with a reserved (`account_id`/`region`) or dimension label, or
-  duplicates another tag is **skipped with a warning** — never a config error, never an
-  emitted duplicate key (which would panic `metrix`). `rename` resolves collisions; the
-  default label is the sanitized key (`Name` → `name`).
+- **Focused fetches.** A Resource Groups Tagging API (RGTA) client is cached per
+  `{target, region}`. Policy scopes sharing target, region, and canonical predicate
+  share a fetch group. Each request supplies native `TagFilters` and the union of
+  compatible `ResourceTypeFilters`; pages are streamed directly into membership and
+  label indexes, locally rechecked, and intersected with discovered candidates.
+  Fetch topology is rebuilt only when discovery changes, and predicate groups share
+  one candidate index per target/region/profile. Cached results retain membership,
+  labels, shared membership ids, and freshness—not fetch-time candidate maps.
+- **Failure state.** A failed filtered group becomes `unknown`. On the first failure,
+  its selected series are withheld for every candidate and reserved from lower-priority
+  rules; disjoint series remain eligible. After a success, last-known matched members
+  continue to query those series while the same series remain reserved for every other
+  candidate. Freshness and retry state are fetch-group-local: failed groups retry next
+  collect while successful groups keep their result until its discovery TTL expires.
+  Optional label enrichment carries last-known labels and never controls identity.
+- **Label resolution (`tagresolve.go`).** `resolveTagPlan` turns
+  `labels.resource_tags` into a per-profile `awsKey → label` plan once. Global config
+  validation rejects malformed or duplicate entries; profile-specific collisions with
+  `account_id`, `region`, or dimension labels are skipped with one warning. The optional
+  `label` resolves collisions; the default is the sanitized key (`Name` → `name`).
 - **ARN↔dimension join (`tagjoin.go`).** RGTA returns ARN + tags; the cache is keyed by
-  the profile's ARN-projectable `joinKey`. A per-profile mapper (a default
-  last-resource-segment extractor plus overrides for ALB/NLB/target-group/ECS/OpenSearch/
+  the profile's ARN-projectable `joinKey`. A namespace-bound per-profile mapper (a
+  default single-component resource-id extractor plus overrides for ALB/NLB/target-group/ECS/OpenSearch/
   Step-Functions) derives the `joinKey` from the ARN, and the instance side projects its
-  dimension values onto the same key. **Safe failure mode:** a wrong ARN assumption is a
-  cache *miss* (no tags), never *wrong* tags, because the instance side uses real
-  dimension values. Parent-resource profiles (S3, DynamoDB-operation, ALB-target) key on
-  the parent dimension so children inherit its tags. Unregistered profiles
-  (auto_scaling, bedrock, and the ambiguous cloudfront/api_gateway/msk/elasticache) carry
-  no tags.
+  dimension values onto the same key. The compiler accepts a registered mapper only
+  when an override retains its expected CloudWatch namespace and every join dimension
+  remains identifying (not constant). Parent-resource profiles (S3,
+  DynamoDB-operation, and ALB-target) key on the parent dimension so children
+  inherit its tags.
+  A default-selected profile without a safe association is skipped when filtering is
+  effective; explicitly including one is a config error unless that rule disables or
+  replaces the filter. Labels-only use remains best-effort for unsupported profiles.
 - **Emission split.** Identity `labels` (`{account_id, region, <dims>}`) and `tagLabels`
   travel separately through `plannedQuery`/`querySample`/`observedSeries`. `writeSample`
   emits `labels + tagLabels` in a fresh slice; `observedKey` (the retention/scheduling
   identity) uses **identity labels only**, so a tag change never churns scheduling, and
   retention re-emit carries the last-known `tagLabels`. `chartengine` `auto_intersection`
   then promotes the tag labels as non-identity chart labels — no template change.
-- **INV.2.** Tags only ADD labels; they never gate series existence. A custom profile
-  that names a tag in `instances.by_labels` (or uses `["*"]`) is out of scope — that is
-  the operator's own chart-identity choice.
+  A changed effective label set invalidates the plan once; observation reconciliation
+  updates retained tag labels and the normal numeric snapshot causes chartengine to
+  emit a label-only chart-definition update for an existing chart.
 
 ## Dynamic Charts
 
@@ -425,8 +461,8 @@ Each target's AWS account id is resolved through STS `GetCallerIdentity`
 fail-soft and retried: an unresolved target stays pending while healthy targets
 continue; only a cycle with no resolved target fails. Named targets are never
 deduplicated by account id because their permissions and visible resources may
-differ. Dynamic final-series overlap is deduplicated later by ordered rule/target
-precedence. AWS does not require an explicit IAM permission grant for
+differ. Dynamic final-instance overlap is deduplicated later by ordered
+rule/target precedence. AWS does not require an explicit IAM permission grant for
 `GetCallerIdentity`.
 
 Partition consistency is enforced per target. A target cannot span AWS
@@ -436,14 +472,15 @@ aws-eusc).
 
 ## Concurrency
 
-- `apiConcurrency` (5) bounds both the discovery fan-out and the GetMetricData
-  chunk execution, via `conc/pool`. `metricsPerQuery` (500) is the GetMetricData
-  batch size. Both are internal constants, not config.
+- `apiConcurrency` (5) bounds ListMetrics discovery, RGTA fetch groups, and
+  GetMetricData chunk execution via `conc/pool`. `metricsPerQuery` (500) is the
+  GetMetricData batch size. Both are internal constants, not config.
 - `clientCache` builds at most one CloudWatch client per (target, region), under
   a mutex, caching only successes (a transient credential error is retried next
   call).
 - The top-level `collect` stages run sequentially, and the per-cycle `store`
-  write is single-threaded. Only discovery and query execution fan out.
+  write is single-threaded. Discovery, resource-tag lookup, and query execution
+  fan out within their respective stages.
 
 ## Cost Model
 
@@ -483,13 +520,15 @@ verify current per-region prices on the CloudWatch pricing page.)
 - **Job-level placement** — AWS resources are chart instances via `by_labels`.
   They use the configured job `vnode` or the Agent host; no per-target/resource
   HostScope is generated.
-- **Tags are additive** — the opt-in `tags` allowlist adds non-identity labels
-  only; it never gates series existence and never overwrites an identity label
-  (a colliding tag is skipped with a warning).
+- **Tag filters fail closed** — unknown membership never becomes unfiltered
+  collection and never allows a lower-priority rule to claim the unknown higher
+  rule's selected series; disjoint series remain eligible.
+- **Tag labels are non-identity** — `labels.resource_tags` can update labels on an
+  existing chart but cannot change its identity or overwrite an identity label.
 - **Compiled configuration** — operator-facing credentials, targets, and ordered
-  rules are validated and expanded once. Discovery, `query_offset`, `timeout`,
-  the opt-in `tags` allowlist, `vnode`, and the framework's common fields remain
-  job-level settings.
+  rules are validated and expanded once. Discovery, tag-label presentation,
+  `limits.max_instances`, `query_offset`, `timeout`, `vnode`, and the framework's
+  common fields remain job-level settings.
   Concurrency, batch size, and the recently-active period bound are internal
   constants.
 

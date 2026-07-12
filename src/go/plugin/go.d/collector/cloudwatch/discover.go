@@ -34,11 +34,18 @@ type discoveredInstance struct {
 	DimensionValues []string
 }
 
-// profileUsesRecentlyActive reports whether a profile's ListMetrics call should
-// set RecentlyActive=PT3H: only when enabled by config AND every metric's
-// effective period is within the PT3H window.
-func profileUsesRecentlyActive(prof cwprofiles.Profile, enabled bool) bool {
-	return enabled && prof.MaxEffectivePeriod() <= recentlyActiveMaxPeriod
+// selectedSeriesUseRecentlyActive reports whether ListMetrics may safely use
+// RecentlyActive=PT3H for the selected series.
+func selectedSeriesUseRecentlyActive(series []compiledSeries, enabled bool) bool {
+	if !enabled || len(series) == 0 {
+		return false
+	}
+	for _, item := range series {
+		if item.Period > recentlyActiveMaxPeriod {
+			return false
+		}
+	}
+	return true
 }
 
 // discoverProfileGroup scans one namespace once and applies each participating
@@ -185,8 +192,9 @@ type discoveryGroupResult struct {
 	Err       error
 }
 
-// discoverAll runs one ListMetrics scan per compatible target/region/namespace/
-// RecentlyActive group and applies all grouped profiles to that streamed response.
+// discoverAll runs one ListMetrics scan per target/region/namespace group and
+// applies all grouped profiles to that streamed response. The group already holds
+// the least restrictive RecentlyActive policy required by its selected series.
 func discoverAll(
 	ctx context.Context,
 	newClient func(target, region string) (cloudwatchClient, error),
@@ -213,9 +221,9 @@ func discoverAll(
 	return results
 }
 
-// buildDiscoverySnapshot assembles a snapshot from per-target results. Targets
-// that errored are returned as a separate error list (the caller logs them and
-// applies fail-soft); only non-empty successful targets populate the snapshot.
+// buildDiscoverySnapshot assembles a snapshot from namespace-group results and
+// returns the number of failed groups. Failed groups retain their previous
+// profile instances; successful groups replace theirs.
 func buildDiscoverySnapshot(results []discoveryGroupResult, prev map[discoveryKey][]discoveredInstance, now time.Time, refreshEvery int) (discoverySnapshot, int) {
 	snap := discoverySnapshot{
 		Instances: make(map[discoveryKey][]discoveredInstance),
@@ -247,7 +255,7 @@ func buildDiscoverySnapshot(results []discoveryGroupResult, prev map[discoveryKe
 
 // highInstanceCountWarn is the discovered-instance count at or above which the
 // collector logs a cost-visibility warning. Collection is never truncated.
-const highInstanceCountWarn = 1000
+const highInstanceCountWarn = defaultMaxInstances
 
 func (c *Collector) loadCatalog() (cwprofiles.Catalog, error) {
 	if c.newCatalog != nil {
@@ -310,6 +318,8 @@ func (c *Collector) refreshDiscovery(ctx context.Context) error {
 	}
 
 	c.discovery = snap
+	c.invalidateTagFetchPlan()
+	c.markTagsStale()
 	c.invalidateQueryPlan()
 	c.logDiscovery(snap)
 
@@ -357,18 +367,39 @@ func (c *Collector) discoveryGroups() []discoveryGroup {
 		return nil
 	}
 
-	index := make(map[string]int)
+	type groupKey struct {
+		target, region, namespace string
+	}
+	type profileKey struct {
+		target, profile, region string
+	}
+	recentlyActive := make(map[profileKey]bool)
+	for _, scope := range c.plan.Scopes {
+		key := profileKey{target: scope.Target.Name, profile: scope.Profile.Name, region: scope.Region}
+		recent := selectedSeriesUseRecentlyActive(scope.SelectedSeries, c.recentlyActiveOnly())
+		if previous, ok := recentlyActive[key]; !ok || (previous && !recent) {
+			recentlyActive[key] = recent
+		}
+	}
+	index := make(map[groupKey]int)
+	seenProfiles := make(map[profileKey]struct{})
 	var groups []discoveryGroup
 	for _, scope := range c.plan.Scopes {
 		if _, ok := c.resolvedByRef[scope.Target.Name]; !ok {
 			continue
 		}
-		recent := profileUsesRecentlyActive(scope.Profile.Config, c.recentlyActiveOnly())
-		key := fmt.Sprintf("%s\x00%s\x00%s\x00%t", scope.Target.Name, scope.Region, scope.Profile.Config.Namespace, recent)
+		pk := profileKey{target: scope.Target.Name, profile: scope.Profile.Name, region: scope.Region}
+		recent := recentlyActive[pk]
+		key := groupKey{
+			target: scope.Target.Name, region: scope.Region,
+			namespace: scope.Profile.Config.Namespace,
+		}
 		if i, ok := index[key]; ok {
-			// Compiled scopes are unique by target/profile/region, so a profile can
-			// occur only once in a compatible discovery group.
-			groups[i].Profiles = append(groups[i].Profiles, scope.Profile)
+			groups[i].RecentlyActive = groups[i].RecentlyActive && recent
+			if _, seen := seenProfiles[pk]; !seen {
+				groups[i].Profiles = append(groups[i].Profiles, scope.Profile)
+				seenProfiles[pk] = struct{}{}
+			}
 			continue
 		}
 		index[key] = len(groups)
@@ -376,6 +407,7 @@ func (c *Collector) discoveryGroups() []discoveryGroup {
 			Target: scope.Target.Name, Region: scope.Region, Namespace: scope.Profile.Config.Namespace,
 			RecentlyActive: recent, Profiles: []cwprofiles.ResolvedProfile{scope.Profile},
 		})
+		seenProfiles[pk] = struct{}{}
 	}
 	return groups
 }
