@@ -34,7 +34,6 @@ Netdata uses multiple collectors working together to provide full Proxmox visibi
 - **go.d/zfspool** monitors ZFS pool health, space utilization, and fragmentation (ZFS is common on Proxmox).
 - **go.d/ceph** monitors Ceph cluster health and performance (for Proxmox clusters using Ceph storage).
 - **go.d/smartctl** monitors physical disk SMART health data.
-- **go.d/sensors** monitors hardware temperature, fan speed, and voltage.
 - **ebpf.plugin** provides kernel-level visibility into VM/container syscalls, file I/O, and network activity.
 
 
@@ -53,7 +52,6 @@ Proxmox VE Monitoring can be monitored further using the following other integra
 - [ZFS Pools](/src/go/plugin/go.d/collector/zfspool/integrations/zfs_pools.md)
 - [Ceph](/src/go/plugin/go.d/collector/ceph/integrations/ceph.md)
 - [S.M.A.R.T.](/src/go/plugin/go.d/collector/smartctl/integrations/s.m.a.r.t..md)
-- [Linux Sensors](/src/go/plugin/go.d/collector/sensors/integrations/linux_sensors.md)
 - [Network interfaces](/src/collectors/proc.plugin/integrations/network_interfaces.md)
 - [Disk Statistics](/src/collectors/proc.plugin/integrations/disk_statistics.md)
 - [System statistics](/src/collectors/proc.plugin/integrations/system_statistics.md)
@@ -120,6 +118,7 @@ There are no configuration examples.
 There are no alerts configured by default for this integration.
 
 
+
 ## Metrics
 
 This guide does not collect metrics directly. Metrics are collected by the related integrations listed above. See each integration's page for detailed metric documentation.
@@ -134,7 +133,7 @@ If VMs or containers show raw cgroup paths instead of friendly names, verify tha
 
 1. Netdata is installed on the Proxmox host (not inside a VM)
 2. The `/etc/pve/` directory is accessible to the netdata user
-3. The `cgroup-name.sh` script can read VM/container configuration files
+3. The `cgroup-name` helper can read VM/container configuration files
 
 
 ### Missing ZFS metrics

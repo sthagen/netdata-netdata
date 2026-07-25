@@ -99,20 +99,29 @@ static void test_popen_echo_loop(POPEN_INSTANCE *pi, const char *msg, size_t ite
     size_t buffer_size = len * 2;
     CLEAN_CHAR_P *buffer = mallocz(buffer_size);
 
+    FILE *child_stdin = spawn_popen_stdin(pi);
+    FILE *child_stdout = child_stdin ? spawn_popen_stdout(pi) : NULL;
+    if(!child_stdin || !child_stdout) {
+        nd_log(NDLS_COLLECTORS, NDLP_ERR, "Cannot open popen child streams");
+        spawn_popen_kill(pi, 0);
+        netdata_main_spawn_server_cleanup();
+        exit(1);
+    }
+
     for(size_t j = 0; j < iterations; j++) {
         fprintf(stderr, "-");
         memset(buffer, 0, buffer_size);
 
-        size_t rc = fwrite(msg, 1, len, spawn_popen_stdin(pi));
+        size_t rc = fwrite(msg, 1, len, child_stdin);
         if (rc != len) {
             nd_log(NDLS_COLLECTORS, NDLP_ERR,
                    "Cannot write to plugin. Expected to write %zu bytes, wrote %zu bytes",
                    len, rc);
             exit(1);
         }
-        fflush(spawn_popen_stdin(pi));
+        fflush(child_stdin);
 
-        char *s = fgets(buffer, (int)buffer_size, spawn_popen_stdout(pi));
+        char *s = fgets(buffer, (int)buffer_size, child_stdout);
         if (!s || strlen(s) != len) {
             nd_log(NDLS_COLLECTORS, NDLP_ERR,
                    "Cannot read from plugin. Expected to read %zu bytes, read %zu bytes",
@@ -347,12 +356,19 @@ void test_popen_plugin_echo_and_exit(const char *argv0) {
     }
 
     char buffer[1024];
+    FILE *child_stdout = spawn_popen_stdout(pi);
+    if(!child_stdout) {
+        spawn_popen_kill(pi, 0);
+        netdata_main_spawn_server_cleanup();
+        exit(1);
+    }
+
     size_t reads = 0;
     for(size_t j = 0; j < 30 ;j++) {
         fprintf(stderr, "-");
         memset(buffer, 0, sizeof(buffer));
 
-        char *s = fgets(buffer, sizeof(buffer), spawn_popen_stdout(pi));
+        char *s = fgets(buffer, sizeof(buffer), child_stdout);
         if(!s) break;
         reads++;
         if (strlen(s) != strlen(ECHO_AND_EXIT_MSG)) {
@@ -480,6 +496,79 @@ void test_popen_plugin_timedwait_kill(const char *argv0) {
 
 // --------------------------------------------------------------------------------------------------------------------
 
+#if !defined(OS_WINDOWS)
+static int callback_wait_for_sigterm(SPAWN_REQUEST *request) {
+    struct sigaction sigterm_action, sigchld_action;
+    sigset_t mask;
+
+    if(sigaction(SIGTERM, NULL, &sigterm_action) == -1 ||
+       sigaction(SIGCHLD, NULL, &sigchld_action) == -1 ||
+       pthread_sigmask(SIG_BLOCK, NULL, &mask) != 0 ||
+       sigterm_action.sa_handler != SIG_DFL ||
+       sigchld_action.sa_handler != SIG_DFL ||
+       sigismember(&mask, SIGTERM) != 0 ||
+       sigismember(&mask, SIGCHLD) != 0)
+        return EXIT_FAILURE;
+
+    static const char ready = 'R';
+    if(write(request->fds[1], &ready, sizeof(ready)) != sizeof(ready))
+        return EXIT_FAILURE;
+
+    for(;;)
+        pause();
+}
+
+static void test_callback_signal_lifecycle(int argc, const char **argv) {
+    SPAWN_SERVER *server = spawn_server_create(
+        SPAWN_SERVER_OPTION_CALLBACK, "test-callback", callback_wait_for_sigterm, argc, argv);
+    if(!server) {
+        nd_log(NDLS_COLLECTORS, NDLP_ERR, "Cannot create callback spawn server");
+        exit(1);
+    }
+
+    SPAWN_INSTANCE *si = spawn_server_exec(
+        server, STDERR_FILENO, STDIN_FILENO, NULL, NULL, 0, SPAWN_INSTANCE_TYPE_CALLBACK);
+    if(!si) {
+        spawn_server_destroy(server);
+        nd_log(NDLS_COLLECTORS, NDLP_ERR, "Cannot run callback signal lifecycle test");
+        exit(1);
+    }
+
+    char ready = 0;
+    if(read(spawn_server_instance_read_fd(si), &ready, sizeof(ready)) != sizeof(ready) || ready != 'R') {
+        spawn_server_exec_kill(server, si, 0);
+        spawn_server_destroy(server);
+        nd_log(NDLS_COLLECTORS, NDLP_ERR, "Callback child did not enter with default unblocked lifecycle signals");
+        exit(1);
+    }
+
+    int status = spawn_server_exec_kill(server, si, 0);
+    if(!WIFSIGNALED(status) || WTERMSIG(status) != SIGTERM) {
+        spawn_server_destroy(server);
+        nd_log(NDLS_COLLECTORS, NDLP_ERR, "Callback child should terminate with SIGTERM, raw status is %d", status);
+        exit(1);
+    }
+
+    si = spawn_server_exec(server, STDERR_FILENO, STDIN_FILENO, NULL, NULL, 0, SPAWN_INSTANCE_TYPE_CALLBACK);
+    if(!si) {
+        spawn_server_destroy(server);
+        nd_log(NDLS_COLLECTORS, NDLP_ERR, "Cannot run immediate callback signal lifecycle test");
+        exit(1);
+    }
+
+    status = spawn_server_exec_kill(server, si, 0);
+    spawn_server_destroy(server);
+
+    if(!WIFSIGNALED(status) || WTERMSIG(status) != SIGTERM) {
+        nd_log(NDLS_COLLECTORS, NDLP_ERR,
+               "Immediately killed callback child should terminate with SIGTERM, raw status is %d", status);
+        exit(1);
+    }
+}
+#endif
+
+// --------------------------------------------------------------------------------------------------------------------
+
 int main(int argc, const char **argv) {
     if(argc > 1 && strcmp(argv[1], "plugin-kill-to-stop") == 0)
         return plugin_kill_to_stop();
@@ -519,6 +608,11 @@ int main(int argc, const char **argv) {
         test_int_fds_plugin_close_to_stop(server, argv[0]);
     }
     spawn_server_destroy(server);
+
+#if !defined(OS_WINDOWS)
+    fprintf(stderr, "\n\nTESTING callback signal lifecycle\n\n");
+    test_callback_signal_lifecycle(argc, argv);
+#endif
 
     fprintf(stderr, "\n\nTESTING popen\n\n");
     netdata_main_spawn_server_init("test", argc, argv);

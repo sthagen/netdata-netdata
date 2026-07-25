@@ -4,9 +4,9 @@ use super::{
 };
 use chrono::Utc;
 use etherparse::{SlicedPacket, TransportSlice};
-use journal_core::file::Mmap;
-use journal_core::repository::File as RepoFile;
-use journal_core::{Direction, JournalFile, JournalReader, Location};
+use journal_sdk_core::file::Mmap;
+use journal_sdk_core::repository::File as RepoFile;
+use journal_sdk_core::{Direction, JournalFile, JournalReader, Location};
 use pcap_file::pcap::PcapReader;
 use rt::ProgressState;
 use std::collections::{BTreeMap, HashMap};
@@ -596,6 +596,12 @@ async fn e2e_ingest_receives_from_multiple_listeners() {
     let ingest_task = tokio::spawn(async move { service.run(run_shutdown).await });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
+    #[cfg(target_os = "linux")]
+    assert_eq!(
+        metrics.udp_listener_socket_inodes().len(),
+        2,
+        "each Linux UDP listener must publish its exact socket inode"
+    );
     let payloads = fixture_udp_payloads("nfv5.pcap");
     let expected_packets = (payloads.len() * 2) as u64;
     replay_payloads_udp(&listen_a, &payloads).await;
@@ -897,7 +903,7 @@ fn write_raw_flows(
     head_seqnum: u64,
     flows: &[(u64, u8)],
 ) {
-    use journal_core::{JournalFileOptions, JournalWriter};
+    use journal_sdk_core::{JournalFileOptions, JournalWriter};
 
     let head_realtime = flows.first().expect("at least one flow").0;
     let machine_dir = cfg

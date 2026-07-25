@@ -556,6 +556,7 @@ run_as_root() {
 }
 
 run_script() {
+  old_pwd="${PWD}"
   set_tmpdir
 
   export NETDATA_SCRIPT_STATUS_PATH="${tmpdir}/.script-status"
@@ -576,6 +577,7 @@ run_script() {
     rm -f "${NETDATA_SCRIPT_STATUS_PATH}"
   fi
 
+  cd "${old_pwd}" || fatal "Failed to change current working directory to ${old_pwd}." F000A
   return "${ret}"
 }
 
@@ -725,7 +727,9 @@ handle_wget_result() {
 check_for_remote_file() {
   url="${1}"
 
+  old_pwd="${PWD}"
   set_tmpdir
+  cd "${old_pwd}" || fatal "Failed to change current working directory to ${old_pwd}." F000A
   dl_log="${tmpdir}/download.log"
   rm -f "${dl_log}"
 
@@ -757,7 +761,9 @@ download() {
   url="${1}"
   dest="${2}"
 
+  old_pwd="${PWD}"
   set_tmpdir
+  cd "${old_pwd}" || fatal "Failed to change current working directory to ${old_pwd}." F000A
   dl_log="${tmpdir}/download.log"
   rm -f "${dl_log}"
 
@@ -787,7 +793,9 @@ get_actual_version() {
     major="${1}"
     channel="${2}"
     url="${RELEASE_INFO_URL}/${channel}/${major}"
+    old_pwd="${PWD}"
     set_tmpdir
+    cd "${old_pwd}" || true
     tmp_file="${tmpdir}/version-info"
 
     if check_for_remote_file "${RELEASE_INFO_URL}"; then
@@ -804,7 +812,9 @@ get_actual_version() {
 
 get_redirect() {
   url="${1}"
+  old_pwd="${PWD}"
   set_tmpdir
+  cd "${old_pwd}" || fatal "Failed to change current working directory to ${old_pwd}." F000A
   output="${tmpdir}/download.log"
   rm -f "${output}"
 
@@ -1630,8 +1640,13 @@ check_special_native_deps() {
     fi
 
     if [ "${DISTRO}" = "rhel" ]; then
+      if [ "${SYSVERSION}" -eq 7 ]; then
+        epel_url="https://archives.fedoraproject.org/pub/archive/epel/7/x86_64/Packages/e/epel-release-7-14.noarch.rpm"
+      else
+        epel_url="https://dl.fedoraproject.org/pub/epel/epel-release-latest-${SYSVERSION}.noarch.rpm"
+      fi
       # shellcheck disable=SC2086
-      if ! run_as_root env ${env} ${pm_cmd} ${install_subcmd} ${pkg_install_opts} "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${SYSVERSION}.noarch.rpm"; then
+      if ! run_as_root env ${env} ${pm_cmd} ${install_subcmd} ${pkg_install_opts} "${epel_url}"; then
         warning "Failed to install EPEL, even though it is required to install native packages on this system."
         return 1
       fi

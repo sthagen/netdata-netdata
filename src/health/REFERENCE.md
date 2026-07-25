@@ -125,6 +125,12 @@ You don't need to restart your Netdata Agent when making changes to health confi
 sudo netdatacli reload-health
 ```
 
+**On Windows:**
+
+```powershell
+& "C:\Program Files\Netdata\usr\bin\netdatacli.exe" reload-health
+```
+
 **Alternative Method:**
 If `netdatacli` doesn't work on your system, you can send a `SIGUSR2` signal to the daemon, which reloads health configuration without restarting the entire process.
 
@@ -136,14 +142,18 @@ sudo killall -USR2 netdata
 
 **Configuration Locations:**
 
-**Configuration Locations:**
-
 | Location                          | Purpose                      | Common Tasks                                                                                             | How to Edit                              |
 |-----------------------------------|------------------------------|----------------------------------------------------------------------------------------------------------|------------------------------------------|
 | `netdata.conf` `[health]` section | Global health settings       | • Disable all monitoring (`enabled = no`)<br />• Disable specific alerts<br />• Change check frequencies | Edit directly or use `edit-config`       |
 | `health.d/*.conf` files           | Individual alert definitions | • Modify thresholds<br />• Change notification recipients<br />• Silence alerts (`to: silent`)           | Use `edit-config health.d/filename.conf` |
 
 Navigate to your [Netdata config directory](/docs/netdata-agent/configuration/README.md) and use `edit-config` to make changes to any of these files.
+
+:::note
+
+**On Windows:** the stock (default) alert templates ship at `C:\Program Files\Netdata\usr\lib\netdata\conf.d\health.d\` — browse them to see which alerts ship with Netdata. Place your overrides in `C:\Program Files\Netdata\etc\netdata\health.d\` instead, so they survive Agent updates. Edit files there using `edit-config` from the bundled MSYS2 shell — see [On Windows](/docs/netdata-agent/configuration/README.md#on-windows) in the Agent configuration guide.
+
+:::
 
 **Edit Individual Alerts:**
 
@@ -370,6 +380,18 @@ For complete details on configuration loading order and precedence rules, see [A
 - The `on` line is **always required**
 - The `every` line is **required** if not using `lookup`
 - Each entity **must** have at least one of the following lines: `lookup`, `calc`, `warn`, or `crit`
+
+While `lookup` or `calc` alone satisfies this minimum syntax requirement, an alert also needs at least one `warn` or `crit` expression to ever leave **UNDEFINED** status. Only a `warn` or `crit` expression can move an alert to CLEAR, WARNING, or CRITICAL (see [Alert Status Lifecycle](#alert-status-lifecycle) for the full status flow). With only `lookup` (or `calc`) and no `warn`/`crit`, the value is computed but nothing evaluates it against a threshold, so once the alert is first evaluated it stays UNDEFINED indefinitely.
+
+For example, this template adds `warn` and `crit` so the alert has something to evaluate:
+
+```text
+template: ram_avail_now
+      on: mem.available
+  lookup: median -15m unaligned of avail
+    warn: $this < 512
+    crit: $this < 128
+```
 
 :::
 

@@ -179,8 +179,14 @@ static bool rrdhost_load_kubernetes_labels(void) {
     POPEN_INSTANCE *instance = spawn_popen_run(label_script);
     if(!instance) return false;
 
+    FILE *child_stdout = spawn_popen_stdout(instance);
+    if(unlikely(!child_stdout)) {
+        spawn_popen_kill(instance, 0);
+        return false;
+    }
+
     char buffer[1000 + 1];
-    while (fgets(buffer, 1000, spawn_popen_stdout(instance)) != NULL)
+    while (fgets(buffer, 1000, child_stdout) != NULL)
         rrdlabels_add_pair(localhost->rrdlabels, buffer, RRDLABEL_SRC_AUTO|RRDLABEL_SRC_K8S);
 
     // Non-zero exit code means that all the script output is error messages. We've shown already any message that didn't include a ':'
@@ -199,7 +205,11 @@ static bool rrdhost_load_kubernetes_labels(void) {
 static void rrdhost_load_auto_labels(void) {
     RRDLABELS *labels = localhost->rrdlabels;
 
-    rrdhost_system_info_to_rrdlabels(localhost->system_info, labels);
+    spinlock_lock(&localhost->rrdhost_update_lock);
+    struct rrdhost_system_info *system_info = rrdhost_system_info_dup(localhost->system_info);
+    spinlock_unlock(&localhost->rrdhost_update_lock);
+    rrdhost_system_info_to_rrdlabels(system_info, labels);
+    rrdhost_system_info_free(system_info);
     add_aclk_host_labels();
 
     // The source should be CONF, but when it is set, these labels are exported by default ('send configured labels' in exporting.conf).

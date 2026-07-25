@@ -30,6 +30,10 @@ struct rrddim_constructor {
 
 };
 
+static inline int32_t rrddim_normalize_divisor(int32_t divisor) {
+    return divisor ? divisor : 1;
+}
+
 // isolated call to appear
 // separate in statistics
 static void *rrddim_alloc_db(size_t entries) {
@@ -61,8 +65,7 @@ static void rrddim_insert_callback(const DICTIONARY_ITEM *item __maybe_unused, v
 
     rd->algorithm = ctr->algorithm;
     rd->multiplier = ctr->multiplier;
-    rd->divisor = ctr->divisor;
-    if(!rd->divisor) rd->divisor = 1;
+    rd->divisor = rrddim_normalize_divisor(ctr->divisor);
 
     rd->rrdset = st;
 
@@ -210,8 +213,20 @@ static void rrddim_delete_callback(const DICTIONARY_ITEM *item __maybe_unused, v
 
     netdata_log_debug(D_RRD_CALLS, "rrddim_free() %s.%s", rrdset_name(st), rrddim_name(rd));
 
-    if (!rrddim_finalize_collection_and_check_retention(rd) && rd->rrd_memory_mode == RRD_DB_MODE_DBENGINE) {
-        /* This metric has no data and no references */
+    // finalize collection first (tears down tier collect handles); its return
+    // means "the db still has retention for this dimension".
+    bool has_db_retention = rrddim_finalize_collection_and_check_retention(rd);
+
+    // Delete the dimension's SQLite metadata when freeing it leaves no queryable
+    // data behind:
+    //   - dbengine: only when no on-disk retention remains;
+    //   - ram/alloc/none: all use the in-memory rrddim storage backend, so data
+    //     lives only in RAM and a freed dimension is always orphaned (the
+    //     retention check above misreports these modes as retained).
+    if ((rd->rrd_memory_mode == RRD_DB_MODE_DBENGINE && !has_db_retention) ||
+        rd->rrd_memory_mode == RRD_DB_MODE_RAM ||
+        rd->rrd_memory_mode == RRD_DB_MODE_ALLOC ||
+        rd->rrd_memory_mode == RRD_DB_MODE_NONE) {
         metaqueue_delete_dimension_uuid(uuidmap_uuid_ptr(rd->uuid));
     }
 
@@ -297,8 +312,8 @@ static void rrddim_react_callback(const DICTIONARY_ITEM *item __maybe_unused, vo
                 continue;
 
             if(td->algorithm != rd->algorithm
-               || ABS(td->multiplier) != ABS(rd->multiplier)
-               || ABS(td->divisor)    != ABS(rd->divisor)) {
+               || rrddim_scale_magnitude(td->multiplier) != rrddim_scale_magnitude(rd->multiplier)
+               || rrddim_scale_magnitude(td->divisor)    != rrddim_scale_magnitude(rd->divisor)) {
                 if(!rrdset_flag_check(st, RRDSET_FLAG_HETEROGENEOUS)) {
 #ifdef NETDATA_INTERNAL_CHECKS
                     netdata_log_info("Dimension '%s' added on chart '%s' of host '%s' is not homogeneous to other dimensions already "
@@ -444,6 +459,8 @@ inline int rrddim_set_multiplier(RRDSET *st, RRDDIM *rd, int32_t multiplier) {
 }
 
 inline int rrddim_set_divisor(RRDSET *st, RRDDIM *rd, int32_t divisor) {
+    divisor = rrddim_normalize_divisor(divisor);
+
     if(unlikely(rd->divisor == divisor))
         return 0;
 
@@ -677,13 +694,7 @@ collected_number rrddim_timed_set_by_pointer(RRDSET *st __maybe_unused, RRDDIM *
 //        *((int64_t *)Pvalue) = *((int64_t *)Pvalue) + 1;
 //    spinlock_unlock(&st->rrdhost->accounting.spinlock);
 
-    NETDATA_DOUBLE v = value >= 0 ? (NETDATA_DOUBLE)value : (NETDATA_DOUBLE)(-value);
-    if (unlikely(v > rrddim_collected_max_as_double(rd))) {
-        if(rrddim_is_float(rd))
-            rrddim_set_collected_max_float(rd, v);
-        else
-            rrddim_set_collected_max_int(rd, (int64_t)v);
-    }
+    rrddim_update_collected_max_from_int(rd, value);
     // For int dims return the last collected int; for float dims the integer return is meaningless, so return 0 to avoid truncation misuse.
     if(rrddim_is_float(rd))
         return 0;

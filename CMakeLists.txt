@@ -191,7 +191,7 @@ mark_as_advanced(ENABLE_DASHBOARD)
 option(ENABLE_PLUGIN_GO "Enable metric collectors written in Go" ${DEFAULT_FEATURE_STATE})
 cmake_dependent_option(ENABLE_ND_MCP "Build nd-mcp stdio-to-websocket bridge for MCP integration" ${DEFAULT_FEATURE_STATE} "ENABLE_PLUGIN_GO" False)
 option(ENABLE_PLUGIN_SCRIPTS "Enable the experimental scripts plugin (Nagios compatibility module)" ON)
-cmake_dependent_option(ENABLE_PLUGIN_OTEL "Enable collection of OpenTelemetry metrics and logs" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
+cmake_dependent_option(ENABLE_PLUGIN_OTEL "Enable collection of OpenTelemetry metrics and logs" ${DEFAULT_FEATURE_STATE} "OS_LINUX OR OS_MACOS" False)
 cmake_dependent_option(ENABLE_PLUGIN_NETFLOW "Enable NetFlow/IPFIX/sFlow flow analysis plugin" False "NOT OS_WINDOWS" False)
 option(ENABLE_PLUGIN_PYTHON "Enable metric collectors written in Python" ${DEFAULT_FEATURE_STATE})
 
@@ -204,6 +204,7 @@ cmake_dependent_option(ENABLE_PLUGIN_FREEIPMI "Enable IPMI monitoring" ${DEFAULT
 cmake_dependent_option(ENABLE_PLUGIN_CGROUP_NETWORK "Enable Linux CGroup network usage monitoring" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
 cmake_dependent_option(ENABLE_CGROUPS_LOOKUP_SERVER "Enable cgroups.plugin CGROUPS_LOOKUP netipc server" True "OS_LINUX" False)
 cmake_dependent_option(ENABLE_CGROUPS_LOOKUP_TEST_CLIENT "Build cgroups.plugin CGROUPS_LOOKUP test client" False "ENABLE_CGROUPS_LOOKUP_SERVER" False)
+cmake_dependent_option(ENABLE_CGROUP_NAME "Build the cgroup-name helper" True "OS_LINUX;ENABLE_PLUGIN_GO" False)
 cmake_dependent_option(ENABLE_PLUGIN_DEBUGFS "Enable Linux DebugFS metric collection" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
 cmake_dependent_option(ENABLE_PLUGIN_EBPF "Enable Linux eBPF metric collection" ${DEFAULT_FEATURE_STATE} "OS_LINUX" False)
 cmake_dependent_option(ENABLE_LEGACY_EBPF_PROGRAMS "Enable eBPF programs for kernels without BTF support" True "ENABLE_PLUGIN_EBPF" False)
@@ -238,6 +239,41 @@ mark_as_advanced(ENABLE_SENTRY)
 
 option(BUILD_FOR_PACKAGING "Include component files for native packages" False)
 mark_as_advanced(BUILD_FOR_PACKAGING)
+
+# Selects which native package format the staged tree is shaped for. The empty
+# default preserves the historical (DEB-shaped) layout so existing builds are
+# unaffected; packaging/build-package.sh passes it explicitly.
+set(NETDATA_PACKAGING_FORMAT "" CACHE STRING "Native package format being built (deb, rpm, or empty)")
+mark_as_advanced(NETDATA_PACKAGING_FORMAT)
+if(NOT NETDATA_PACKAGING_FORMAT STREQUAL "" AND
+   NOT NETDATA_PACKAGING_FORMAT STREQUAL "deb" AND
+   NOT NETDATA_PACKAGING_FORMAT STREQUAL "rpm")
+        message(FATAL_ERROR "Invalid NETDATA_PACKAGING_FORMAT '${NETDATA_PACKAGING_FORMAT}' (expected deb, rpm, or empty)")
+endif()
+
+# CPack only emits Recommends: from CMake 4.1 on; older versions ignore the
+# variables silently, which would strip the weak dependencies from the RPMs
+# without any build failure. Checked here rather than in Packaging.cmake so
+# the configure fails fast.
+if(NETDATA_PACKAGING_FORMAT STREQUAL "rpm" AND CMAKE_VERSION VERSION_LESS 4.1)
+        message(FATAL_ERROR "RPM packaging requires CMake >= 4.1 (CPack weak-dependency support); this is ${CMAKE_VERSION}")
+endif()
+
+# A few payloads live in different packages per format: the spec keeps the
+# sensors3/otel stock configs and nd-mcp in the main RPM and the swagger
+# files in the dashboard RPM, while the DEB layout groups them with their
+# plugins (and swagger with the main package).
+if(NETDATA_PACKAGING_FORMAT STREQUAL "rpm")
+        set(NETDATA_SENSORS3_COMPONENT netdata)
+        set(NETDATA_ND_MCP_COMPONENT netdata)
+        set(NETDATA_OTEL_CONF_COMPONENT netdata)
+        set(NETDATA_SWAGGER_COMPONENT dashboard)
+else()
+        set(NETDATA_SENSORS3_COMPONENT plugin-debugfs)
+        set(NETDATA_ND_MCP_COMPONENT plugin-go)
+        set(NETDATA_OTEL_CONF_COMPONENT plugin-otel)
+        set(NETDATA_SWAGGER_COMPONENT netdata)
+endif()
 
 cmake_dependent_option(ENABLE_LIBBACKTRACE "Use libbacktrace for stack traces in log output" True "OS_LINUX OR OS_WINDOWS" False)
 mark_as_advanced(ENABLE_LIBBACKTRACE)
@@ -432,7 +468,7 @@ if(ENABLE_JEMALLOC)
 endif()
 
 set(ENABLE_PLUGIN_EBPF_GO OFF)
-if(ENABLE_PLUGIN_GO OR ENABLE_PLUGIN_EBPF OR ENABLE_PLUGIN_IBM OR ENABLE_PLUGIN_SCRIPTS OR ENABLE_PLUGIN_NETFLOW)
+if(ENABLE_PLUGIN_GO OR ENABLE_PLUGIN_EBPF OR ENABLE_PLUGIN_IBM OR ENABLE_PLUGIN_SCRIPTS OR ENABLE_PLUGIN_NETFLOW OR ENABLE_CGROUP_NAME)
     include(NetdataGoTools)
 
     find_min_go_version("${CMAKE_SOURCE_DIR}/src/go")
@@ -483,6 +519,19 @@ if(ENABLE_BUNDLED_PROTOBUF)
 endif()
 
 set(PKG_FILES_PATH "${CMAKE_SOURCE_DIR}/packaging/cmake/pkg-files")
+
+include(NetdataOSRelease)
+
+# DEB policy requires a copyright file in every binary package; RPMs do not
+# ship one (netdata.spec.in never packaged it).
+function(netdata_add_deb_copyright component package_name)
+        if(BUILD_FOR_PACKAGING AND NOT NETDATA_PACKAGING_FORMAT STREQUAL "rpm")
+                install(FILES
+                        "${PKG_FILES_PATH}/copyright"
+                        COMPONENT "${component}"
+                        DESTINATION "usr/share/doc/${package_name}")
+        endif()
+endfunction()
 
 if(ENABLE_PLUGIN_EBPF)
         include(NetdataLibBPF)
@@ -756,15 +805,6 @@ int main() {
 }
 " HAVE_BUILTIN_ATOMICS)
 
-check_cxx_source_compiles("
-#include <stdint.h>
-int main(void) {
-        uint64_t a;
-        __sync_add_and_fetch(&a, 1);
-        return 0;
-}
-" ARCH_SUPPORTS_64BIT_ATOMICS)
-
 check_c_source_compiles("
 void my_printf(char const *s, ...) __attribute__((format(gnu_printf, 1, 2)));
 int main() { return 0; }
@@ -976,6 +1016,7 @@ set(LIBNETDATA_FILES
         src/libnetdata/clocks/clocks.h
         src/libnetdata/clocks/clocks-internals.h
         src/libnetdata/clocks/clocks-unittest.c
+        src/libnetdata/clocks/time_t_arithmetic.h
         src/libnetdata/completion/completion.c
         src/libnetdata/completion/completion.h
         src/libnetdata/datetime/iso8601.c
@@ -1118,6 +1159,8 @@ set(LIBNETDATA_FILES
         src/libnetdata/os/windows-wmi/windows-wmi.h
         src/libnetdata/os/windows-wmi/windows-wmi-GetDiskDriveInfo.c
         src/libnetdata/os/windows-wmi/windows-wmi-GetDiskDriveInfo.h
+        src/libnetdata/os/windows-wmi/windows-wmi-GetSystemInfo.c
+        src/libnetdata/os/windows-wmi/windows-wmi-GetSystemInfo.h
         src/libnetdata/os/windows-perflib/perflib.c
         src/libnetdata/os/windows-perflib/perflib.h
         src/libnetdata/os/windows-perflib/perflib-names.c
@@ -1547,6 +1590,8 @@ set(API_PLUGIN_FILES
         src/web/api/queries/trimmed_mean/trimmed_mean.h
         src/web/api/queries/extremes/extremes.c
         src/web/api/queries/extremes/extremes.h
+        src/web/api/queries/latest/latest.c
+        src/web/api/queries/latest/latest.h
         src/web/api/queries/weights.c
         src/web/api/queries/weights.h
         src/web/api/formatters/rrd2json.c
@@ -1772,6 +1817,7 @@ set(RRD_PLUGIN_FILES
         src/database/rrdfunctions-inflight.h
         src/database/rrdfunctions-exporters.c
         src/database/rrdfunctions-exporters.h
+        src/database/rrdfunctions-unittest.c
         src/database/rrdfunctions-internals.h
         src/database/rrdcollector-internals.h
         src/database/rrd-database-mode.h
@@ -1889,6 +1935,7 @@ set(SYSTEMD_UNITS_PLUGIN_FILES
 
 set(STREAMING_PLUGIN_FILES
         src/streaming/stream.h
+        src/streaming/stream-trace.h
         src/streaming/stream-compression/compression.c
         src/streaming/stream-compression/compression.h
         src/streaming/stream-compression/brotli.c
@@ -1977,6 +2024,7 @@ set(WEB_PLUGIN_FILES
         src/web/mcp/mcp-tools-list-metadata.h
         src/web/mcp/mcp-tools-execute-function.c
         src/web/mcp/mcp-tools-execute-function.h
+        src/web/mcp/mcp-tools-execute-function-unittest.c
         src/web/mcp/mcp-tools-execute-function-internal.h
         src/web/mcp/mcp-tools-execute-function-registry.c
         src/web/mcp/mcp-tools-execute-function-registry.h
@@ -2074,6 +2122,9 @@ set(CGROUPS_PLUGIN_FILES
         src/collectors/cgroups.plugin/sys_fs_cgroup.h
         src/collectors/cgroups.plugin/cgroup-internals.h
         src/collectors/cgroups.plugin/cgroup-discovery.c
+        src/collectors/cgroups.plugin/cgroup-name-config.c
+        src/collectors/cgroups.plugin/cgroup-name-config.h
+        src/collectors/cgroups.plugin/cgroup-name-labels.c
         src/collectors/cgroups.plugin/cgroup-orchestrator.c
         src/collectors/common-cgroups/cgroup-path.c
         src/collectors/common-cgroups/cgroup-path.h
@@ -2494,6 +2545,16 @@ endif()
 #
 
 add_library(libnetdata STATIC ${LIBNETDATA_FILES})
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(arm64)|(aarch64)|(ARM64)|(AARCH64)")
+    check_c_compiler_flag("-mno-outline-atomics" HAVE_C_MNO_OUTLINE_ATOMICS)
+    if(HAVE_C_MNO_OUTLINE_ATOMICS)
+        # This source is reached from raw signal handlers and cannot call atomic runtime helpers.
+        set_source_files_properties(src/libnetdata/exit/exit_initiated.c PROPERTIES
+                                    COMPILE_OPTIONS "-mno-outline-atomics")
+    endif()
+endif()
+
 set_source_files_properties(src/libnetdata/gorilla/gorilla.cc PROPERTIES COMPILE_OPTIONS "-Wno-attributes")
 
 target_include_directories(libnetdata BEFORE PUBLIC ${CONFIG_H_DIR} ${CMAKE_SOURCE_DIR}/src)
@@ -2824,17 +2885,12 @@ if(ENABLE_PLUGIN_DEBUGFS)
 
     install(FILES
             src/collectors/debugfs.plugin/libsensors/vendored/etc/sensors.conf.default
-            COMPONENT plugin-debugfs
+            COMPONENT ${NETDATA_SENSORS3_COMPONENT}
             DESTINATION usr/lib/netdata/conf.d
             RENAME sensors3.conf)
 
     # Install additional packaging files if building for packaging
-    if(BUILD_FOR_PACKAGING)
-        install(FILES
-                ${PKG_FILES_PATH}/copyright
-                COMPONENT plugin-debugfs
-                DESTINATION usr/share/doc/netdata-plugin-debugfs)
-    endif()
+    netdata_add_deb_copyright(plugin-debugfs netdata-plugin-debugfs)
 endif()
 
 add_executable(spawn-tester src/libnetdata/spawn_server/spawn-tester.c)
@@ -2895,12 +2951,7 @@ if(ENABLE_PLUGIN_APPS)
             COMPONENT plugin-apps
             DESTINATION usr/lib/netdata/conf.d)
 
-    if(BUILD_FOR_PACKAGING)
-        install(FILES
-                ${PKG_FILES_PATH}/copyright
-                COMPONENT plugin-apps
-                DESTINATION usr/share/doc/netdata-plugin-apps)
-    endif()
+    netdata_add_deb_copyright(plugin-apps netdata-plugin-apps)
 endif()
 
 if(ENABLE_PLUGIN_FREEIPMI)
@@ -2917,12 +2968,7 @@ if(ENABLE_PLUGIN_FREEIPMI)
             COMPONENT plugin-freeipmi
             DESTINATION usr/libexec/netdata/plugins.d)
 
-    if(BUILD_FOR_PACKAGING)
-        install(FILES
-                ${PKG_FILES_PATH}/copyright
-                COMPONENT plugin-freeipmi
-                DESTINATION usr/share/doc/netdata-plugin-freeipmi)
-    endif()
+    netdata_add_deb_copyright(plugin-freeipmi netdata-plugin-freeipmi)
 endif()
 
 if(ENABLE_PLUGIN_NFACCT)
@@ -2943,12 +2989,7 @@ if(ENABLE_PLUGIN_NFACCT)
             COMPONENT plugin-nfacct
             DESTINATION usr/libexec/netdata/plugins.d)
 
-    if(BUILD_FOR_PACKAGING)
-        install(FILES
-                ${PKG_FILES_PATH}/copyright
-                COMPONENT plugin-nfacct
-                DESTINATION usr/share/doc/netdata-plugin-nfacct)
-    endif()
+    netdata_add_deb_copyright(plugin-nfacct netdata-plugin-nfacct)
 endif()
 
 if(ENABLE_PLUGIN_XENSTAT)
@@ -2966,12 +3007,7 @@ if(ENABLE_PLUGIN_XENSTAT)
             COMPONENT plugin-xenstat
             DESTINATION usr/libexec/netdata/plugins.d)
 
-    if(BUILD_FOR_PACKAGING)
-        install(FILES
-                ${PKG_FILES_PATH}/copyright
-                COMPONENT plugin-xenstat
-                DESTINATION usr/share/doc/netdata-plugin-xenstat)
-    endif()
+    netdata_add_deb_copyright(plugin-xenstat netdata-plugin-xenstat)
 endif()
 
 if(ENABLE_PLUGIN_PERF)
@@ -2984,12 +3020,7 @@ if(ENABLE_PLUGIN_PERF)
             COMPONENT plugin-perf
             DESTINATION usr/libexec/netdata/plugins.d)
 
-    if(BUILD_FOR_PACKAGING)
-         install(FILES
-                 ${PKG_FILES_PATH}/copyright
-                 COMPONENT plugin-perf
-                 DESTINATION usr/share/doc/netdata-plugin-perf)
-    endif()
+    netdata_add_deb_copyright(plugin-perf netdata-plugin-perf)
 endif()
 
 if(ENABLE_PLUGIN_SLABINFO)
@@ -3002,12 +3033,7 @@ if(ENABLE_PLUGIN_SLABINFO)
             COMPONENT plugin-slabinfo
             DESTINATION usr/libexec/netdata/plugins.d)
 
-    if(BUILD_FOR_PACKAGING)
-        install(FILES
-                ${PKG_FILES_PATH}/copyright
-                COMPONENT plugin-slabinfo
-                DESTINATION usr/share/doc/netdata-plugin-slabinfo)
-    endif()
+    netdata_add_deb_copyright(plugin-slabinfo netdata-plugin-slabinfo)
 endif()
 
 
@@ -3042,12 +3068,7 @@ if(ENABLE_PLUGIN_CUPS)
                 COMPONENT plugin-cups
                 DESTINATION usr/libexec/netdata/plugins.d)
 
-        if(BUILD_FOR_PACKAGING)
-                install(FILES
-                        ${PKG_FILES_PATH}/copyright
-                        COMPONENT plugin-cups
-                        DESTINATION usr/share/doc/netdata-plugin-cups)
-        endif()
+        netdata_add_deb_copyright(plugin-cups netdata-plugin-cups)
     endif()
 endif()
 
@@ -3079,11 +3100,28 @@ if(ENABLE_CGROUPS_LOOKUP_TEST_CLIENT)
 endif()
 
 if(OS_LINUX)
+    add_executable(cgroup-name-config-test EXCLUDE_FROM_ALL
+            src/collectors/cgroups.plugin/tests/test_cgroup_name_config.c
+            src/collectors/cgroups.plugin/cgroup-name-config.c)
+
     add_executable(cgroup-orchestrator-test EXCLUDE_FROM_ALL
             src/collectors/cgroups.plugin/tests/test_cgroup_orchestrator.c
             src/collectors/cgroups.plugin/cgroup-orchestrator.c)
     target_compile_definitions(cgroup-orchestrator-test PRIVATE NETDATA_INTERNAL_CHECKS=1)
     target_link_libraries(cgroup-orchestrator-test libnetdata)
+
+    # The label-parser test links the real src/database/rrdlabels.c against a
+    # small set of stubs (test_cgroups_plugin_stubs.c) so it stays self-contained
+    # while still validating production parsing behavior. Plain C, no test
+    # framework; the target is EXCLUDE_FROM_ALL so it is built only on demand.
+    add_executable(cgroups-plugin-labels-test EXCLUDE_FROM_ALL
+            src/collectors/cgroups.plugin/tests/test_cgroups_plugin.c
+            src/collectors/cgroups.plugin/tests/test_cgroups_plugin_stubs.c
+            src/collectors/cgroups.plugin/cgroup-name-labels.c
+            src/database/rrdlabels.c
+            src/database/rrdlabels-aggregated.c
+            src/database/pattern-array.c)
+    target_link_libraries(cgroups-plugin-labels-test libnetdata)
 
     add_executable(apps-cgroups-path-test EXCLUDE_FROM_ALL
             src/collectors/apps.plugin/tests/test_apps_cgroups_path.c
@@ -3114,6 +3152,22 @@ if(OS_LINUX)
     add_executable(apps-cgroups-lookup-client-abort-test EXCLUDE_FROM_ALL
             src/collectors/apps.plugin/tests/test_apps_cgroups_lookup_client_abort.c)
     target_link_libraries(apps-cgroups-lookup-client-abort-test libnetdata)
+endif()
+
+add_executable(stream-receiver-hops-test EXCLUDE_FROM_ALL
+        src/streaming/tests/stream-handshake-hops-test.c)
+target_link_libraries(stream-receiver-hops-test libnetdata)
+
+add_executable(stream-replay-endpoints-test EXCLUDE_FROM_ALL
+        src/streaming/tests/stream-replay-endpoints-test.c)
+target_link_libraries(stream-replay-endpoints-test libnetdata)
+
+if(OS_LINUX)
+        add_executable(http-auth-bearer-test EXCLUDE_FROM_ALL
+                src/web/api/tests/http-auth-bearer-test.c)
+        target_compile_options(http-auth-bearer-test PRIVATE -ffunction-sections -fdata-sections)
+        target_link_options(http-auth-bearer-test PRIVATE -Wl,--no-export-dynamic -Wl,--gc-sections)
+        target_link_libraries(http-auth-bearer-test libnetdata)
 endif()
 
 if(ENABLE_CGROUPS_LOOKUP_SERVER)
@@ -3150,12 +3204,7 @@ if(ENABLE_PLUGIN_SYSTEMD_JOURNAL)
                 COMPONENT plugin-systemd-journal
                 DESTINATION usr/libexec/netdata/plugins.d)
 
-        if(BUILD_FOR_PACKAGING)
-                install(FILES
-                        ${PKG_FILES_PATH}/copyright
-                        COMPONENT plugin-systemd-journal
-                        DESTINATION usr/share/doc/netdata-plugin-systemd-journal)
-        endif()
+        netdata_add_deb_copyright(plugin-systemd-journal netdata-plugin-systemd-journal)
 endif()
 
 if(ENABLE_PLUGIN_SYSTEMD_UNITS)
@@ -3176,12 +3225,7 @@ if(ENABLE_PLUGIN_SYSTEMD_UNITS)
                 COMPONENT plugin-systemd-units
                 DESTINATION usr/libexec/netdata/plugins.d)
 
-        if(BUILD_FOR_PACKAGING)
-                install(FILES
-                        ${PKG_FILES_PATH}/copyright
-                        COMPONENT plugin-systemd-units
-                        DESTINATION usr/share/doc/netdata-plugin-systemd-units)
-        endif()
+        netdata_add_deb_copyright(plugin-systemd-units netdata-plugin-systemd-units)
 endif()
 
 if(OS_WINDOWS)
@@ -3356,12 +3400,7 @@ if(ENABLE_PLUGIN_EBPF)
             COMPONENT plugin-ebpf
             DESTINATION usr/lib/netdata/conf.d/ebpf.d)
 
-    if(BUILD_FOR_PACKAGING)
-        install(FILES
-                ${PKG_FILES_PATH}/copyright
-                COMPONENT plugin-ebpf
-                DESTINATION usr/share/doc/netdata-plugin-ebpf)
-    endif()
+    netdata_add_deb_copyright(plugin-ebpf netdata-plugin-ebpf)
 
     if(ENABLE_LEGACY_EBPF_PROGRAMS)
         netdata_install_legacy_ebpf_code()
@@ -3475,12 +3514,7 @@ if(ENABLE_PLUGIN_NETWORK_VIEWER)
                 target_link_libraries(network-viewer-topology-containers-test libnetdata)
         endif()
 
-        if(BUILD_FOR_PACKAGING)
-                install(FILES
-                        ${PKG_FILES_PATH}/copyright
-                        COMPONENT plugin-network-viewer
-                        DESTINATION usr/share/doc/netdata-plugin-network-viewer)
-        endif()
+        netdata_add_deb_copyright(plugin-network-viewer netdata-plugin-network-viewer)
 endif()
 
 #
@@ -3743,7 +3777,7 @@ if(ENABLE_PLUGIN_GO)
         add_go_target(nd-mcp-target ${ND_MCP_NAME} src/web/mcp/bridges/stdio-golang .)
         install(PROGRAMS
                 ${CMAKE_BINARY_DIR}/${ND_MCP_NAME}
-                COMPONENT plugin-go
+                COMPONENT ${NETDATA_ND_MCP_COMPONENT}
                 DESTINATION "${BINDIR}")
     endif()
 endif()
@@ -3803,7 +3837,7 @@ if(ENABLE_PLUGIN_IBM)
             DESTINATION usr/lib/netdata/conf.d/ibm.d
     )
 
-    install_ibm_runtime(plugin-ibm)
+    install_ibm_runtime(plugin-ibm-libs)
 endif()
 
 #
@@ -3818,7 +3852,7 @@ if(ENABLE_PLUGIN_OTEL)
                       COMPONENT plugin-otel)
 
     install(FILES src/crates/otel-ingestor/configs/otel.d/v1/metrics/hostmetrics-receiver.yaml
-            COMPONENT plugin-otel
+            COMPONENT ${NETDATA_OTEL_CONF_COMPONENT}
             DESTINATION usr/lib/netdata/conf.d/otel.d/v1/metrics)
 
     install(DIRECTORY COMPONENT plugin-otel DESTINATION etc/netdata/otel.d/v1/metrics)
@@ -3990,12 +4024,14 @@ install(PROGRAMS
         COMPONENT netdata
         DESTINATION usr/libexec/netdata/plugins.d)
 
-configure_file(src/collectors/cgroups.plugin/cgroup-name.sh.in
-               src/collectors/cgroups.plugin/cgroup-name.sh @ONLY)
-install(PROGRAMS
-        ${CMAKE_BINARY_DIR}/src/collectors/cgroups.plugin/cgroup-name.sh
-        COMPONENT netdata
-        DESTINATION usr/libexec/netdata/plugins.d)
+if(ENABLE_CGROUP_NAME)
+    add_go_target(cgroup-name-target cgroup-name
+                  src/collectors/cgroups.plugin/cgroup-name .)
+    install(PROGRAMS
+            ${CMAKE_BINARY_DIR}/cgroup-name
+            COMPONENT netdata
+            DESTINATION usr/libexec/netdata/plugins.d)
+endif()
 
 #
 # otel config
@@ -4006,7 +4042,7 @@ if(ENABLE_PLUGIN_OTEL)
                    @ONLY)
 
     install(FILES ${CMAKE_BINARY_DIR}/src/crates/otel-plugin/configs/otel.yaml
-            COMPONENT plugin-otel
+            COMPONENT ${NETDATA_OTEL_CONF_COMPONENT}
             DESTINATION usr/lib/netdata/conf.d)
 endif()
 
@@ -4051,7 +4087,7 @@ install(FILES
 install(FILES
         src/web/api/netdata-swagger.json
         src/web/api/netdata-swagger.yaml
-        COMPONENT netdata
+        COMPONENT ${NETDATA_SWAGGER_COMPONENT}
         DESTINATION ${WEB_DEST})
 
 #
@@ -4151,11 +4187,29 @@ install(FILES
         COMPONENT netdata
         DESTINATION usr/lib/netdata/system/systemd/tmpfiles)
 
+# RPM distros ship systemd units in %{_unitdir} (/usr/lib/systemd/system);
+# the DEB layout (and the historical default) uses /lib/systemd/system.
+if(NETDATA_PACKAGING_FORMAT STREQUAL "rpm")
+        set(NETDATA_SYSTEMD_UNIT_DEST "usr/lib/systemd/system")
+else()
+        set(NETDATA_SYSTEMD_UNIT_DEST "lib/systemd/system")
+endif()
+
+# The spec packages the systemd-235-compatible unit variant on EL 7 and
+# Amazon Linux 2.
+set(NETDATA_PACKAGED_SYSTEMD_UNIT "${CMAKE_BINARY_DIR}/system/systemd/netdata.service")
+if(NETDATA_PACKAGING_FORMAT STREQUAL "rpm" AND
+   ((NETDATA_DISTRO_EL AND NETDATA_DISTRO_VERSION_MAJOR LESS_EQUAL 7) OR
+    (NETDATA_DISTRO_AMZN AND NETDATA_DISTRO_VERSION_MAJOR LESS_EQUAL 2)))
+        set(NETDATA_PACKAGED_SYSTEMD_UNIT "${CMAKE_BINARY_DIR}/system/systemd/netdata.service.v235")
+endif()
+
 if(BUILD_FOR_PACKAGING)
         install(FILES
-                ${CMAKE_BINARY_DIR}/system/systemd/netdata.service
+                ${NETDATA_PACKAGED_SYSTEMD_UNIT}
                 COMPONENT netdata
-                DESTINATION lib/systemd/system)
+                DESTINATION ${NETDATA_SYSTEMD_UNIT_DEST}
+                RENAME netdata.service)
         install(FILES
                 ${CMAKE_BINARY_DIR}/system/systemd/sysusers/netdata.conf
                 COMPONENT user
@@ -4172,6 +4226,13 @@ if(BUILD_FOR_PACKAGING)
                 COMPONENT netdata
                 DESTINATION usr/lib/systemd/journald@netdata.conf.d
                 RENAME netdata.conf)
+
+        if(NETDATA_PACKAGING_FORMAT STREQUAL "rpm")
+                install(FILES
+                        system/systemd/50-netdata.preset
+                        COMPONENT netdata
+                        DESTINATION usr/lib/systemd/system-preset)
+        endif()
 endif()
 
 install(FILES
@@ -4203,7 +4264,7 @@ endif()
 #
 # misc files
 #
-if(BUILD_FOR_PACKAGING)
+if(BUILD_FOR_PACKAGING AND NOT NETDATA_PACKAGING_FORMAT STREQUAL "rpm")
         install(FILES
                 ${PKG_FILES_PATH}/deb/netdata/etc/default/netdata
                 COMPONENT netdata
@@ -4215,17 +4276,66 @@ if(BUILD_FOR_PACKAGING)
                 DESTINATION etc/init.d)
 endif()
 
+if(BUILD_FOR_PACKAGING AND NETDATA_PACKAGING_FORMAT STREQUAL "rpm")
+        # The spec's %install stages these RPM-only files; no other install
+        # rule covers them.
+        install(PROGRAMS
+                packaging/installer/netdata-uninstaller.sh
+                COMPONENT netdata
+                DESTINATION usr/libexec/netdata
+                PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE)
+
+        # %doc README.md equivalent; openSUSE keeps package docs under
+        # /usr/share/doc/packages, and the rpm 4.11 era (EL 7, Amazon
+        # Linux 2) defaults %_docdir_fmt to %{NAME}-%{VERSION} where newer
+        # rpm uses plain %{NAME}.
+        if(NETDATA_DISTRO_SUSE)
+                set(NETDATA_RPM_DOC_DIR "usr/share/doc/packages/netdata")
+        elseif((NETDATA_DISTRO_EL AND NETDATA_DISTRO_VERSION_MAJOR LESS_EQUAL 7) OR
+               (NETDATA_DISTRO_AMZN AND NETDATA_DISTRO_VERSION_MAJOR LESS_EQUAL 2))
+                if(NETDATA_VERSION_DESCR STREQUAL "N/A")
+                        set(_rpm_doc_version "${NETDATA_VERSION_MAJOR}.${NETDATA_VERSION_MINOR}.${NETDATA_VERSION_PATCH}")
+                else()
+                        set(_rpm_doc_version "${NETDATA_VERSION_MAJOR}.${NETDATA_VERSION_MINOR}.${NETDATA_VERSION_PATCH}-${NETDATA_VERSION_TWEAK}-${NETDATA_VERSION_DESCR}")
+                endif()
+                string(REPLACE "-" "." _rpm_doc_version "${_rpm_doc_version}")
+                set(NETDATA_RPM_DOC_DIR "usr/share/doc/netdata-${_rpm_doc_version}")
+        else()
+                set(NETDATA_RPM_DOC_DIR "usr/share/doc/netdata")
+        endif()
+        install(FILES
+                README.md
+                COMPONENT netdata
+                DESTINATION ${NETDATA_RPM_DOC_DIR})
+endif()
+
 if(NOT OS_WINDOWS)
   install(PROGRAMS
           packaging/installer/netdata-updater.sh
           COMPONENT netdata
           DESTINATION usr/libexec/netdata)
 
+  # user-facing support-bundle tool: on PATH as `netdata-support-bundle`, like netdatacli
+  install(PROGRAMS
+          packaging/installer/netdata-support-bundle
+          COMPONENT netdata
+          DESTINATION "${BINDIR}")
+
   install(FILES
           system/netdata.conf
           system/netdata-updater.conf
           COMPONENT netdata
           DESTINATION ${NETDATA_CONF_DEST})
+
+  if(BUILD_FOR_PACKAGING AND NETDATA_PACKAGING_FORMAT STREQUAL "rpm")
+    # The spec ships the stock copies under /usr/lib/netdata/conf.d in
+    # addition to the %config(noreplace) ones in /etc/netdata.
+    install(FILES
+            system/netdata.conf
+            system/netdata-updater.conf
+            COMPONENT netdata
+            DESTINATION usr/lib/netdata/conf.d)
+  endif()
 
   configure_file(system/cron/netdata-updater-daily.in
                  system/cron/netdata-updater-daily
@@ -4252,11 +4362,11 @@ if(NOT OS_WINDOWS)
     install(FILES
             ${CMAKE_BINARY_DIR}/system/systemd/netdata-updater.service
             COMPONENT netdata
-            DESTINATION lib/systemd/system)
+            DESTINATION ${NETDATA_SYSTEMD_UNIT_DEST})
     install(FILES
             system/systemd/netdata-updater.timer
             COMPONENT netdata
-            DESTINATION lib/systemd/system)
+            DESTINATION ${NETDATA_SYSTEMD_UNIT_DEST})
   endif()
 endif()
 
@@ -4368,12 +4478,7 @@ if(ENABLE_PLUGIN_CHARTS)
           COMPONENT plugin-chartsd
           DESTINATION usr/lib/netdata/conf.d/charts.d)
 
-  if(BUILD_FOR_PACKAGING)
-    install(FILES
-            ${PKG_FILES_PATH}/copyright
-            COMPONENT plugin-chartsd
-            DESTINATION usr/share/doc/netdata-plugin-chartsd)
-  endif()
+  netdata_add_deb_copyright(plugin-chartsd netdata-plugin-chartsd)
 endif()
 
 # This is needed both by the TC plugin (which only gets built on Linux) and the charts plugin.
@@ -4446,12 +4551,7 @@ if(ENABLE_PLUGIN_PYTHON)
           COMPONENT plugin-pythond
           DESTINATION usr/libexec/netdata/python.d)
 
-  if(BUILD_FOR_PACKAGING)
-    install(FILES
-            ${PKG_FILES_PATH}/copyright
-            COMPONENT plugin-pythond
-            DESTINATION usr/share/doc/netdata-plugin-pythond)
-  endif()
+  netdata_add_deb_copyright(plugin-pythond netdata-plugin-pythond)
 endif()
 
 #
@@ -4617,12 +4717,7 @@ if(ENABLE_PLUGIN_GO)
             COMPONENT plugin-go
             DESTINATION usr/lib/netdata/conf.d/go.d/cloudwatch.profiles/default)
 
-    if(BUILD_FOR_PACKAGING)
-        install(FILES
-                ${PKG_FILES_PATH}/copyright
-                COMPONENT plugin-go
-                DESTINATION usr/share/doc/netdata-plugin-go)
-    endif()
+    netdata_add_deb_copyright(plugin-go netdata-plugin-go)
 endif()
 
 #
@@ -4665,6 +4760,11 @@ if(OS_WINDOWS)
                       /usr/bin/msys-yaml-0-2.dll
                       /usr/bin/msys-uv-1.dll
                       DESTINATION "${BINDIR}")
+
+        # user-facing support-bundle tool (Windows PowerShell implementation)
+        install(PROGRAMS packaging/installer/netdata-support-bundle.ps1
+                COMPONENT netdata
+                DESTINATION usr/libexec/netdata)
 
         # Make bash & netdata happy
         install(DIRECTORY DESTINATION tmp)

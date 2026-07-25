@@ -38,7 +38,7 @@ This collector only supports collecting metrics from a single instance of this i
 
 #### Auto-Detection
 
-This collector is disabled by default. When enabled, it automatically detects all available SMB share instances and metrics.
+This collector is enabled by default and automatically detects all available SMB share instances and metrics. On systems where the 'SMB Server Shares' object is not available, no SMB metrics are collected.
 
 
 #### Limits
@@ -104,11 +104,13 @@ There are no configuration examples.
 There are no alerts configured by default for this integration.
 
 
+
 ## Metrics
 
 Metrics grouped by *scope*.
 
 The scope defines the instance that the metric belongs to. An instance is uniquely identified by a set of labels.
+
 
 
 
@@ -124,10 +126,10 @@ Labels:
 
 Metrics:
 
-| Metric | Dimensions | Unit |
-|:------|:----------|:----|
-| smb.server_shares_current_open_file_count | open | files |
-| smb.server_shares_write_requests | writes | requests/s |
-| smb.server_shares_read_requests | reads | requests/s |
-| smb.server_shares_metadata_requests | metadata | requests/s |
-| smb.server_shares_files_opened | opened | files/s |
+| Metric | Description | Dimensions | Unit |
+|:------|:------------|:----------|:----|
+| smb.server_shares_current_open_file_count | Current total count of open files on the SMB share. | open | files |
+| smb.server_shares_write_requests | Write requests on the SMB share. | writes | requests/s |
+| smb.server_shares_read_requests | Read requests on the SMB share. | reads | requests/s |
+| smb.server_shares_metadata_requests | Metadata requests on the SMB share. | metadata | requests/s |
+| smb.server_shares_files_opened | Files opened on the SMB share. | opened | files/s |

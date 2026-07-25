@@ -94,9 +94,64 @@ static NETDATA_DOUBLE query_point_grouping_value(
     (ops)->group_points_added++;                                        \
 } while(0)
 
+// serve the single LATEST point from the collector's cached value
+// (query_latest_fast_path decided eligibility - no storage query exists);
+// the value is the collector's raw double (not storage-quantized) and the
+// anomaly rate and reset annotation are zero by design
+static void rrd2rrdr_query_execute_latest_fast_path(RRDR *r, size_t dim_id_in_rrdr, QUERY_ENGINE_OPS *ops) {
+    QUERY_TARGET *qt = r->internal.qt;
+    QUERY_METRIC *qm = ops->qm;
+
+    NETDATA_DOUBLE value = ops->latest_fast_path_value;
+
+    // the storage path erases signs at fetch when absolute is requested
+    // (v2 forces it with percentage and non-dimension group-by) - mirror it
+    if(unlikely(qt->window.options & RRDR_OPTION_ABSOLUTE))
+        value = fabsndd(value);
+
+    // the same timestamp the normal path computes for the first line
+    time_t now_end_time = qt->window.after + (ops->view_update_every - ops->query_granularity);
+    long rrdr_line = rrdr_line_init(r, now_end_time, -1);
+    size_t rrdr_o_v_index = rrdr_line * r->d + dim_id_in_rrdr;
+
+    if(value != 0.0)
+        r->od[dim_id_in_rrdr] |= RRDR_DIMENSION_NONZERO;
+
+    r->o[rrdr_o_v_index] = RRDR_VALUE_NOTHING;
+    r->v[rrdr_o_v_index] = value;
+    r->ar[rrdr_o_v_index] = 0.0;
+
+    if(likely(r->internal.queries_count)) {
+        if(unlikely(value < r->view.min)) r->view.min = value;
+        if(unlikely(value > r->view.max)) r->view.max = value;
+    }
+    else
+        r->view.min = r->view.max = value;
+
+    // the per-metric statistics the normal path aggregates while reading
+    qm->query_points = (STORAGE_POINT) {
+        .min = value,
+        .max = value,
+        .sum = value,
+        .start_time_s = ops->latest_fast_path_time - qm->tiers[0].db_update_every_s,
+        .end_time_s = ops->latest_fast_path_time,
+        .count = 1,
+        .anomaly_count = 0,
+        .flags = SN_FLAG_NONE,
+    };
+
+    r->internal.queries_count++;
+    r->stats.result_points_generated++;
+}
+
 NOT_INLINE_HOT void rrd2rrdr_query_execute(RRDR *r, size_t dim_id_in_rrdr, QUERY_ENGINE_OPS *ops) {
     QUERY_TARGET *qt = r->internal.qt;
     QUERY_METRIC *qm = ops->qm;
+
+    if(unlikely(ops->latest_fast_path)) {
+        rrd2rrdr_query_execute_latest_fast_path(r, dim_id_in_rrdr, ops);
+        return;
+    }
 
     const RRDR_TIME_GROUPING add_flush = r->time_grouping.add_flush;
 
@@ -129,7 +184,7 @@ NOT_INLINE_HOT void rrd2rrdr_query_execute(RRDR *r, size_t dim_id_in_rrdr, QUERY
     STORAGE_POINT next1_point = STORAGE_POINT_UNSET;
 
     time_t now_start_time = after_wanted - ops->query_granularity;
-    time_t now_end_time   = after_wanted + ops->view_update_every - ops->query_granularity;
+    time_t now_end_time   = after_wanted + (ops->view_update_every - ops->query_granularity);
 
     size_t db_points_read_since_plan_switch = 0; (void)db_points_read_since_plan_switch;
     size_t query_is_finished_counter = 0;
@@ -292,7 +347,7 @@ NOT_INLINE_HOT void rrd2rrdr_query_execute(RRDR *r, size_t dim_id_in_rrdr, QUERY
             if(likely(new_point.sp.end_time_s < now_end_time)) { // likely to favor tier0
                 // this db point ends before our now_end_time
 
-                if(likely(new_point.sp.end_time_s >= now_start_time)) { // likely to favor tier0
+                if(likely(new_point.sp.end_time_s > now_start_time)) { // likely to favor tier0
                     // this db point ends after our now_start time
 
                     query_add_point_to_group(r, new_point, ops, add_flush);
@@ -443,8 +498,12 @@ NOT_INLINE_HOT void rrd2rrdr_query_execute(RRDR *r, size_t dim_id_in_rrdr, QUERY
             ops->group_points_non_zero = 0;
             ops->group_point = STORAGE_POINT_UNSET;
 
-            now_end_time += ops->view_update_every;
+            if(points_added < points_wanted)
+                now_end_time += ops->view_update_every;
         } while(now_end_time <= stop_time && points_added < points_wanted);
+
+        if(points_added >= points_wanted)
+            break;
 
         // the loop above increased "now" by ops->view_update_every,
         // but the main loop will increase it too,

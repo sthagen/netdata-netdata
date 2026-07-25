@@ -8,6 +8,16 @@ static struct rrdengine_instance test_ctx_0 = {0};
 static struct rrdengine_instance test_ctx_1 = {0};
 static struct rrdengine_instance test_ctx_tier[4] = { 0 }; // For stress test tiers
 
+static int mrg_allocation_alignment_unittest(MRG *mrg) {
+    if((uintptr_t)mrg % _Alignof(MRG) == 0)
+        return 0;
+
+    fprintf(stderr,
+            "DBENGINE METRIC: MRG allocation is not aligned to %zu bytes\n",
+            (size_t)_Alignof(MRG));
+    return 1;
+}
+
 struct mrg_stress_entry {
     nd_uuid_t uuid;
     time_t after;
@@ -183,6 +193,54 @@ static int mrg_metrics_delete_underflow_unittest(MRG *mrg) {
 }
 #endif
 
+static int mrg_destroy_referenced_metric_unittest(void) {
+    int errors = 0;
+
+    MRG *mrg = mrg_create_for_unittest();
+    errors += mrg_allocation_alignment_unittest(mrg);
+    nd_uuid_t uuid;
+    uuid_generate(uuid);
+
+    MRG_ENTRY entry = {
+        .uuid = &uuid,
+        .section = (Word_t)&test_ctx_0,
+        .first_time_s = 0,
+        .last_time_s = 0,
+        .latest_update_every_s = 1,
+    };
+
+    bool added = false;
+    METRIC *metric = mrg_metric_add_and_acquire(mrg, entry, &added);
+    if(!metric || !added) {
+        fprintf(stderr, "DBENGINE METRIC: failed to add metric for referenced-destroy test\n");
+        mrg_destroy(mrg);
+        return 1;
+    }
+
+    size_t referenced = mrg_destroy(mrg);
+    if(referenced != 1) {
+        fprintf(stderr,
+                "DBENGINE METRIC: referenced-destroy test failed, expected 1 referenced metric, got %zu\n",
+                referenced);
+        errors++;
+    }
+
+    if(!mrg_metric_release(mrg, metric)) {
+        fprintf(stderr, "DBENGINE METRIC: referenced-destroy release did not delete metric\n");
+        errors++;
+    }
+
+    referenced = mrg_destroy(mrg);
+    if(referenced != 0) {
+        fprintf(stderr,
+                "DBENGINE METRIC: referenced-destroy cleanup failed, expected 0 referenced metrics, got %zu\n",
+                referenced);
+        errors++;
+    }
+
+    return errors;
+}
+
 static int mrg_entries_acquired_counter_unittest(MRG *mrg) {
     int errors = 0;
 
@@ -309,9 +367,12 @@ static int mrg_entries_acquired_counter_unittest(MRG *mrg) {
 }
 
 int mrg_unittest(void) {
+    int errors = dbengine_accounting_helpers_unittest();
+    errors += mrg_destroy_referenced_metric_unittest();
+
     // Use mrg_create_for_unittest to avoid pre-loaded metrics that block deletion
     MRG *mrg = mrg_create_for_unittest();
-    int errors = dbengine_accounting_helpers_unittest();
+    errors += mrg_allocation_alignment_unittest(mrg);
 
 #ifndef NETDATA_INTERNAL_CHECKS
     errors += mrg_metrics_delete_underflow_unittest(mrg);

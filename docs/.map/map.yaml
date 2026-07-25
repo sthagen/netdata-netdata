@@ -472,6 +472,16 @@ sidebar:
           edit_url: https://github.com/netdata/netdata/edit/master/src/go/plugin/go.d/collector/cloudwatch/profile-format.md
           description: Define CloudWatch namespaces, supported regions, resource dimensions, metrics, statistics, and dynamic charts in reusable profiles.
           keywords: [aws, cloudwatch, profiles, collectors, metrics]
+      - meta:
+          label: Prometheus Profile Format
+          edit_url: https://github.com/netdata/netdata/edit/master/src/go/plugin/go.d/collector/prometheus/profile-format.md
+          description: Define curated chart profiles for Prometheus endpoints, with scoped autogen selectors that filter the fallback charts of unmatched metrics.
+          keywords: [prometheus, profiles, autogen, collectors, charts]
+      - meta:
+          label: Prometheus Metric Relabeling
+          edit_url: https://github.com/netdata/netdata/edit/master/src/go/plugin/go.d/collector/prometheus/relabel/README.md
+          description: Rewrite, derive, or drop scraped Prometheus metrics and labels with Prometheus-compatible metric_relabel_configs rules before charts are built.
+          keywords: [prometheus, relabeling, metric_relabel_configs, labels, collectors]
       - type: integration_placeholder
         integration_kind: collectors
   # Exporting Metrics
@@ -1037,6 +1047,11 @@ sidebar:
       label: Developer and Contributor Corner
       edit_url: https://github.com/netdata/netdata/edit/master/docs/developer-and-contributor-corner/README.md
     items:
+      - meta:
+          label: Netdata Support Bundle
+          edit_url: https://github.com/netdata/netdata/edit/master/docs/developer-and-contributor-corner/netdata-support-bundle.md
+          description: Collect a sanitized diagnostics archive from a Netdata Agent and attach it to a support ticket or bug report.
+          keywords: [support bundle, diagnostics, troubleshooting, bug report, support ticket, sanitized logs]
       - meta:
           label: REST API
           edit_url: https://github.com/netdata/netdata/edit/master/src/web/api/README.md

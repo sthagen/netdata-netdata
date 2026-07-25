@@ -179,15 +179,32 @@ run find /opt/netdata -type d -exec chmod go+rx '{}' \+
 
 install_netdata_dirs
 
+# Earlier static packages leaked the builder's otel-plugin state into the
+# archive; extracting it left root-owned parent directories under
+# var/log/netdata/otel, which the otel-plugin (running as netdata) cannot
+# write to, crash-looping the plugin. Repair ownership on every
+# install/update so affected installs self-heal. The daemon only chowns
+# the log dir non-recursively, so nothing else fixes the subtree.
+if [ -d "${NETDATA_LOG_DIR}/otel" ]; then
+  run chown -R ${NETDATA_USER}:${NETDATA_GROUP} "${NETDATA_LOG_DIR}/otel"
+fi
+
 if [ -d /opt/netdata/usr/libexec/netdata/plugins.d/ebpf.d ]; then
   run chown -R root:${NETDATA_GROUP} /opt/netdata/usr/libexec/netdata/plugins.d/ebpf.d
+fi
+
+# The Go helper replaces the old Bash artifact. Remove leftovers from an
+# overlay upgrade so persisted defaults cannot keep executing stale code.
+if [ -e "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/cgroup-name.sh" ] ||
+  [ -L "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/cgroup-name.sh" ]; then
+  run rm -f "${NETDATA_PREFIX}/usr/libexec/netdata/plugins.d/cgroup-name.sh"
 fi
 
 # -----------------------------------------------------------------------------
 
 progress "changing plugins ownership and permissions"
 
-for x in ndsudo apps.plugin perf.plugin slabinfo.plugin debugfs.plugin freeipmi.plugin ioping cgroup-network local-listeners network-viewer.plugin ebpf.plugin ebpf-go.plugin nfacct.plugin xenstat.plugin python.d.plugin charts.d.plugin go.d.plugin snmp-trap-profile-gen ioping.plugin cgroup-network-helper.sh otel-plugin systemd-journal.plugin macos-logs.plugin netflow-plugin; do
+for x in ndsudo apps.plugin perf.plugin slabinfo.plugin debugfs.plugin freeipmi.plugin ioping cgroup-network local-listeners network-viewer.plugin ebpf.plugin ebpf-go.plugin nfacct.plugin xenstat.plugin python.d.plugin charts.d.plugin go.d.plugin snmp-trap-profile-gen ioping.plugin cgroup-network-helper.sh cgroup-name otel-plugin systemd-journal.plugin macos-logs.plugin netflow-plugin; do
   f="usr/libexec/netdata/plugins.d/${x}"
   if [ -f "${f}" ]; then
     run chown root:${NETDATA_GROUP} "${f}"
@@ -245,7 +262,7 @@ for x in ndsudo freeipmi.plugin ioping cgroup-network local-listeners network-vi
   fi
 done
 
-for x in otel-plugin netflow-plugin snmp-trap-profile-gen; do
+for x in otel-plugin netflow-plugin snmp-trap-profile-gen cgroup-name; do
   f="usr/libexec/netdata/plugins.d/${x}"
   if [ -f "${f}" ]; then
     run chmod 0750 "${f}"

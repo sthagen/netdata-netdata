@@ -527,6 +527,9 @@ pub(super) fn commit_batch(
                 if let Err(err) = facet_runtime
                     .observe_active_contribution(Path::new(active_file.path()), &contribution)
                 {
+                    metrics
+                        .facet_active_update_errors
+                        .fetch_add(1, Ordering::Relaxed);
                     tracing::warn!("facet runtime tier {:?} write update failed: {}", tier, err);
                 }
             }
@@ -587,7 +590,7 @@ mod tests {
     #[test]
     fn journal_log_is_send() {
         fn assert_send<T: Send>() {}
-        assert_send::<journal_log_writer::Log>();
+        assert_send::<journal_sdk_log_writer::Log>();
     }
 
     /// Age semantics of the tick mirror: a never-claimed slot reports 0 (not

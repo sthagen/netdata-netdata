@@ -82,11 +82,13 @@ skill-verification harness questions for `verify/questions.md`; replace each
 - [find-containers-for-topology-port-direct.md](./find-containers-for-topology-port-direct.md) -- find containers or pods exposing a specific TCP port from the direct Agent topology Function payload.
 - `flows-top-talkers-direct.md` (stub -- not yet authored)
 - [validate-direct-local-flow-function.md](./validate-direct-local-flow-function.md) -- prove a local Cloud-connected `flows:netflow` Function works through a Cloud-minted direct-agent bearer.
+- [audit-stored-flow-timestamps-direct.md](./audit-stored-flow-timestamps-direct.md) -- audit retained raw-flow timestamp and duration coverage with aggregate-only output, distinguishing exporter timing from receive-time fallback.
 
 ### Metrics
 
 - `current-cpu-direct.md` (stub -- not yet authored)
 - `peak-memory-last-hour-direct.md` (stub -- not yet authored)
+- [export-cpu-io-memory-three-days-direct.md](./export-cpu-io-memory-three-days-direct.md) -- export CPU, disk I/O, and memory in one-minute buckets for the 72 hours ending at 14:00 through a direct Agent call.
 
 ## Cross-skill how-tos
 
