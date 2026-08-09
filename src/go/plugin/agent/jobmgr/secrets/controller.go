@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	SecretGraphClaim = "dyncfg:secretstores"
+	SecretGraphClaim = "dyncfg:dependency-graph"
 	dynCfgSecretPath = "/collectors/%s/SecretStores"
 )
 
@@ -32,7 +32,8 @@ type ControllerConfig struct {
 	Epoch        uint64                      // run generation this controller belongs to
 	PluginName   string                      // owning plugin name
 	Frames       *lifecycle.FrameOwner       // protocol frame sink
-	Store        *secretstore.SecretStore    // per-run secret store
+	Store        *secretstore.SecretStore    // process-owned Store epoch
+	Operations   *StoreOperations            // process-owned Store materialization
 	Creators     *secretstore.CreatorCatalog // frozen creator catalog
 	Dependencies *SecretDependencyIndex      // secret dependency index
 	Initial      []secretstore.Config        // initial (stock/user) secret store configs
@@ -40,20 +41,27 @@ type ControllerConfig struct {
 }
 
 type Controller struct {
-	mu sync.Mutex // guards entries, published, restarts, and initial
+	mu sync.Mutex // guards run projections, entries, pending state, and counters
 
-	epoch        uint64                      // run generation
-	prefix       string                      // "<plugin>:secretstore:" ID prefix
-	path         string                      // "/collectors/<plugin>/SecretStores" config path
-	frames       *lifecycle.FrameOwner       // protocol frame sink
-	store        *secretstore.SecretStore    // per-run secret store
-	creators     *secretstore.CreatorCatalog // frozen creator catalog
-	dependencies *SecretDependencyIndex      // secret dependency index
-	diagnostics  jobmgr.DiagnosticObserver   // operational log sink
-	initial      []secretstore.Config        // initial secret store configs
-	entries      map[string]secretEntry      // published store entries by key
-	restarts     *SecretRestartCommand       // dependent-job restart command (bound at Bind)
-	published    bool                        // initial snapshot has been published
+	epoch         uint64                      // run generation
+	prefix        string                      // "<plugin>:secretstore:" ID prefix
+	path          string                      // "/collectors/<plugin>/SecretStores" config path
+	frames        *lifecycle.FrameOwner       // protocol frame sink
+	store         *secretstore.SecretStore    // process-owned Store epoch
+	operations    *StoreOperations            // process-owned Store materialization
+	creators      *secretstore.CreatorCatalog // frozen creator catalog
+	dependencies  *SecretDependencyIndex      // secret dependency index
+	diagnostics   jobmgr.DiagnosticObserver   // operational log sink
+	initial       []secretstore.Config        // initial secret store configs
+	entries       map[string]secretEntry      // published store entries by key
+	restarts      *SecretRestartCommand       // dependent-job restart command (bound at Bind)
+	commands      jobmgr.PreparedCommandPort  // run-owned internal retry ingress
+	projectionCtx context.Context             // canceled when the run projection closes
+	closeContext  context.CancelFunc
+	pending       map[string]*pendingStoreState // latest persistent desired config by Store key
+	nextDesired   uint64                        // desired-config ordering
+	nextRetry     uint64                        // internal retry UID ordering
+	commandsReady bool                          // templates are visible and commands may execute
 }
 
 type secretEntry struct {
@@ -66,21 +74,27 @@ func NewController(config ControllerConfig) (*Controller, error) {
 		config.PluginName == "" ||
 		config.Frames == nil ||
 		config.Store == nil ||
+		config.Operations == nil ||
 		config.Creators == nil ||
 		config.Dependencies == nil {
 		return nil, errors.New("jobmgr secrets: incomplete controller configuration")
 	}
+	projectionCtx, closeContext := context.WithCancel(context.Background())
 	return &Controller{
-		epoch:        config.Epoch,
-		prefix:       fmt.Sprintf("%s:secretstore:", config.PluginName),
-		path:         fmt.Sprintf(dynCfgSecretPath, config.PluginName),
-		frames:       config.Frames,
-		store:        config.Store,
-		creators:     config.Creators,
-		dependencies: config.Dependencies,
-		diagnostics:  config.Diagnostics,
-		initial:      slices.Clone(config.Initial),
-		entries:      make(map[string]secretEntry),
+		epoch:         config.Epoch,
+		prefix:        fmt.Sprintf("%s:secretstore:", config.PluginName),
+		path:          fmt.Sprintf(dynCfgSecretPath, config.PluginName),
+		frames:        config.Frames,
+		store:         config.Store,
+		operations:    config.Operations,
+		creators:      config.Creators,
+		dependencies:  config.Dependencies,
+		diagnostics:   config.Diagnostics,
+		initial:       slices.Clone(config.Initial),
+		entries:       make(map[string]secretEntry),
+		projectionCtx: projectionCtx,
+		closeContext:  closeContext,
+		pending:       make(map[string]*pendingStoreState),
 	}, nil
 }
 
@@ -90,7 +104,7 @@ func (c *Controller) Bind(jobs DependentJobPort) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.restarts != nil || c.published {
+	if c.restarts != nil || c.commandsReady {
 		return errors.New("jobmgr secrets: duplicate or late controller binding")
 	}
 	restarts, err := NewSecretRestartCommand(c.epoch, c.dependencies, jobs, c.diagnostics)
@@ -115,24 +129,48 @@ func (c *Controller) Prepare(
 	scope lifecycle.ResourceTransactionScope,
 	permit lifecycle.LongLivedPermit,
 ) (lifecycle.PreparedResourceTransaction, error) {
+	return c.prepare(ctx, input, current, scope, permit, nil)
+}
+
+func (c *Controller) PrepareStaged(
+	ctx context.Context,
+	input CommandInput,
+	current lifecycle.ReadyResource,
+	scope lifecycle.ResourceTransactionScope,
+	permit lifecycle.LongLivedPermit,
+	stage *PreparedStoreOperation,
+) (lifecycle.PreparedResourceTransaction, error) {
+	return c.prepare(ctx, input, current, scope, permit, stage)
+}
+
+func (c *Controller) prepare(
+	ctx context.Context,
+	input CommandInput,
+	current lifecycle.ReadyResource,
+	scope lifecycle.ResourceTransactionScope,
+	permit lifecycle.LongLivedPermit,
+	stage *PreparedStoreOperation,
+) (lifecycle.PreparedResourceTransaction, error) {
 	if c == nil || ctx == nil || !scope.Valid() {
 		return nil, errors.New("jobmgr secrets: invalid transaction preparation")
 	}
+	if permit.Valid() {
+		return nil, errors.New("jobmgr secrets: unexpected run-owned Store permit")
+	}
 	c.mu.Lock()
-	published := c.published
+	commandsReady := c.commandsReady
 	c.mu.Unlock()
-	if !published {
-		return c.noopMessageWithPermit(
+	if !commandsReady {
+		return c.noopMessage(
 			scope,
 			current,
-			permit,
 			503,
 			"Secretstore configuration is not published yet.",
 		)
 	}
 	target, failure := c.resolveTarget(input)
 	if failure != nil {
-		transaction, err := c.noopMessageWithPermit(scope, current, permit, failure.code, failure.message)
+		transaction, err := c.noopMessage(scope, current, failure.code, failure.message)
 		return c.observeTransaction(target, transaction, err)
 	}
 	var transaction lifecycle.PreparedResourceTransaction
@@ -145,23 +183,38 @@ func (c *Controller) Prepare(
 	case dyncfg.CommandUserconfig:
 		transaction, err = c.prepareUserConfig(scope, current, input, target)
 	case dyncfg.CommandTest:
-		transaction, err = c.prepareTest(ctx, scope, current, input, target)
+		transaction, err = c.prepareTest(scope, current, target, stage)
 	case dyncfg.CommandAdd:
-		transaction, err = c.prepareAdd(ctx, scope, current, permit, input, target)
+		transaction, err = c.prepareAdd(scope, current, target, stage)
 	case dyncfg.CommandUpdate:
-		transaction, err = c.prepareUpdate(ctx, scope, current, permit, input, target)
+		transaction, err = c.prepareUpdate(scope, current, target, stage)
 	case dyncfg.CommandRemove:
-		transaction, err = c.prepareRemove(scope, current, target)
+		transaction, err = c.prepareRemove(scope, current, target, stage)
 	default:
-		transaction, err = c.noopMessageWithPermit(
+		transaction, err = c.noopMessage(
 			scope,
 			current,
-			permit,
 			501,
 			fmt.Sprintf("Function '%s' command '%s' is not implemented.", "config", target.command),
 		)
 	}
 	return c.observeTransaction(target, transaction, err)
+}
+
+func (c *Controller) CompositeChildLaneConflict(input CommandInput, lane string) bool {
+	if c == nil || lane == "" {
+		return false
+	}
+	target, failure := c.resolveTarget(input)
+	if failure != nil {
+		return false
+	}
+	switch target.command {
+	case dyncfg.CommandAdd, dyncfg.CommandUpdate:
+	default:
+		return false
+	}
+	return c.dependencies.Affects(target.key, lane, true)
 }
 
 type secretTarget struct {
@@ -304,14 +357,16 @@ func mustSecretMessage(code int, message string) lifecycle.SealedResult {
 	return result
 }
 
-func (c *Controller) protocolCleanup(build func(*netdataapi.API)) lifecycle.TaskCleanup {
+func (c *Controller) protocolCleanup(build func(*netdataapi.API) error) lifecycle.TaskCleanup {
 	if c == nil || build == nil {
 		return func() error {
 			return errors.New("jobmgr secrets: invalid protocol cleanup")
 		}
 	}
 	var payload bytes.Buffer
-	build(netdataapi.New(&payload))
+	if err := build(netdataapi.New(&payload)); err != nil {
+		return func() error { return err }
+	}
 	prepared, err := lifecycle.PrepareProtocolFrame(payload.Bytes())
 	if err != nil {
 		return func() error { return err }
@@ -332,8 +387,8 @@ func (c *Controller) configCreateCleanup(entry secretEntry) lifecycle.TaskCleanu
 	if entry.config.SourceType() == confgroup.TypeDyncfg {
 		commands += " " + string(dyncfg.CommandRemove)
 	}
-	return c.protocolCleanup(func(api *netdataapi.API) {
-		api.CONFIGCREATE(netdataapi.ConfigOpts{
+	return c.protocolCleanup(func(api *netdataapi.API) error {
+		return api.TryCONFIGCREATE(netdataapi.ConfigOpts{
 			ID:                c.prefix + entry.config.ExposedKey(),
 			Status:            entry.status.String(),
 			ConfigType:        dyncfg.ConfigTypeJob.String(),
@@ -346,19 +401,22 @@ func (c *Controller) configCreateCleanup(entry secretEntry) lifecycle.TaskCleanu
 }
 
 func (c *Controller) configDeleteCleanup(key string) lifecycle.TaskCleanup {
-	return c.protocolCleanup(func(api *netdataapi.API) {
-		api.CONFIGDELETE(c.prefix + key)
+	return c.protocolCleanup(func(api *netdataapi.API) error {
+		return api.TryCONFIGDELETE(c.prefix + key)
 	})
 }
 
 func (c *Controller) templateCleanup() lifecycle.TaskCleanup {
 	kinds := c.creators.Kinds()
 	if len(kinds) == 0 {
-		return func() error { return nil }
+		return func() error {
+			c.setCommandsReady(true)
+			return nil
+		}
 	}
-	return c.protocolCleanup(func(api *netdataapi.API) {
+	emit := c.protocolCleanup(func(api *netdataapi.API) error {
 		for _, kind := range kinds {
-			api.CONFIGCREATE(netdataapi.ConfigOpts{
+			if err := api.TryCONFIGCREATE(netdataapi.ConfigOpts{
 				ID:         c.prefix + string(kind),
 				Status:     dyncfg.StatusAccepted.String(),
 				ConfigType: dyncfg.ConfigTypeTemplate.String(),
@@ -370,9 +428,26 @@ func (c *Controller) templateCleanup() lifecycle.TaskCleanup {
 					dyncfg.CommandSchema,
 					dyncfg.CommandUserconfig,
 				),
-			})
+			}); err != nil {
+				return err
+			}
 		}
+		return nil
 	})
+	return func() error {
+		c.setCommandsReady(true)
+		if err := emit(); err != nil {
+			c.setCommandsReady(false)
+			return err
+		}
+		return nil
+	}
+}
+
+func (c *Controller) setCommandsReady(ready bool) {
+	c.mu.Lock()
+	c.commandsReady = ready
+	c.mu.Unlock()
 }
 
 func parseSecretPayload(input CommandInput, target any) error {
@@ -405,7 +480,7 @@ func secretResourceID(key string) string {
 	return "secretstore:" + string(kind) + "_" + name
 }
 
-func sortedInitialConfigs(configs []secretstore.Config) []secretstore.Config {
+func selectInitialConfigs(configs []secretstore.Config) []secretstore.Config {
 	cloned := slices.Clone(configs)
 	slices.SortStableFunc(cloned, func(a, b secretstore.Config) int {
 		if a.ExposedKey() != b.ExposedKey() {
@@ -413,5 +488,12 @@ func sortedInitialConfigs(configs []secretstore.Config) []secretstore.Config {
 		}
 		return cmp.Compare(b.SourceTypePriority(), a.SourceTypePriority())
 	})
-	return cloned
+	selected := cloned[:0]
+	for _, config := range cloned {
+		if len(selected) == 0 ||
+			selected[len(selected)-1].ExposedKey() != config.ExposedKey() {
+			selected = append(selected, config)
+		}
+	}
+	return selected
 }

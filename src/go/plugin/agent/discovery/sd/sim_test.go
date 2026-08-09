@@ -33,14 +33,16 @@ type discoverySim struct {
 
 // discoverySimExt is an extended simulation that also checks exposed configs
 type discoverySimExt struct {
-	configs       []confFile
-	wantPipelines []*mockPipeline
-	wantExposed   []wantExposedCfg
+	configs            []confFile
+	wantPipelines      []*mockPipeline
+	wantExposed        []wantExposedCfg
+	wantOutputContains string
 }
 
 type wantExposedCfg struct {
 	discovererType string
 	name           string
+	source         string
 	sourceType     string
 	status         dyncfg.Status
 }
@@ -53,6 +55,8 @@ func (sim *discoverySimExt) run(t *testing.T) {
 	fact := &mockFactory{}
 	var buf bytes.Buffer
 	mgr := &ServiceDiscovery{
+		epoch:      1,
+		attempts:   newTestAttemptAuthority(t),
 		Logger:     logger.New(),
 		pluginName: testPluginName,
 		newPipeline: func(config pipeline.Config) (sdPipeline, error) {
@@ -123,7 +127,13 @@ func (sim *discoverySimExt) run(t *testing.T) {
 			continue
 		}
 		assert.Equal(t, want.sourceType, entry.Cfg.SourceType(), "exposed config '%s:%s' sourceType", want.discovererType, want.name)
+		if want.source != "" {
+			assert.Equal(t, want.source, entry.Cfg.Source(), "exposed config '%s:%s' source", want.discovererType, want.name)
+		}
 		assert.Equal(t, want.status, entry.Status, "exposed config '%s:%s' status", want.discovererType, want.name)
+	}
+	if sim.wantOutputContains != "" {
+		assert.Contains(t, buf.String(), sim.wantOutputContains)
 	}
 }
 
@@ -131,6 +141,8 @@ func (sim *discoverySim) run(t *testing.T) {
 	fact := &mockFactory{}
 	var buf bytes.Buffer
 	mgr := &ServiceDiscovery{
+		epoch:      1,
+		attempts:   newTestAttemptAuthority(t),
 		Logger:     logger.New(),
 		pluginName: testPluginName,
 		newPipeline: func(config pipeline.Config) (sdPipeline, error) {
@@ -237,6 +249,10 @@ type mockPipeline struct {
 	name    string
 	started bool
 	stopped bool
+}
+
+func (m *mockPipeline) Test(context.Context) (bool, error) {
+	return false, nil
 }
 
 func (m *mockPipeline) Run(ctx context.Context, _ chan<- []*confgroup.Group) {

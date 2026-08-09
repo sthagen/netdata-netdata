@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/netdata/netdata/go/plugins/plugin/agent/jobmgr/lifecycle"
+	secretresolver "github.com/netdata/netdata/go/plugins/plugin/agent/secrets/resolver"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/dyncfg"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/jobruntime"
 )
@@ -16,6 +17,7 @@ import (
 var (
 	ErrPreparedJobConsumed   = errors.New("job output: prepared job consumed")
 	ErrJobGenerationMismatch = errors.New("job output: job generation mismatch")
+	ErrStaleStoreGeneration  = errors.New("job output: Store changed during candidate preparation")
 )
 
 type autoDetectionFailure struct {
@@ -92,21 +94,32 @@ func (js JobState) String() string {
 
 type ConstructedJob struct {
 	Runtime            jobruntime.Runtime          // collector run loop wrapped as a jobruntime.Runtime
-	Handlers           HandlerLifecycle            // Function-handler lifecycle; nil when the job has no Functions
+	Handlers           ProcessHandlerLifecycle     // Function-handler lifecycle; nil when the job has no Functions
+	StagedHandlers     StagedHandlerLifecycle      // run-detached Function handlers before attachment
 	Observer           lifecycle.RuntimeObserver   // runtime gauge sink for active-job accounting
 	CollectorCleanup   func(context.Context) error // opaque collector teardown; swapped reject->final on Accept
 	Variant            JobVariant                  // V1 or V2 collector shape
-	autoDetection      func(context.Context) error // managed auto-detection probe run during Accept
+	autoDetection      func(context.Context) error // managed auto-detection probe run before acceptance
 	autoDetectionEvery func() int                  // retry cadence (seconds) reported by the collector
 	finalCleanup       func(context.Context) error // Cleanup() variant installed once the job is accepted
 	retryAutoDetection func() bool                 // whether a failed auto-detection should be rescheduled
+	resolvedReferences bool                        // lifecycle failures may contain resolved secret values
+	stageFunctions     bool                        // job Function lifecycle still needs post-probe staging
+	attachProjections  func() error                // binds external runtime/vnode projections before acceptance
+	attach             func(lifecycle.ResourceIdentity, *stagedJobOwner) (constructedJobAttachment, error)
+	candidateJob       RuntimeJob
+	runtimeStage       *stagedRuntimeService
+	vnodeStage         *stagedVNodeLookup
+	outputGate         *generationOutputGate
+	storeSnapshot      secretresolver.AtomicScopeSnapshot
+	processOwner       *stagedJobOwner
 }
 
-func (cj ConstructedJob) validate() error {
-	if !cj.Variant.Valid() || cj.Runtime == nil || cj.CollectorCleanup == nil {
-		return errors.New("job output: incomplete constructed job")
-	}
-	return nil
+// constructedJobAttachment reports whether process ownership transferred even
+// when later handler attachment returned an error.
+type constructedJobAttachment struct {
+	resources   ConstructedJob
+	transferred bool
 }
 
 type PreparedJob struct {
@@ -120,57 +133,47 @@ type preparedJobState struct {
 	generation  uint64                    // job generation this candidate targets
 	constructed ConstructedJob            // the assembled but not-yet-started job
 	permit      lifecycle.LongLivedPermit // long-lived permit held until accepted or disposed
+	owner       *stagedJobOwner           // process owner for staged candidates
 }
 
-func prepareJob(
-	ctx context.Context,
-	id string,
-	generation uint64,
+func prepareCandidateJob(
+	identity lifecycle.ResourceIdentity,
 	permit lifecycle.LongLivedPermit,
-	build func(context.Context) (ConstructedJob, error),
+	candidate ConstructedJob,
+	attachment factoryAttachment,
+	owner *stagedJobOwner,
 ) (PreparedJob, error) {
-	identity := lifecycle.ResourceIdentity{
-		ID:         id,
-		Generation: generation,
-	}
-	if ctx == nil ||
-		id == "" ||
-		generation == 0 ||
+	if !identity.Valid() ||
 		!permit.Valid() ||
 		permit.Owner() != identity ||
 		permit.Class() != lifecycle.LongLivedJob ||
-		build == nil {
-		return PreparedJob{}, errors.New("job output: invalid construction attempt")
+		!candidate.Variant.Valid() ||
+		candidate.Runtime != nil ||
+		candidate.attach != nil ||
+		candidate.candidateJob == nil ||
+		candidate.candidateJob.FullName() != identity.ID ||
+		candidate.CollectorCleanup == nil ||
+		candidate.stageFunctions ||
+		owner == nil {
+		return PreparedJob{}, errors.New("job output: invalid candidate preparation")
 	}
 	if err := permit.ValidateLive(); err != nil {
 		return PreparedJob{}, err
 	}
-	if err := permit.ActivateExternal(); err != nil {
-		return PreparedJob{}, err
-	}
-	constructed, err, returned := callConstructJob(ctx, build)
-	if !returned {
-		return PreparedJob{}, lifecycle.RetainOwnership(err)
-	}
-	cleanupCtx := context.WithoutCancel(ctx)
-	if err != nil {
-		if lifecycle.OwnershipRetained(err) {
-			return PreparedJob{}, lifecycle.RetainOwnership(errors.Join(
-				err,
-				cleanupConstructed(cleanupCtx, constructed),
-			))
-		}
-		return PreparedJob{}, errors.Join(err, rejectConstructed(cleanupCtx, constructed, permit))
-	}
-	if err := constructed.validate(); err != nil {
-		return PreparedJob{}, errors.Join(err, rejectConstructed(cleanupCtx, constructed, permit))
+	staged := candidate
+	candidate.attach = func(
+		identity lifecycle.ResourceIdentity,
+		owner *stagedJobOwner,
+	) (constructedJobAttachment, error) {
+		return attachment.attach(staged, identity, owner)
 	}
 	return PreparedJob{
 		state: &preparedJobState{
-			id:          id,
-			generation:  generation,
-			constructed: constructed,
+			id:          identity.ID,
+			generation:  identity.Generation,
+			constructed: candidate,
 			permit:      permit,
+			owner:       owner,
 		},
 	}, nil
 }
@@ -224,60 +227,90 @@ func (pj PreparedJob) Accept(ctx context.Context, generation uint64) (*JobGenera
 	if err != nil {
 		return nil, err
 	}
-	if state.constructed.autoDetection != nil {
-		if err := callJobLifecycle("collector autodetection", func() error {
-			return state.constructed.autoDetection(ctx)
-		}); err != nil {
-			failure := &autoDetectionFailure{
-				cause: err,
-			}
-			if state.constructed.retryAutoDetection != nil {
-				failure.retry = state.constructed.retryAutoDetection()
-			}
-			if state.constructed.autoDetectionEvery != nil {
-				failure.retryAfter = state.constructed.autoDetectionEvery()
-			}
-			if coded, ok := errors.AsType[dyncfg.CodedError](err); ok {
-				failure.coded = true
-				failure.code = coded.DyncfgCode()
-				if !dyncfg.IsRetryableError(err) {
-					failure.retry = false
-				}
-			}
-			cleanupErr := disposeConstructed(context.WithoutCancel(ctx), state.constructed, state.permit)
-			if cleanupErr != nil || ctx.Err() != nil {
-				return nil, errors.Join(err, cleanupErr)
-			}
-			return nil, failure
+	if err := state.owner.Promote(ctx); err != nil {
+		state.owner.Reject()
+		return nil, errors.Join(err, state.permit.AbortUnused())
+	}
+	attachment, attachErr := state.constructed.attach(
+		lifecycle.ResourceIdentity{
+			ID:         state.id,
+			Generation: state.generation,
+		},
+		state.owner,
+	)
+	if attachment.transferred {
+		state.constructed = attachment.resources
+		if err := state.owner.AdoptAttachment(attachment.resources); err != nil {
+			state.owner.Reject()
+			return nil, errors.Join(attachErr, err, state.permit.AbortUnused())
+		}
+	} else if attachErr == nil {
+		attachErr = errors.New("job output: attachment completed without ownership transfer")
+	}
+	if attachErr != nil {
+		state.owner.Reject()
+		return nil, errors.Join(attachErr, state.permit.AbortUnused())
+	}
+	if state.constructed.attachProjections != nil {
+		if err := callJobLifecycle("projection attachment", state.constructed.attachProjections); err != nil {
+			state.owner.Reject()
+			return nil, errors.Join(err, state.permit.AbortUnused())
 		}
 	}
-	if state.constructed.finalCleanup != nil {
-		state.constructed.CollectorCleanup = state.constructed.finalCleanup
+	accepted, err := state.owner.AcceptResources(state.permit)
+	if err != nil {
+		state.owner.Reject()
+		return nil, errors.Join(err, state.permit.AbortUnused())
 	}
+	state.constructed = accepted
 	return &JobGeneration{
-		ID:         state.id,
-		Generation: state.generation,
-		resources:  state.constructed,
-		state:      JobAllocated,
-		stopDone:   make(chan struct{}),
-		permit:     state.permit,
+		ID:           state.id,
+		Generation:   state.generation,
+		resources:    state.constructed,
+		state:        JobAllocated,
+		stopDone:     make(chan struct{}),
+		permit:       state.permit,
+		owner:        state.owner,
+		processOwner: state.constructed.processOwner,
 	}, nil
 }
 
-func (pj PreparedJob) Dispose(ctx context.Context) error {
-	state, err := pj.take()
-	if err != nil {
-		return err
+func probeConstructed(
+	ctx context.Context,
+	constructed ConstructedJob,
+	probe func(context.Context) error,
+) error {
+	var result error
+	if probe != nil {
+		result = callJobLifecycle("collector autodetection", func() error {
+			return probe(ctx)
+		})
 	}
-	return disposeConstructed(ctx, state.constructed, state.permit)
+	if result == nil {
+		return nil
+	}
+	if constructed.resolvedReferences {
+		result = redactResolvedLifecycleError(result)
+	}
+	return autoDetectionFailureFor(constructed, result)
 }
 
-func (pj PreparedJob) reject(ctx context.Context) error {
+func (pj PreparedJob) Dispose(_ context.Context) error {
 	state, err := pj.take()
 	if err != nil {
 		return err
 	}
-	return rejectConstructed(ctx, state.constructed, state.permit)
+	state.owner.Reject()
+	return state.permit.AbortUnused()
+}
+
+func (pj PreparedJob) reject(_ context.Context) error {
+	state, err := pj.take()
+	if err != nil {
+		return err
+	}
+	state.owner.Reject()
+	return nil
 }
 
 func (pj PreparedJob) validateLivePermit() error {
@@ -321,6 +354,26 @@ func (pj PreparedJob) takeForGeneration(generation uint64) (*preparedJobState, e
 	return pj.state, nil
 }
 
+func autoDetectionFailureFor(constructed ConstructedJob, err error) *autoDetectionFailure {
+	failure := &autoDetectionFailure{
+		cause: err,
+	}
+	if constructed.retryAutoDetection != nil {
+		failure.retry = constructed.retryAutoDetection()
+	}
+	if constructed.autoDetectionEvery != nil {
+		failure.retryAfter = constructed.autoDetectionEvery()
+	}
+	if coded, ok := errors.AsType[dyncfg.CodedError](err); ok {
+		failure.coded = true
+		failure.code = coded.DyncfgCode()
+		if !dyncfg.IsRetryableError(err) {
+			failure.retry = false
+		}
+	}
+	return failure
+}
+
 type JobGeneration struct {
 	resources      ConstructedJob            // the constructed job this generation owns
 	permit         lifecycle.LongLivedPermit // long-lived permit backing the generation
@@ -334,6 +387,92 @@ type JobGeneration struct {
 	finished       bool                      // finish() has recorded the terminal result
 	stopFinished   bool                      // finishStop() has run (stopDone closed)
 	observedActive bool                      // active-job gauge currently reflects this generation
+	owner          *stagedJobOwner           // process owner pending installation acknowledgement
+	processOwner   *stagedJobOwner           // process owner through physical runtime finalization
+}
+
+func (jg *JobGeneration) reserveInstallation() error {
+	if jg == nil {
+		return errors.New("job output: nil installation reservation")
+	}
+	jg.mu.Lock()
+	owner := jg.owner
+	jg.mu.Unlock()
+	if owner == nil {
+		return nil
+	}
+	return owner.ReserveInstallation()
+}
+
+func (jg *JobGeneration) acknowledgeInstallation() error {
+	if jg == nil {
+		return errors.New("job output: nil installation acknowledgement")
+	}
+	jg.mu.Lock()
+	owner := jg.owner
+	jg.mu.Unlock()
+	if owner == nil {
+		return nil
+	}
+	if err := owner.Install(); err != nil {
+		return err
+	}
+	jg.mu.Lock()
+	if jg.owner == owner {
+		jg.owner = nil
+	}
+	jg.mu.Unlock()
+	return nil
+}
+
+func (jg *JobGeneration) installationPending() bool {
+	if jg == nil {
+		return false
+	}
+	jg.mu.Lock()
+	defer jg.mu.Unlock()
+	return jg.owner != nil
+}
+
+func (jg *JobGeneration) settleFailedInstallation(
+	ctx context.Context,
+) (*JobGeneration, error) {
+	if jg == nil || ctx == nil {
+		return jg, errors.New("job output: invalid pending installation settlement")
+	}
+	jg.mu.Lock()
+	if jg.owner == nil {
+		jg.mu.Unlock()
+		return jg, errors.New("job output: pending installation lost its process owner")
+	}
+	switch jg.state {
+	case JobReady, JobActive:
+	case JobRetained:
+		jg.mu.Unlock()
+		return jg, nil
+	default:
+		state := jg.state
+		jg.mu.Unlock()
+		return jg, fmt.Errorf("job output: pending installation settlement from state %s", state)
+	}
+	observer := jg.resources.Observer
+	wasActive := jg.observedActive
+	jg.observedActive = false
+	jg.state = JobStopping
+	jg.mu.Unlock()
+	if wasActive && observer != nil {
+		observer.AddRuntimeGauge(lifecycle.RuntimeGaugeJobsActive, -1)
+	}
+	err := jg.abortProcessOwned(ctx)
+	state := JobAborted
+	if err != nil {
+		state = JobRetained
+	}
+	err = jg.finish(state, err)
+	if state == JobRetained {
+		return jg, err
+	}
+	return nil, err
 }
 
 func (jg *JobGeneration) Identity() lifecycle.ResourceIdentity {
@@ -362,7 +501,10 @@ func (jg *JobGeneration) Start(ctx context.Context) error {
 	if err := callJobLifecycle("runtime Start", func() error {
 		return jg.resources.Runtime.Start(ctx)
 	}); err != nil {
-		cleanupErr := disposeConstructed(context.WithoutCancel(ctx), jg.resources, jg.permit)
+		if jg.resources.resolvedReferences {
+			err = redactResolvedLifecycleError(err)
+		}
+		cleanupErr := jg.abortProcessOwned(context.WithoutCancel(ctx))
 		state := JobAborted
 		if cleanupErr != nil {
 			state = JobRetained
@@ -390,6 +532,9 @@ func (jg *JobGeneration) Publish() error {
 	jg.mu.Unlock()
 	if handlers != nil {
 		if err := callJobLifecycle("job publication", handlers.Publish); err != nil {
+			if jg.resources.resolvedReferences {
+				err = redactResolvedLifecycleError(err)
+			}
 			jg.mu.Lock()
 			jg.state = JobReady
 			jg.mu.Unlock()
@@ -419,7 +564,7 @@ func (jg *JobGeneration) AbortReady(ctx context.Context) error {
 	}
 	jg.state = JobStopping
 	jg.mu.Unlock()
-	err := disposeConstructed(ctx, jg.resources, jg.permit)
+	err := jg.abortProcessOwned(ctx)
 	state := JobAborted
 	if err != nil {
 		state = JobRetained
@@ -468,34 +613,71 @@ func (jg *JobGeneration) Stop(ctx context.Context) error {
 		return fmt.Errorf("job output: stop from state %s", state)
 	}
 
-	if jg.resources.Handlers != nil {
-		if err := callJobLifecycle("handler close/drain", func() error {
-			return jg.resources.Handlers.CloseAndDrain(ctx)
-		}); err != nil {
-			return jg.finishStop(JobRetained, err)
-		}
+	return jg.stopProcessOwned(ctx)
+}
+
+func (jg *JobGeneration) stopProcessOwned(ctx context.Context) error {
+	jg.resources.outputGate.Fence()
+	var detachErr error
+	if handlers := jg.resources.Handlers; handlers != nil {
+		detachErr = callJobLifecycle("handler detach", func() error {
+			return handlers.Detach(ctx)
+		})
 	}
-	if err := callJobLifecycle("runtime Stop", func() error {
+	runtimeErr := callJobLifecycle("runtime Stop", func() error {
 		return jg.resources.Runtime.Stop(ctx)
-	}); err != nil {
+	})
+	if runtimeErr == nil {
+		runtimeErr = callJobLifecycle("runtime projection release", func() error {
+			return jg.resources.Runtime.ReleaseAfterCleanup(ctx)
+		})
+	}
+	err := errors.Join(detachErr, runtimeErr)
+	if err != nil {
+		if jg.resources.resolvedReferences {
+			err = redactResolvedLifecycleError(err)
+		}
+		// Detach failure may leave scheduler or Function projections referring
+		// to this generation. Keep its process owner attached so final cleanup
+		// cannot invalidate resources those projections may still reach.
 		return jg.finishStop(JobRetained, err)
 	}
-	if err := callJobLifecycle("runtime post-cleanup release", func() error {
-		return jg.resources.Runtime.ReleaseAfterCleanup(ctx)
-	}); err != nil {
-		return jg.finishStop(JobRetained, err)
-	}
-	if err := callJobLifecycle("collector Cleanup", func() error {
-		return jg.resources.CollectorCleanup(ctx)
-	}); err != nil {
-		return jg.finishStop(JobRetained, err)
-	}
+	jg.processOwner.Detached()
 	if err := callJobLifecycle("job external resource release", func() error {
 		return jg.permit.ReleaseExternal()
 	}); err != nil {
 		return jg.finishStop(JobRetained, err)
 	}
 	return jg.finishStop(JobStopped, nil)
+}
+
+func (jg *JobGeneration) abortProcessOwned(ctx context.Context) error {
+	jg.resources.outputGate.Fence()
+	jg.processOwner.Retire()
+	var detachErr error
+	if handlers := jg.resources.Handlers; handlers != nil {
+		detachErr = callJobLifecycle("handler detach", func() error {
+			return handlers.Detach(ctx)
+		})
+	}
+	runtimeErr := callJobLifecycle("runtime Abort", func() error {
+		return jg.resources.Runtime.Abort(ctx)
+	})
+	if err := errors.Join(detachErr, runtimeErr); err != nil {
+		if jg.resources.resolvedReferences {
+			err = redactResolvedLifecycleError(err)
+		}
+		// Detach failure may leave scheduler or Function projections referring
+		// to this generation. Keep its process owner attached so final cleanup
+		// cannot invalidate resources those projections may still reach.
+		return err
+	}
+	jg.processOwner.Detached()
+	jg.processOwner.Reject()
+	if err := jg.permit.ReleaseExternal(); err != nil {
+		return err
+	}
+	return jg.permit.Return()
 }
 
 func (jg *JobGeneration) Finalize() error {
@@ -564,25 +746,26 @@ func (jg *JobGeneration) finishStop(state JobState, err error) error {
 	return err
 }
 
-func rejectConstructed(ctx context.Context, constructed ConstructedJob, permit lifecycle.LongLivedPermit) error {
-	if err := cleanupConstructed(ctx, constructed); err != nil {
-		return lifecycle.RetainOwnership(err)
-	}
-	if err := callJobLifecycle("job external resource release", func() error {
-		return permit.ReleaseExternal()
-	}); err != nil {
-		return lifecycle.RetainOwnership(err)
-	}
-	return nil
-}
-
-func cleanupConstructed(ctx context.Context, constructed ConstructedJob) error {
+func cleanupConstructed(ctx context.Context, constructed ConstructedJob) (err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	constructed.outputGate.Fence()
+	defer func() {
+		if constructed.resolvedReferences {
+			err = redactResolvedLifecycleError(err)
+		}
+	}()
 	if constructed.Handlers != nil {
 		if err := callJobLifecycle("handler close/drain", func() error {
 			return constructed.Handlers.CloseAndDrain(ctx)
+		}); err != nil {
+			return err
+		}
+	}
+	if constructed.StagedHandlers != nil {
+		if err := callJobLifecycle("staged handler close/drain", func() error {
+			return constructed.StagedHandlers.CloseAndDrain(ctx)
 		}); err != nil {
 			return err
 		}
@@ -602,31 +785,6 @@ func cleanupConstructed(ctx context.Context, constructed ConstructedJob) error {
 		}
 	}
 	return nil
-}
-
-func disposeConstructed(ctx context.Context, constructed ConstructedJob, permit lifecycle.LongLivedPermit) error {
-	if err := rejectConstructed(ctx, constructed, permit); err != nil {
-		return err
-	}
-	return callJobLifecycle("permit return", permit.Return)
-}
-
-func callConstructJob(
-	ctx context.Context,
-	build func(context.Context) (ConstructedJob, error),
-) (constructed ConstructedJob, err error, returned bool) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			constructed = ConstructedJob{}
-			err = lifecycle.RetainOwnership(fmt.Errorf(
-				"%w in job construction: %v",
-				lifecycle.ErrTaskPanic,
-				recovered,
-			))
-		}
-	}()
-	constructed, err = build(ctx)
-	return constructed, err, true
 }
 
 func callJobLifecycle(name string, call func() error) (err error) {

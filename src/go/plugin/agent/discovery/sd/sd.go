@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/netdata/netdata/go/plugins/pkg/netdataapi"
 	"github.com/netdata/netdata/go/plugins/plugin/agent/discovery/sd/pipeline"
+	"github.com/netdata/netdata/go/plugins/plugin/agent/jobmgr"
 	"github.com/netdata/netdata/go/plugins/plugin/agent/policy"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/confgroup"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/dyncfg"
@@ -20,6 +22,8 @@ import (
 )
 
 type Config struct {
+	Epoch          uint64
+	Attempts       jobmgr.ProcessAttemptAuthority
 	ConfigDefaults confgroup.Registry
 	PluginName     string
 	RunModePolicy  policy.RunModePolicy
@@ -33,6 +37,9 @@ func NewServiceDiscovery(cfg Config) (*ServiceDiscovery, error) {
 	log := logger.New().With(
 		slog.String("component", "service discovery"),
 	)
+	if cfg.Epoch == 0 || cfg.Attempts == nil {
+		return nil, fmt.Errorf("service discovery process containment is not configured")
+	}
 	if cfg.Discoverers == nil {
 		return nil, fmt.Errorf("service discovery discoverer registry is not configured")
 	}
@@ -43,6 +50,8 @@ func NewServiceDiscovery(cfg Config) (*ServiceDiscovery, error) {
 
 	d := &ServiceDiscovery{
 		Logger:         log,
+		epoch:          cfg.Epoch,
+		attempts:       cfg.Attempts,
 		confProv:       newConfFileReader(log, cfg.ConfDir),
 		configDefaults: cfg.ConfigDefaults,
 		pluginName:     cfg.PluginName,
@@ -87,6 +96,9 @@ type (
 	ServiceDiscovery struct {
 		*logger.Logger
 
+		epoch    uint64
+		attempts jobmgr.ProcessAttemptAuthority
+
 		confProv confFileProvider
 
 		configDefaults confgroup.Registry
@@ -104,11 +116,13 @@ type (
 		dyncfgPending  map[string]pendingDyncfgFunction
 		dyncfgClosed   bool
 		newPipeline    func(config pipeline.Config) (sdPipeline, error)
+		pending        *pendingPipelineIndex
 
 		ctx context.Context
 		mgr *PipelineManager
 	}
 	sdPipeline interface {
+		Test(ctx context.Context) (fullyTested bool, err error)
 		Run(ctx context.Context, in chan<- []*confgroup.Group)
 	}
 	confFileProvider interface {
@@ -123,6 +137,7 @@ func (d *ServiceDiscovery) Run(ctx context.Context, in chan<- []*confgroup.Group
 
 	// Store context for dyncfg commands
 	d.ctx = ctx
+	d.pending = newPendingPipelineIndex(ctx)
 
 	// Create pipeline manager with send function that forwards to output channel
 	// NOTE: Must be created BEFORE registering dyncfg templates, as dyncfg commands use mgr
@@ -133,7 +148,7 @@ func (d *ServiceDiscovery) Run(ctx context.Context, in chan<- []*confgroup.Group
 		}
 	}
 
-	d.mgr = NewPipelineManager(d.Logger, d.newPipeline, send)
+	d.mgr = NewPipelineManager(d.Logger, send)
 
 	// Register dyncfg templates for discoverer types
 	// NOTE: Must be AFTER mgr creation, as dyncfg commands use mgr
@@ -148,6 +163,7 @@ func (d *ServiceDiscovery) Run(ctx context.Context, in chan<- []*confgroup.Group
 	wg.Go(func() { d.mgr.RunGracePeriodCleanup(ctx) })
 
 	wg.Wait()
+	d.pending.wait()
 
 	// Cleanup all pipelines on shutdown
 	d.mgr.StopAll()
@@ -155,6 +171,10 @@ func (d *ServiceDiscovery) Run(ctx context.Context, in chan<- []*confgroup.Group
 
 func (d *ServiceDiscovery) run(ctx context.Context) {
 	defer d.failPendingDyncfg()
+	var pendingRetries <-chan pendingPipelineToken
+	if d.pending != nil {
+		pendingRetries = d.pending.retry
+	}
 	for {
 		if d.handler.WaitingForDecision() {
 			fn, ok := d.handler.NextWaitDecision(ctx, d.dyncfgCh)
@@ -180,6 +200,8 @@ func (d *ServiceDiscovery) run(ctx context.Context) {
 			case fn := <-d.dyncfgCh:
 				d.dyncfgSeqExec(fn)
 				d.completeDyncfg(fn)
+			case token := <-pendingRetries:
+				d.retryPendingPipeline(token)
 			}
 		}
 	}
@@ -202,6 +224,7 @@ func (d *ServiceDiscovery) removePipeline(conf confFile) {
 	d.Infof("removing %d config(s) from source '%s'", len(seenCfgs), conf.source)
 
 	for _, scfg := range seenCfgs {
+		d.cancelPendingPipeline(scfg)
 		// Remove from seen/exposed caches if this config is currently tracked.
 		_, ok := d.handler.RemoveDiscoveredConfig(scfg)
 		if !ok {
@@ -219,6 +242,10 @@ func (d *ServiceDiscovery) removePipeline(conf confFile) {
 }
 
 func (d *ServiceDiscovery) addPipeline(ctx context.Context, conf confFile) {
+	if !netdataapi.ValidSingleQuotedProtocolField(conf.source) {
+		d.Errorf("config source '%s' cannot be represented in the plugins.d CONFIG protocol", conf.source)
+		return
+	}
 	// Create sdConfig directly from YAML (cleans name for dyncfg compatibility)
 	sourceType := sourceTypeFromPath(conf.source)
 	pipelineKey := pipelineKeyFromSource(conf.source)
@@ -257,6 +284,11 @@ func (d *ServiceDiscovery) addPipeline(ctx context.Context, conf confFile) {
 // addConfig handles adding a config with priority handling.
 // This is the core logic matching jobmgr pattern.
 func (d *ServiceDiscovery) addConfig(ctx context.Context, scfg sdConfig) {
+	if err := d.handler.ValidateConfigCreate(scfg, dyncfg.StatusAccepted); err != nil {
+		d.Errorf("config '%s' cannot be represented in the plugins.d CONFIG protocol: %v", scfg.ExposedKey(), err)
+		return
+	}
+
 	// For file sources: One file = one config. If the file previously provided a different config,
 	// remove the old one first. This handles the case where a file config name changes.
 	if scfg.SourceType() != confgroup.TypeDyncfg {
@@ -317,7 +349,7 @@ func (d *ServiceDiscovery) addConfig(ctx context.Context, scfg sdConfig) {
 // removeOldConfigsFromSource removes configs from the same source that have a different key.
 // This handles the case where a file's config name changes.
 // Note: We don't stop the pipeline here - the new config will stop it when it starts via
-// PipelineManager.Start (which stops any existing pipeline with the same key).
+// PipelineManager.StartPrepared (which stops any existing pipeline with the same key).
 // This ensures that if the new config fails to start, the old pipeline keeps running.
 func (d *ServiceDiscovery) removeOldConfigsFromSource(source, newKey string) {
 	// Collect configs from this source (can't call Remove inside ForEach)
@@ -333,6 +365,7 @@ func (d *ServiceDiscovery) removeOldConfigsFromSource(source, newKey string) {
 		if oldCfg.ExposedKey() == newKey {
 			continue // Same config, skip
 		}
+		d.cancelPendingPipeline(oldCfg)
 
 		// Different config from same source - remove from caches
 		// If it was exposed, remove from exposed cache and dyncfg.

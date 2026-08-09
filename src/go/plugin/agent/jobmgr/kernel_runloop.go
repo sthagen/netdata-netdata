@@ -51,6 +51,7 @@ func (ck *CommandKernel) runLoop(ctx context.Context) {
 	stopC := (<-chan struct{})(ck.stop)
 	contextC := ctx.Done()
 	shuttingDown := false
+	shutdownStartFailed := false
 	beginShutdown := func(cause error) {
 		if shuttingDown {
 			terminal = errors.Join(terminal, cause)
@@ -72,6 +73,7 @@ func (ck *CommandKernel) runLoop(ctx context.Context) {
 		if err != nil {
 			ck.run.Dirty(err)
 			terminal = errors.Join(terminal, err)
+			shutdownStartFailed = true
 			return
 		}
 		shutdownBudget = budget
@@ -91,6 +93,10 @@ func (ck *CommandKernel) runLoop(ctx context.Context) {
 		close(ck.done)
 	}()
 	for {
+		if shutdownStartFailed {
+			terminal = errors.Join(terminal, ck.run.Terminal(ck.runCensus()))
+			return
+		}
 		if !shuttingDown {
 			if cause := ck.run.DirtyCause(); cause != nil {
 				beginShutdown(cause)
@@ -124,6 +130,7 @@ func (ck *CommandKernel) runLoop(ctx context.Context) {
 			}
 		}
 		moreFunctionCleanups = moreFunctionCleanups || ck.functionCleanupBacklog.count != 0
+		moreClaimYields := ck.serviceClaimYields(lifecycle.TaskStartServiceQuantum)
 		moreClaimSettlements := ck.serviceClaimSettlements(maximumClaimSettlementQuantum)
 		moreCompositeFenceRechecks := false
 		moreTasks := false
@@ -185,13 +192,26 @@ func (ck *CommandKernel) runLoop(ctx context.Context) {
 				terminal = ck.shutdownDeadlineExceededTerminal(terminal)
 				return
 			}
-			if ck.shutdownQuiescent() || ck.runShutdownBarrierFailedTerminal() || ck.runFinalizerFailedTerminal() {
-				terminal = errors.Join(terminal, ck.run.Terminal(ck.runCensus()))
+			census := ck.runCensus()
+			if census.Drained() || ck.runShutdownBarrierFailedTerminal() || ck.runFinalizerFailedTerminal() {
+				terminal = errors.Join(terminal, ck.run.Terminal(census))
 				return
+			}
+			if runCensusBlockedOnlyByFrame(census) {
+				idle, err := ck.frames.ArmRunIdleNotification(ck.run.Generation())
+				if err != nil {
+					ck.run.Dirty(err)
+					terminal = errors.Join(terminal, ck.run.Terminal(census))
+					return
+				}
+				if idle {
+					continue
+				}
 			}
 		}
 		if moreDeadlines || moreControls || moreSubmissions || moreFunctionCleanups ||
 			moreFunctionMutation || moreFunctionClose || moreClaimSettlements ||
+			moreClaimYields ||
 			moreCompositeFenceRechecks ||
 			moreTasks || moreTaskStarts ||
 			servicedAsyncEvents > 0 || moreShutdownCancellation ||
@@ -236,6 +256,10 @@ func (ck *CommandKernel) runLoop(ctx context.Context) {
 			ck.completeTask(completion)
 		case acknowledgement := <-ck.tasks.AcknowledgementCh():
 			ck.acknowledgeTask(acknowledgement)
+		case request := <-ck.claimYields:
+			ck.serviceClaimYield(request)
+		case stage := <-ck.preClaimStages:
+			ck.servicePreClaimStage(stage)
 		case <-deadlineC:
 			deadlineC = nil
 			cancelDeadline = nil
@@ -260,13 +284,13 @@ func (ck *CommandKernel) serviceClaimSettlements(quantum int) bool {
 		return false
 	}
 	for _, operation := range granted {
-		ck.markReady(operation.lane)
+		ck.completeClaimGrant(operation)
 	}
 	return more
 }
 
 func (ck *CommandKernel) serviceOneAsyncEvent() bool {
-	const sources = 4
+	const sources = 6
 	for offset := range sources {
 		source := (int(ck.nextAsyncEvent) + offset) % sources
 		switch source {
@@ -303,6 +327,22 @@ func (ck *CommandKernel) serviceOneAsyncEvent() bool {
 			select {
 			case submitted := <-ck.functionMutations:
 				ck.beginFunctionMutation(submitted)
+				ck.nextAsyncEvent = 4
+				return true
+			default:
+			}
+		case 4:
+			select {
+			case request := <-ck.claimYields:
+				ck.serviceClaimYield(request)
+				ck.nextAsyncEvent = 5
+				return true
+			default:
+			}
+		case 5:
+			select {
+			case stage := <-ck.preClaimStages:
+				ck.servicePreClaimStage(stage)
 				ck.nextAsyncEvent = 0
 				return true
 			default:
@@ -378,7 +418,7 @@ func (ck *CommandKernel) serviceSubmissions(quantum int) bool {
 					submitted.result,
 					submitted.terminal,
 					submitted.composite,
-					submitted.rollback,
+					submitted.recovery,
 				)
 			}
 		}
@@ -434,7 +474,7 @@ func (ck *CommandKernel) hasRunnableSubmissions() bool {
 func (ck *CommandKernel) shutdownDeadlineExceededTerminal(prev error) error {
 	return errors.Join(
 		prev,
-		errors.New("jobmgr kernel: shutdown deadline exceeded"),
+		ErrShutdownDeadlineExceeded,
 		ck.run.Terminal(ck.runCensus()),
 	)
 }

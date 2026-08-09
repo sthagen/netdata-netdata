@@ -17,7 +17,7 @@ func (ck *CommandKernel) cancelOperation(uid string) {
 
 func (ck *CommandKernel) cancelOperationWithCause(uid string, cause error) {
 	operation := ck.operations[uid]
-	if operation != nil && operation.activeChild != nil && !operation.activeChild.compositeRollback {
+	if operation != nil && operation.activeChild != nil && !operation.activeChild.compositeRecovery {
 		ck.cancelOperationWithCause(operation.activeChild.UID, cause)
 	}
 	if operation == nil || operation.Response == lifecycle.ResponseCommitted ||
@@ -31,6 +31,7 @@ func (ck *CommandKernel) cancelOperationWithCause(uid string, cause error) {
 		ck.recordCompositeChildTerminalCause(operation, cause)
 	}
 	operation.cancelled = true
+	ck.cancelPreClaimStage(operation, cause)
 	if operation.Child == lifecycle.ChildExecuting {
 		_ = ck.tasks.CancelWithCause(operation.Task, cause)
 		if operation.Response != lifecycle.ResponseNotRequired && !operation.plan.CooperativeCancel {
@@ -66,7 +67,7 @@ func (ck *CommandKernel) serviceDeadlines(now time.Time, quantum int) bool {
 			continue
 		}
 		ck.markOperationTimedOut(operation)
-		if operation.activeChild != nil && !operation.activeChild.compositeRollback {
+		if operation.activeChild != nil && !operation.activeChild.compositeRecovery {
 			ck.cancelOperationWithCause(operation.activeChild.UID, context.DeadlineExceeded)
 		}
 		deferControl := defersDeadlineControl(operation)
@@ -162,6 +163,7 @@ func (ck *CommandKernel) markOperationTimedOut(operation *commandOperation) {
 		return
 	}
 	operation.MarkTimedOut()
+	ck.cancelPreClaimStage(operation, context.DeadlineExceeded)
 	ck.recordCompositeChildTerminalCause(operation, context.DeadlineExceeded)
 	if ck.runtimeObserver != nil {
 		ck.runtimeObserver.AddRuntimeCounter(lifecycle.RuntimeCounterOperationTimeouts, 1)
@@ -271,6 +273,7 @@ func (ck *CommandKernel) tryDispose(operation *commandOperation) {
 			return
 		}
 	}
+	ck.releasePreClaimStage(operation)
 	if operation.functionInvocation.Valid() {
 		ref := operation.functionInvocation
 		operation.functionInvocation = FunctionInvocationRef{}
@@ -282,7 +285,7 @@ func (ck *CommandKernel) tryDispose(operation *commandOperation) {
 		heap.Remove(&ck.deadlines, operation.deadline.index)
 	}
 	for _, granted := range ck.releaseClaims(operation) {
-		ck.markReady(granted.lane)
+		ck.completeClaimGrant(granted)
 	}
 	lane := operation.lane
 	if lane.active == operation {
@@ -413,6 +416,9 @@ func (ck *CommandKernel) unlinkOperation(operation *commandOperation) {
 		ck.run.Dirty(errors.New("jobmgr kernel: invalid operation-list removal"))
 		return
 	}
+	if ck.shutdownCancelCursor == operation {
+		ck.shutdownCancelCursor = operation.allNext
+	}
 	if operation.allPrevious != nil {
 		operation.allPrevious.allNext = operation.allNext
 	} else {
@@ -445,8 +451,8 @@ func (ck *CommandKernel) unlinkQueued(operation *commandOperation) {
 		return
 	}
 	lane := operation.lane
-	if lane.ready {
-		ck.ready[sourceIndex(lane.source)].remove(lane)
+	if lane.readyQueue != nil {
+		lane.readyQueue.remove(lane)
 	}
 	if operation.fenceBlocked {
 		if err := ck.removeCompositeFenceBlocked(operation); err != nil {
@@ -475,7 +481,7 @@ func (ck *CommandKernel) unlinkQueued(operation *commandOperation) {
 		operation.claimsHeld = false
 	} else if operation.claimsHeld {
 		for _, granted := range ck.releaseClaims(operation) {
-			ck.markReady(granted.lane)
+			ck.completeClaimGrant(granted)
 		}
 	} else if ck.claims.waiting(operation) {
 		granted, err := ck.claims.cancel(operation)
@@ -483,7 +489,7 @@ func (ck *CommandKernel) unlinkQueued(operation *commandOperation) {
 			ck.run.Dirty(err)
 		}
 		for _, grantedOperation := range granted {
-			ck.markReady(grantedOperation.lane)
+			ck.completeClaimGrant(grantedOperation)
 		}
 	} else if operation.claimRegistered {
 		if err := ck.claims.abandon(operation); err != nil {
@@ -563,11 +569,15 @@ func (ck *CommandKernel) removingLaneOperation(lane *commandLane, operation *com
 }
 
 func (ck *CommandKernel) markReady(lane *commandLane) {
-	if lane == nil || lane.active != nil || lane.head == nil || lane.head.fenceBlocked || ck.claims.waiting(lane.head) {
+	if lane == nil ||
+		lane.active != nil ||
+		lane.head == nil ||
+		lane.head.stagePending ||
+		lane.head.fenceBlocked ||
+		ck.claims.waiting(lane.head) {
 		return
 	}
-	lane.source = lane.head.Source
-	index := sourceIndex(lane.source)
+	index := sourceIndex(lane.head.Source)
 	ck.ready[index].push(lane)
 }
 
@@ -579,7 +589,7 @@ func (ck *CommandKernel) nextReadyLane() *commandLane {
 		return lane
 	}
 	if lane := ck.ready[second].pop(); lane != nil {
-		ck.nextSource = otherSource(lane.source)
+		ck.nextSource = otherSource(sourceForIndex(second))
 		return lane
 	}
 	return nil

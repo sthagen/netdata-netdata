@@ -21,7 +21,6 @@ func (dcjc *DynCfgJobController) prepareMutation(
 	postimage *dyncfg.GraphConfig,
 	result lifecycle.SealedResult,
 	cleanup lifecycle.TaskCleanup,
-	failurePlans ...successorFailurePlan,
 ) (lifecycle.PreparedResourceTransaction, error) {
 	return dcjc.prepareMutationWithRetry(
 		scope,
@@ -33,7 +32,6 @@ func (dcjc *DynCfgJobController) prepareMutation(
 		result,
 		cleanup,
 		autoDetectionRetryToken{},
-		failurePlans...,
 	)
 }
 
@@ -47,18 +45,65 @@ func (dcjc *DynCfgJobController) prepareMutationWithRetry(
 	result lifecycle.SealedResult,
 	cleanup lifecycle.TaskCleanup,
 	retry autoDetectionRetryToken,
-	failurePlans ...successorFailurePlan,
 ) (lifecycle.PreparedResourceTransaction, error) {
-	if len(failurePlans) > 1 || len(failurePlans) == 1 && successor == nil {
-		return nil, errors.New("job output: invalid successor-failure plan")
-	}
-	var failurePlan *successorFailurePlan
-	if len(failurePlans) == 1 {
-		failurePlan = &failurePlans[0]
-	}
+	return dcjc.prepareMutationWithRetryAfterApply(
+		scope,
+		current,
+		successor,
+		unusedPermit,
+		disposition,
+		postimage,
+		result,
+		cleanup,
+		retry,
+		nil,
+	)
+}
+
+func (dcjc *DynCfgJobController) prepareMutationWithRetryAfterApply(
+	scope lifecycle.ResourceTransactionScope,
+	current lifecycle.ReadyResource,
+	successor lifecycle.PreparedResource,
+	unusedPermit lifecycle.LongLivedPermit,
+	disposition lifecycle.ResourceTransactionDisposition,
+	postimage *dyncfg.GraphConfig,
+	result lifecycle.SealedResult,
+	cleanup lifecycle.TaskCleanup,
+	retry autoDetectionRetryToken,
+	afterApply func(),
+) (lifecycle.PreparedResourceTransaction, error) {
+	return dcjc.prepareMutationWithRetryAfterApplyAndFallback(
+		scope,
+		current,
+		successor,
+		unusedPermit,
+		disposition,
+		postimage,
+		result,
+		cleanup,
+		retry,
+		afterApply,
+		nil,
+		nil,
+	)
+}
+
+func (dcjc *DynCfgJobController) prepareMutationWithRetryAfterApplyAndFallback(
+	scope lifecycle.ResourceTransactionScope,
+	current lifecycle.ReadyResource,
+	successor lifecycle.PreparedResource,
+	unusedPermit lifecycle.LongLivedPermit,
+	disposition lifecycle.ResourceTransactionDisposition,
+	postimage *dyncfg.GraphConfig,
+	result lifecycle.SealedResult,
+	cleanup lifecycle.TaskCleanup,
+	retry autoDetectionRetryToken,
+	afterApply func(),
+	busyFallback *ResourceActivationFallback,
+	quarantinedFallback *ResourceActivationFallback,
+) (lifecycle.PreparedResourceTransaction, error) {
+	afterApply = composeAfterApply(dcjc.retrySettlement(scope.ID, retry), afterApply)
 	var dependencyCommit func()
-	var failedDependencyCommit func()
-	var removedDependencyCommit func()
 	if dcjc.dependencies != nil {
 		var err error
 		dependencyCommit, err = dcjc.dependencies.PrepareJobChange(scope.ID, postimage)
@@ -68,35 +113,23 @@ func (dcjc *DynCfgJobController) prepareMutationWithRetry(
 			}
 			return nil, err
 		}
-		if failurePlan != nil {
-			failedDependencyCommit, err = dcjc.dependencies.PrepareJobChange(scope.ID, &failurePlan.postimage)
-			if err == nil && failurePlan.removePlainStock {
-				removedDependencyCommit, err = dcjc.dependencies.PrepareJobChange(scope.ID, nil)
-			}
-			if err != nil {
-				return nil, rollbackSuccessorMutation(successor, err)
-			}
-		}
 	}
 	mutation, err := dcjc.graph.PrepareMutation([]dyncfg.GraphChange{{ID: scope.ID, Config: postimage}})
 	if errors.Is(err, dyncfg.ErrGraphNoChange) {
 		if successor != nil {
 			return dcjc.prepareResourceTransaction(
 				ResourceTransactionSpec{
-					Scope:            scope,
-					Disposition:      disposition,
-					Current:          current,
-					Successor:        successor,
-					Graph:            dcjc.graph,
-					AfterGraphCommit: dependencyCommit,
-					AfterApply:       dcjc.retrySettlement(scope.ID, retry),
-					Result:           result,
-					Cleanup:          cleanup,
-					SuccessorFailure: successorFailureResolver(
-						failurePlan,
-						failedDependencyCommit,
-						removedDependencyCommit,
-					),
+					Scope:                         scope,
+					Disposition:                   disposition,
+					Current:                       current,
+					Successor:                     successor,
+					Graph:                         dcjc.graph,
+					AfterGraphCommit:              dependencyCommit,
+					AfterApply:                    afterApply,
+					ActivationBusyFallback:        busyFallback,
+					ActivationQuarantinedFallback: quarantinedFallback,
+					Result:                        result,
+					Cleanup:                       cleanup,
 				},
 			)
 		}
@@ -105,7 +138,7 @@ func (dcjc *DynCfgJobController) prepareMutationWithRetry(
 			current,
 			unusedPermit,
 			result,
-			dcjc.retrySettlement(scope.ID, retry),
+			afterApply,
 			cleanup,
 		)
 	}
@@ -117,20 +150,107 @@ func (dcjc *DynCfgJobController) prepareMutationWithRetry(
 	}
 	return dcjc.prepareResourceTransaction(
 		ResourceTransactionSpec{
-			Scope:            scope,
-			Disposition:      disposition,
-			Current:          current,
-			Successor:        successor,
-			UnusedPermit:     unusedPermit,
-			Graph:            dcjc.graph,
-			Mutation:         mutation,
-			MutationPrepared: true,
-			AfterGraphCommit: dependencyCommit,
-			AfterApply:       dcjc.retrySettlement(scope.ID, retry),
-			Result:           result,
-			Cleanup:          cleanup,
-			SuccessorFailure: successorFailureResolver(failurePlan, failedDependencyCommit, removedDependencyCommit),
+			Scope:                         scope,
+			Disposition:                   disposition,
+			Current:                       current,
+			Successor:                     successor,
+			UnusedPermit:                  unusedPermit,
+			Graph:                         dcjc.graph,
+			Mutation:                      mutation,
+			MutationPrepared:              true,
+			AfterGraphCommit:              dependencyCommit,
+			AfterApply:                    afterApply,
+			ActivationBusyFallback:        busyFallback,
+			ActivationQuarantinedFallback: quarantinedFallback,
+			Result:                        result,
+			Cleanup:                       cleanup,
 		},
+	)
+}
+
+func (dcjc *DynCfgJobController) newActivationFallback(
+	id string,
+	postimage *dyncfg.GraphConfig,
+	result lifecycle.SealedResult,
+	cleanup lifecycle.TaskCleanup,
+	afterApply func(),
+) (*ResourceActivationFallback, error) {
+	if dcjc == nil || id == "" || cleanup == nil {
+		return nil, errors.New("job output: invalid activation fallback")
+	}
+	var dependencyCommit func()
+	if dcjc.dependencies != nil {
+		var err error
+		dependencyCommit, err = dcjc.dependencies.PrepareJobChange(id, postimage)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &ResourceActivationFallback{
+		Change: dyncfg.GraphChange{
+			ID:     id,
+			Config: postimage,
+		},
+		AfterGraphCommit: dependencyCommit,
+		AfterApply:       afterApply,
+		Result:           result,
+		Cleanup:          cleanup,
+	}, nil
+}
+
+type activationFallbackPlan struct {
+	postimage  *dyncfg.GraphConfig
+	result     lifecycle.SealedResult
+	cleanup    lifecycle.TaskCleanup
+	afterApply func()
+}
+
+func (dcjc *DynCfgJobController) prepareMutationWithActivationFallbacks(
+	scope lifecycle.ResourceTransactionScope,
+	current lifecycle.ReadyResource,
+	successor lifecycle.PreparedResource,
+	disposition lifecycle.ResourceTransactionDisposition,
+	postimage *dyncfg.GraphConfig,
+	result lifecycle.SealedResult,
+	cleanup lifecycle.TaskCleanup,
+	retry autoDetectionRetryToken,
+	afterApply func(),
+	busy activationFallbackPlan,
+	quarantined activationFallbackPlan,
+) (lifecycle.PreparedResourceTransaction, error) {
+	busyFallback, err := dcjc.newActivationFallback(
+		scope.ID,
+		busy.postimage,
+		busy.result,
+		busy.cleanup,
+		busy.afterApply,
+	)
+	if err != nil {
+		return nil, rollbackSuccessorMutation(successor, err)
+	}
+	quarantinedFallback, err := dcjc.newActivationFallback(
+		scope.ID,
+		quarantined.postimage,
+		quarantined.result,
+		quarantined.cleanup,
+		quarantined.afterApply,
+	)
+	if err != nil {
+		return nil, rollbackSuccessorMutation(successor, err)
+	}
+	return dcjc.prepareMutationWithRetryAfterApplyAndFallback(
+		scope,
+		current,
+		successor,
+		lifecycle.LongLivedPermit{},
+		disposition,
+		postimage,
+		result,
+		cleanup,
+		retry,
+		afterApply,
+		busyFallback,
+		quarantinedFallback,
 	)
 }
 
@@ -173,7 +293,78 @@ func (dcjc *DynCfgJobController) scheduleAutoDetectionRetry(config confgroup.Con
 	dcjc.scheduler.retries.schedule(config, failure.retryAfter)
 }
 
-type successorFailurePlan struct {
+func (dcjc *DynCfgJobController) prepareTransientConstructionFailure(
+	scope lifecycle.ResourceTransactionScope,
+	current lifecycle.ReadyResource,
+	permit lifecycle.LongLivedPermit,
+	postimage dyncfg.GraphConfig,
+	result lifecycle.SealedResult,
+	cleanup lifecycle.TaskCleanup,
+	retry autoDetectionRetryToken,
+	config confgroup.Config,
+	err error,
+) (lifecycle.PreparedResourceTransaction, error) {
+	failure := transientActivationFailure(config, err)
+	return dcjc.prepareMutationWithRetryAfterApply(
+		scope,
+		current,
+		nil,
+		permit,
+		resourceRemovalDisposition(current),
+		&postimage,
+		result,
+		cleanup,
+		retry,
+		func() {
+			dcjc.scheduleAutoDetectionRetry(config, failure)
+		},
+	)
+}
+
+func (dcjc *DynCfgJobController) prepareProbeFailure(
+	scope lifecycle.ResourceTransactionScope,
+	current lifecycle.ReadyResource,
+	permit lifecycle.LongLivedPermit,
+	retry autoDetectionRetryToken,
+	failure *autoDetectionFailure,
+	plan probeFailurePlan,
+) (lifecycle.PreparedResourceTransaction, error) {
+	if failure == nil {
+		return nil, errors.New("job output: nil probe failure")
+	}
+	removed := plan.removePlainStock && !failure.coded
+	var postimage *dyncfg.GraphConfig
+	cleanup := plan.failedCleanup
+	if removed {
+		cleanup = plan.removedCleanup
+	} else {
+		postimage = &plan.postimage
+	}
+	result := lifecycle.SealedResult{}
+	if plan.result != nil {
+		result = plan.result(failure)
+	}
+	var afterApply func()
+	if plan.afterApply != nil {
+		afterApply = func() {
+			plan.afterApply(failure)
+		}
+	}
+	return dcjc.prepareMutationWithRetryAfterApply(
+		scope,
+		current,
+		nil,
+		permit,
+		resourceRemovalDisposition(current),
+		postimage,
+		result,
+		cleanup,
+		retry,
+		afterApply,
+	)
+}
+
+type probeFailurePlan struct {
 	postimage        dyncfg.GraphConfig                                 // graph postimage to commit as StatusFailed
 	failedCleanup    lifecycle.TaskCleanup                              // protocol cleanup for the failed status
 	removedCleanup   lifecycle.TaskCleanup                              // protocol cleanup when a plain stock job is removed instead
@@ -182,43 +373,7 @@ type successorFailurePlan struct {
 	removePlainStock bool                                               // remove instead of fail for a stock + non-coded failure
 }
 
-func successorFailureResolver(
-	plan *successorFailurePlan,
-	failedDependencyCommit func(),
-	removedDependencyCommit func(),
-) func(*autoDetectionFailure) (SuccessorFailureResolution, error) {
-	if plan == nil {
-		return nil
-	}
-	return func(failure *autoDetectionFailure) (SuccessorFailureResolution, error) {
-		if failure == nil {
-			return SuccessorFailureResolution{}, errors.New("job output: nil autodetection failure")
-		}
-		removed := plan.removePlainStock && !failure.coded
-		postimage := plan.postimage
-		resolution := SuccessorFailureResolution{
-			Postimage:        &postimage,
-			AfterGraphCommit: failedDependencyCommit,
-			Cleanup:          plan.failedCleanup,
-		}
-		if removed {
-			resolution.Postimage = nil
-			resolution.AfterGraphCommit = removedDependencyCommit
-			resolution.Cleanup = plan.removedCleanup
-		}
-		if plan.result != nil {
-			resolution.Result = plan.result(failure)
-		}
-		if plan.afterApply != nil {
-			resolution.AfterApply = func() {
-				plan.afterApply(failure)
-			}
-		}
-		return resolution, nil
-	}
-}
-
-// autoDetectionFailureResultFunc builds a successorFailurePlan.result closure
+// autoDetectionFailureResultFunc builds a probeFailurePlan.result closure
 // with a fixed default code and message; the failure's own code overrides the
 // default when present.
 func autoDetectionFailureResultFunc(
@@ -235,7 +390,7 @@ func autoDetectionFailureResultFunc(
 }
 
 // scheduleRetryAfterApply adapts scheduleAutoDetectionRetry into a
-// successorFailurePlan.afterApply closure that reschedules the given config.
+// probeFailurePlan.afterApply closure that reschedules the given config.
 func (dcjc *DynCfgJobController) scheduleRetryAfterApply(config confgroup.Config) func(*autoDetectionFailure) {
 	return func(failure *autoDetectionFailure) {
 		dcjc.scheduleAutoDetectionRetry(config, failure)

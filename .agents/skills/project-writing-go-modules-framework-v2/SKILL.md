@@ -105,16 +105,24 @@ source files for evidence.
   `Counter.ObserveTotal()` for source counters, and `StateSet` for fixed
   one-active-state values.
 - Metric names MUST be stable and selected by `charts.yaml`.
-- In `charts.yaml`: use `version: v1`, `context_namespace`, `instances.by_labels`,
-  `label_promotion`, and an explicit `algorithm` on every chart:
-  `incremental` for counters and `absolute` for gauges.
-- `Counter.ObserveTotal()` only records monotonic values in `metrix`; it does
-  NOT set the chart `DIMENSION` algorithm by itself. Every chart that presents
-  a counter as a rate MUST explicitly set `algorithm: incremental`, including
-  dynamically built `charttpl.Chart` values.
-- Do NOT rely on chartengine's metric-name suffix inference for generated
-  Netdata metrics. Suffix inference is only a fallback and MUST NOT be used as
-  the correctness mechanism for V2 collector charts.
+- In `charts.yaml`, use `version: v1`, `context_namespace`, `instances.by_labels`,
+  and `label_promotion` where their operator-facing behavior is needed.
+- Charts SHOULD omit `algorithm` for normal type-driven behavior. At runtime,
+  chartengine maps `metrix` counters to `incremental` dimensions and gauges or
+  other kinds to `absolute`, including dynamically built `charttpl.Chart`
+  values. Metric names and suffixes do not determine the algorithm.
+- A chart MAY set `algorithm` to intentionally override runtime kind for every
+  dimension in that chart. This is also REQUIRED when differently typed series
+  are deliberately aggregated into the same rendered dimension; otherwise,
+  contributors to one rendered dimension MUST have the same runtime kind.
+  Chartengine does not diagnose violations at runtime, so real-path collector
+  tests MUST enforce this authoring rule.
+- Mixed counter and gauge dimensions MAY share one authored chart when they
+  render as distinct dimensions; each omitted algorithm is resolved from that
+  dimension's matched series kind.
+- A live metric identity MUST keep a stable runtime kind while its dimension is
+  materialized. A kind change does not redefine an existing Netdata dimension;
+  its creation-time wire algorithm remains until expiry and recreation.
 - Histogram bucket charts use range bucket values from `metrix.ReadFlatten()`
   and chartengine forces them to `heatmap`. Bucket dimensions are named by the
   bare `le` upper-bound value and ordered numerically with `+Inf` last. Do NOT
@@ -122,6 +130,17 @@ source files for evidence.
   option for V2 charts.
 - Put multipliers, divisors, hidden flags, and float formatting in the chart
   template, not ad hoc chart-emission code.
+- When `instances.by_labels` omits labels so multiple source series can map to
+  one rendered dimension, the effective `aggregation` MUST match the metric
+  meaning. Set it on the chart; it applies to every dimension. Absence means
+  `sum`; available reducers are `sum`, `min`, `max`, and unweighted `avg`
+  (`avg` forces floating-point emission). Use separate charts when metrics need
+  different reducers. Metric kind is not enough to infer this policy: gauges
+  may be additive stocks, states, timestamps, limits, or averages.
+- Histogram buckets/counts/sums are mergeable only with `sum`. Summary
+  quantiles are not globally mergeable with these reducers. Non-sum reduction
+  of cumulative counters happens before Netdata calculates rates and can be
+  misleading when source membership changes.
 - `metrix` keeps ONE descriptor per metric NAME, resolved atomically at commit and
   BOUNDED: a name idle past its retention window (`expireAfterSuccessCycles +
   descriptorGraceCycles`, both configurable on `NewCollectorStore(...)`) is evicted

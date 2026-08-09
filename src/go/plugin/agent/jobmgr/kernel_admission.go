@@ -32,17 +32,17 @@ func (ck *CommandKernel) admitSubmission(
 	submissionResult,
 	terminalResult chan error,
 	composite *kernelCompositeScope,
-	rollback bool,
+	recovery bool,
 ) error {
 	var parent *commandOperation
 	if composite != nil {
 		var err error
-		parent, err = ck.validateCompositeAdmission(composite, plan, rollback)
+		parent, err = ck.validateCompositeAdmission(composite, plan, recovery)
 		if err != nil {
 			return err
 		}
-	} else if rollback {
-		return errors.New("jobmgr kernel: rollback child has no parent")
+	} else if recovery {
+		return errors.New("jobmgr kernel: recovery child has no parent")
 	} else if !ck.run.Admitting() {
 		return ck.rejectClosedAdmission()
 	}
@@ -72,6 +72,9 @@ func (ck *CommandKernel) admitSubmission(
 			return errors.Join(err, ck.uids.Complete(request.UID, false, now))
 		}
 		if err := decision.validate(); err != nil {
+			if decision.Plan.Stage != nil {
+				decision.Plan.Stage.Release()
+			}
 			if decision.Lease.Valid() {
 				err = errors.Join(err, ck.releaseFunctionInvocation(decision.Lease))
 			}
@@ -95,6 +98,12 @@ func (ck *CommandKernel) admitSubmission(
 			request.LaneKey = functionResourceID
 		}
 	}
+	releaseStage := plan.Stage != nil
+	defer func() {
+		if releaseStage {
+			plan.Stage.Release()
+		}
+	}()
 	releaseFunctionInvocation := functionInvocation.Valid()
 	defer func() {
 		if releaseFunctionInvocation {
@@ -169,7 +178,7 @@ func (ck *CommandKernel) admitSubmission(
 		terminalResult:    terminalResult,
 		parent:            parent,
 		claimsInherited:   parent != nil,
-		compositeRollback: rollback,
+		compositeRecovery: recovery,
 		shutdownChild: parent != nil &&
 			ck.shutdownPhase == commandShutdownActionDrain,
 		runtimeStarted: now,
@@ -220,6 +229,10 @@ func (ck *CommandKernel) admitSubmission(
 		}
 		heap.Push(&ck.deadlines, &operation.deadline)
 	}
+	if plan.Stage != nil {
+		ck.startPreClaimStage(operation)
+	}
+	releaseStage = false
 	if parent == nil && ck.compositeFenceConflicts(operation.claims) {
 		if err := ck.blockOnCompositeFence(operation); err != nil {
 			ck.run.Dirty(err)
@@ -233,7 +246,7 @@ func (ck *CommandKernel) admitSubmission(
 	if submissionResult != nil {
 		submissionResult <- nil
 	}
-	if !operation.fenceBlocked && lane.active == nil && lane.head == operation {
+	if !operation.fenceBlocked && !operation.stagePending && lane.active == nil && lane.head == operation {
 		ck.markReady(lane)
 	}
 	return nil

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netdata/netdata/go/plugins/logger"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/collectorapi"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/vnodes"
 	"github.com/stretchr/testify/assert"
@@ -335,6 +336,55 @@ func TestJob_StopBeforeStartDoesNotBlock(t *testing.T) {
 	}
 }
 
+func TestJobCleanupUsesDedicatedOutputWithOutFallback(t *testing.T) {
+	for _, dedicated := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dedicated=%v", dedicated), func(t *testing.T) {
+			var liveOutput bytes.Buffer
+			var cleanupOutput bytes.Buffer
+			charts := collectorapi.Charts{
+				&collectorapi.Chart{
+					ID:    "work",
+					Title: "Work",
+					Units: "units",
+					Dims:  collectorapi.Dims{{ID: "value"}},
+				},
+			}
+			module := &collectorapi.MockCollectorV1{
+				ChartsFunc: func() *collectorapi.Charts { return &charts },
+				CollectFunc: func(context.Context) map[string]int64 {
+					return map[string]int64{"value": 1}
+				},
+			}
+			config := JobConfig{
+				PluginName: pluginName,
+				Name:       jobName,
+				ModuleName: modName,
+				FullName:   modName + "_" + jobName,
+				Module:     module,
+				Out:        &liveOutput,
+			}
+			if dedicated {
+				config.CleanupOut = &cleanupOutput
+			}
+			job := NewJob(config)
+			require.NoError(t, job.AutoDetectionManaged(context.Background()))
+
+			job.runOnce()
+			require.Contains(t, liveOutput.String(), "CHART")
+			liveOutput.Reset()
+
+			job.Cleanup()
+			if dedicated {
+				require.Empty(t, liveOutput.Bytes())
+				require.Contains(t, cleanupOutput.String(), "obsolete")
+			} else {
+				require.Contains(t, liveOutput.String(), "obsolete")
+				require.Empty(t, cleanupOutput.Bytes())
+			}
+		})
+	}
+}
+
 func TestJob_MainLoop_Panic(t *testing.T) {
 	m := &collectorapi.MockCollectorV1{
 		CollectFunc: func(context.Context) map[string]int64 {
@@ -359,6 +409,59 @@ func TestJob_MainLoop_Panic(t *testing.T) {
 	assert.False(t, m.CleanupDone)
 	job.Cleanup()
 	assert.True(t, m.CleanupDone)
+}
+
+func TestJobSteadyStateCollectorPanicIsSanitizedBeforeLogging(t *testing.T) {
+	const marker = "resolved-v1-runtime-marker"
+	mod := &collectorapi.MockCollectorV1{
+		CollectFunc: func(context.Context) map[string]int64 {
+			panic(marker)
+		},
+	}
+	job := NewJob(JobConfig{
+		PluginName: pluginName, Name: jobName, ModuleName: modName,
+		FullName: modName + "_" + jobName, Module: mod, Out: io.Discard,
+		LifecycleErrorSanitizer: func(error) error {
+			return errors.New("sanitized collector failure")
+		},
+	})
+	var logs bytes.Buffer
+	captured := logger.NewWithWriter(&logs)
+	job.Logger = captured
+	mod.GetBase().Logger = captured
+
+	_ = job.collect()
+
+	require.NotContains(t, logs.String(), marker)
+	require.Contains(t, logs.String(), "sanitized collector failure")
+}
+
+func TestJobPostCheckFailureIsSanitizedBeforeEveryLog(t *testing.T) {
+	const marker = "resolved-v1-chart-marker"
+	mod := &collectorapi.MockCollectorV1{
+		ChartsFunc: func() *collectorapi.Charts {
+			return &collectorapi.Charts{
+				&collectorapi.Chart{
+					ID: marker + " invalid", Title: "title", Units: "units",
+				},
+			}
+		},
+	}
+	job := NewJob(JobConfig{
+		PluginName: pluginName, Name: jobName, ModuleName: modName,
+		FullName: modName + "_" + jobName, Module: mod, Out: io.Discard,
+		LifecycleErrorSanitizer: func(error) error {
+			return errors.New("sanitized chart failure")
+		},
+	})
+	var logs bytes.Buffer
+	captured := logger.NewWithWriter(&logs)
+	job.Logger = captured
+	mod.GetBase().Logger = captured
+
+	require.Error(t, job.AutoDetectionManaged(context.Background()))
+	require.NotContains(t, logs.String(), marker)
+	require.Contains(t, logs.String(), "sanitized chart failure")
 }
 
 func TestJob_OutputFailureDoesNotReportCollectorPanic(t *testing.T) {

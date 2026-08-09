@@ -11,6 +11,8 @@ import (
 type Algorithm string
 
 const (
+	// AlgorithmAuto defers the default until runtime series kind is available.
+	AlgorithmAuto Algorithm = ""
 	// AlgorithmAbsolute sends direct values.
 	AlgorithmAbsolute Algorithm = "absolute"
 	// AlgorithmIncremental sends monotonic totals (Netdata computes rates/deltas).
@@ -27,14 +29,6 @@ const (
 	ChartTypeHeatmap ChartType = "heatmap"
 )
 
-// ReduceOp defines aggregation for series collisions mapped to one dimension.
-type ReduceOp string
-
-const (
-	// ReduceSum is the phase-1 collision reduction rule.
-	ReduceSum ReduceOp = "sum"
-)
-
 // Chart is one compiled chart template in immutable program IR.
 type Chart struct {
 	// TemplateID is compiler-assigned stable ID inside one Program revision.
@@ -47,12 +41,10 @@ type Chart struct {
 
 	// Dimensions are declaration-ordered templates.
 	Dimensions []Dimension
-
-	// CollisionReduce is currently fixed to ReduceSum in phase-1.
-	CollisionReduce ReduceOp
 }
 
-// ChartMeta carries user-facing chart metadata after normalization/defaulting.
+// ChartMeta carries normalized chart metadata. Algorithm records the configured
+// chart policy; AlgorithmAuto means dimensions use their runtime series kinds.
 type ChartMeta struct {
 	Title     string
 	Family    string
@@ -93,7 +85,9 @@ func validateChart(chart Chart) error {
 	if chart.Meta.Units == "" {
 		errs = append(errs, fmt.Errorf("units is required"))
 	}
-	if chart.Meta.Algorithm != AlgorithmAbsolute && chart.Meta.Algorithm != AlgorithmIncremental {
+	if chart.Meta.Algorithm != AlgorithmAuto &&
+		chart.Meta.Algorithm != AlgorithmAbsolute &&
+		chart.Meta.Algorithm != AlgorithmIncremental {
 		errs = append(errs, fmt.Errorf("invalid algorithm %q", chart.Meta.Algorithm))
 	}
 	switch chart.Meta.Type {
@@ -106,9 +100,6 @@ func validateChart(chart Chart) error {
 	}
 	if err := validateLabelPolicy(chart.Labels); err != nil {
 		errs = append(errs, fmt.Errorf("labels: %w", err))
-	}
-	if chart.CollisionReduce == "" {
-		errs = append(errs, fmt.Errorf("collision reduce op is required"))
 	}
 	if len(chart.Dimensions) == 0 {
 		errs = append(errs, fmt.Errorf("at least one dimension is required"))

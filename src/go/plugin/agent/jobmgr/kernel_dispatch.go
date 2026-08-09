@@ -25,7 +25,7 @@ func (ck *CommandKernel) scheduleTasks(quantum int) bool {
 		}
 		quantum--
 		operation := lane.head
-		if operation == nil || operation.fenceBlocked || lane.active != nil {
+		if operation == nil || operation.stagePending || operation.fenceBlocked || lane.active != nil {
 			ck.run.Dirty(errors.New("jobmgr kernel: invalid ready lane"))
 			return false
 		}
@@ -117,8 +117,23 @@ func (ck *CommandKernel) scheduleTasks(quantum int) bool {
 					}, prepareErr
 				}
 			}
+			if operation.plan.YieldClaimOnPrepare != "" {
+				prepare := transactionWork
+				lease := kernelClaimYieldLease{
+					kernel:    ck,
+					operation: operation,
+				}
+				transactionWork = func(
+					ctx context.Context,
+					current lifecycle.ReadyResource,
+					scope lifecycle.ResourceTransactionScope,
+					permit lifecycle.LongLivedPermit,
+				) (lifecycle.PreparedResourceTransaction, error) {
+					return prepare(withClaimYieldLease(ctx, lease), current, scope, permit)
+				}
+			}
 			var err error
-			if scope.Successor.Valid() {
+			if scope.Successor.Valid() && transaction.Permit.Class() != 0 {
 				taskPlan, err = lifecycle.NewResourceTransactionPermitTaskPlan(
 					operation.Source,
 					operation.request.Deadline,
@@ -146,7 +161,7 @@ func (ck *CommandKernel) scheduleTasks(quantum int) bool {
 		requestRef, err := ck.tasks.Enqueue(taskClassForOperation(operation, lane), taskPlan)
 		if err != nil {
 			for _, grantedOperation := range ck.releaseClaims(operation) {
-				ck.markReady(grantedOperation.lane)
+				ck.completeClaimGrant(grantedOperation)
 			}
 			ck.markReady(lane)
 			return false

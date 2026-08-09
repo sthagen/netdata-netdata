@@ -56,24 +56,26 @@ func newCollectDurationChart(pluginName string) *collectorapi.Chart {
 }
 
 type JobConfig struct {
-	PluginName            string
-	Name                  string
-	ModuleName            string
-	FullName              string
-	Source                string
-	Module                collectorapi.CollectorV1
-	Labels                map[string]string
-	Out                   io.Writer
-	UpdateEvery           int
-	AutoDetectEvery       int
-	Priority              int
-	IsStock               bool
-	Vnode                 vnodes.VirtualNode
-	VnodeName             string
-	VnodeRevision         uint64
-	VnodeMetadataRevision uint64
-	VnodeLookup           VnodeLookup
-	FunctionOnly          bool
+	PluginName              string
+	Name                    string
+	ModuleName              string
+	FullName                string
+	Source                  string
+	Module                  collectorapi.CollectorV1
+	Labels                  map[string]string
+	Out                     io.Writer
+	CleanupOut              io.Writer // terminal cleanup sink; defaults to Out
+	UpdateEvery             int
+	AutoDetectEvery         int
+	Priority                int
+	IsStock                 bool
+	Vnode                   vnodes.VirtualNode
+	VnodeName               string
+	VnodeRevision           uint64
+	VnodeMetadataRevision   uint64
+	VnodeLookup             VnodeLookup
+	FunctionOnly            bool
+	LifecycleErrorSanitizer func(error) error
 }
 
 func NewJob(cfg JobConfig) *Job {
@@ -82,40 +84,49 @@ func NewJob(cfg JobConfig) *Job {
 	if cfg.UpdateEvery == 0 {
 		cfg.UpdateEvery = 1
 	}
+	if cfg.CleanupOut == nil {
+		cfg.CleanupOut = cfg.Out
+	}
 
 	j := &Job{
 		autoDetectEvery: cfg.AutoDetectEvery,
 		autoDetectTries: infTries,
 
-		pluginName:            cfg.PluginName,
-		name:                  cfg.Name,
-		moduleName:            cfg.ModuleName,
-		fullName:              cfg.FullName,
-		updateEvery:           cfg.UpdateEvery,
-		priority:              cfg.Priority,
-		isStock:               cfg.IsStock,
-		functionOnly:          cfg.FunctionOnly,
-		module:                cfg.Module,
-		labels:                cfg.Labels,
-		out:                   cfg.Out,
-		collectStatusChart:    newCollectStatusChart(cfg.PluginName),
-		collectDurationChart:  newCollectDurationChart(cfg.PluginName),
-		stopCtrl:              newStopController(),
-		tick:                  make(chan int),
-		buf:                   &buf,
-		api:                   netdataapi.New(&buf),
-		vnode:                 cfg.Vnode,
-		vnodeName:             cfg.VnodeName,
-		vnodeRevision:         cfg.VnodeRevision,
-		vnodeMetadataRevision: cfg.VnodeMetadataRevision,
-		vnodeLookup:           cfg.VnodeLookup,
+		pluginName:              cfg.PluginName,
+		name:                    cfg.Name,
+		moduleName:              cfg.ModuleName,
+		fullName:                cfg.FullName,
+		updateEvery:             cfg.UpdateEvery,
+		priority:                cfg.Priority,
+		isStock:                 cfg.IsStock,
+		functionOnly:            cfg.FunctionOnly,
+		module:                  cfg.Module,
+		labels:                  cfg.Labels,
+		out:                     cfg.Out,
+		cleanupOut:              cfg.CleanupOut,
+		collectStatusChart:      newCollectStatusChart(cfg.PluginName),
+		collectDurationChart:    newCollectDurationChart(cfg.PluginName),
+		stopCtrl:                newStopController(),
+		tick:                    make(chan int),
+		buf:                     &buf,
+		api:                     netdataapi.New(&buf),
+		vnode:                   cfg.Vnode,
+		vnodeName:               cfg.VnodeName,
+		vnodeRevision:           cfg.VnodeRevision,
+		vnodeMetadataRevision:   cfg.VnodeMetadataRevision,
+		vnodeLookup:             cfg.VnodeLookup,
+		lifecycleErrorSanitizer: cfg.LifecycleErrorSanitizer,
 	}
 
 	log := logger.New().With(jobLoggerAttrs(j.ModuleName(), j.Name(), cfg.Source)...)
 
 	j.Logger = log
 	if j.module != nil {
-		j.module.GetBase().Logger = log
+		moduleLog := log
+		if sanitize := lifecycleLogMessageSanitizer(cfg.LifecycleErrorSanitizer); sanitize != nil {
+			moduleLog = moduleLog.WithMessageSanitizer(sanitize)
+		}
+		j.module.GetBase().Logger = moduleLog
 	}
 
 	return j
@@ -139,7 +150,8 @@ type Job struct {
 	isStock      bool
 	functionOnly bool
 
-	module collectorapi.CollectorV1
+	module                  collectorapi.CollectorV1
+	lifecycleErrorSanitizer func(error) error
 
 	// running tracks whether the managed job loop is active.
 	running atomic.Bool
@@ -152,6 +164,7 @@ type Job struct {
 	charts               *collectorapi.Charts
 	tick                 chan int
 	out                  io.Writer
+	cleanupOut           io.Writer
 	buf                  *bytes.Buffer
 	api                  *netdataapi.API
 
@@ -225,11 +238,11 @@ func (j *Job) AutoDetectionManaged(ctx context.Context) (err error) {
 func (j *Job) autoDetection(ctx context.Context) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic %v", r)
+			err = sanitizeLifecycleError(j.lifecycleErrorSanitizer, fmt.Errorf("panic %v", r))
 			j.panicked.Store(true)
 			j.disableAutoDetection()
 
-			j.Errorf("PANIC %v", r)
+			j.Errorf("PANIC %v", err)
 			if logger.Level.Enabled(slog.LevelDebug) {
 				j.Errorf("STACK: %s", debug.Stack())
 			}
@@ -240,16 +253,18 @@ func (j *Job) autoDetection(ctx context.Context) (err error) {
 		j.Mute()
 	}
 
-	if err = j.init(ctx); err != nil {
-		j.Errorf("init failed: %v", err)
-		j.Unmute()
-		if !isRetryableError(err) {
+	if rawErr := j.init(ctx); rawErr != nil {
+		if !isRetryableError(rawErr) {
 			j.disableAutoDetection()
 		}
+		err = sanitizeLifecycleError(j.lifecycleErrorSanitizer, rawErr)
+		j.Errorf("init failed: %v", err)
+		j.Unmute()
 		return err
 	}
 
-	if err = j.check(ctx); err != nil {
+	if rawErr := j.check(ctx); rawErr != nil {
+		err = sanitizeLifecycleError(j.lifecycleErrorSanitizer, rawErr)
 		j.Errorf("check failed: %v", err)
 		j.Unmute()
 		return err
@@ -258,7 +273,8 @@ func (j *Job) autoDetection(ctx context.Context) (err error) {
 	j.Unmute()
 	j.Info("check success")
 
-	if err = j.postCheck(); err != nil {
+	if rawErr := j.postCheck(); rawErr != nil {
+		err = sanitizeLifecycleError(j.lifecycleErrorSanitizer, rawErr)
 		j.Errorf("postCheck failed: %v", err)
 		j.disableAutoDetection()
 		return err
@@ -429,7 +445,7 @@ func (j *Job) Cleanup() {
 	}
 
 	if j.buf.Len() > 0 {
-		if err := commitJobOutput(j.out, j.buf.Bytes()); err != nil {
+		if err := commitJobOutput(j.cleanupOut, j.buf.Bytes()); err != nil {
 			j.Errorf("cleanup output failed: %v", err)
 		}
 	}
@@ -471,7 +487,6 @@ func (j *Job) postCheck() error {
 	}
 	if j.charts != nil {
 		if err := collectorapi.CheckCharts(*j.charts...); err != nil {
-			j.Errorf("charts check: %v", err)
 			return err
 		}
 	}
@@ -508,7 +523,8 @@ func (j *Job) collect() collectedMetrics {
 	defer func() {
 		if r := recover(); r != nil {
 			j.panicked.Store(true)
-			j.Errorf("PANIC: %v", r)
+			err := sanitizeLifecycleError(j.lifecycleErrorSanitizer, fmt.Errorf("panic %v", r))
+			j.Errorf("PANIC: %v", err)
 			if logger.Level.Enabled(slog.LevelDebug) {
 				j.Errorf("STACK: %s", debug.Stack())
 			}

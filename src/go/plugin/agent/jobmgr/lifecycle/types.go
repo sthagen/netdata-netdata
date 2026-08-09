@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 	"time"
 )
 
-var ErrFunctionResultTooLarge = errors.New("jobmgr lifecycle: Function result exceeds bound")
+var (
+	ErrFunctionResultTooLarge = errors.New("jobmgr lifecycle: Function result exceeds bound")
+	ErrUnsafeFunctionResult   = errors.New("jobmgr lifecycle: unsafe Function result payload")
+)
 
 const (
 	TaskStartServiceQuantum             = 4
@@ -68,10 +70,38 @@ func (sr SealedResult) validate() error {
 	if sr.status < 100 || sr.status > 599 {
 		return errors.New("jobmgr lifecycle: invalid result status")
 	}
-	if sr.contentType == "" || strings.ContainsAny(sr.contentType, " \t\r\n\x00") {
+	if sr.contentType == "" || !validPluginsDBareField(sr.contentType) {
 		return errors.New("jobmgr lifecycle: invalid result content type")
 	}
+	if functionResultPayloadHasTerminator(sr.payload) {
+		return ErrUnsafeFunctionResult
+	}
 	return validateFunctionPayloadSize(len(sr.payload))
+}
+
+func functionResultPayloadHasTerminator(payload []byte) bool {
+	const terminator = "FUNCTION_RESULT_END"
+	for lineStart := 0; lineStart <= len(payload); {
+		lineEnd := lineStart
+		for lineEnd < len(payload) && payload[lineEnd] != '\n' {
+			lineEnd++
+		}
+		tokenStart := lineStart
+		for tokenStart < lineEnd && pluginsDSeparator(payload[tokenStart]) {
+			tokenStart++
+		}
+		tokenEnd := tokenStart + len(terminator)
+		if tokenEnd <= lineEnd &&
+			string(payload[tokenStart:tokenEnd]) == terminator &&
+			(tokenEnd == lineEnd || payload[tokenEnd] == 0 || pluginsDSeparator(payload[tokenEnd])) {
+			return true
+		}
+		if lineEnd == len(payload) {
+			return false
+		}
+		lineStart = lineEnd + 1
+	}
+	return false
 }
 
 type TaskWork func(context.Context) (TaskOutcome, error)
@@ -102,17 +132,9 @@ func canonicalCancellationCause(cause error) (canonical error, deadline, ok bool
 
 const strictErrorTreeLimit = 32
 
-func isNilErrorValue(err error) bool {
-	value := reflect.ValueOf(err)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
-}
-
-func allErrorLeavesMatch(err error, match func(error) bool) bool {
+// AllErrorLeavesMatch reports whether every leaf matches while rejecting
+// malformed trees and traversals that exceed the fixed total-node budget.
+func AllErrorLeavesMatch(err error, match func(error) bool) bool {
 	if err == nil || match == nil {
 		return false
 	}
@@ -127,7 +149,7 @@ func allErrorLeavesMatch(err error, match func(error) bool) bool {
 		}
 		count--
 		current := pending[count]
-		if current == nil || isNilErrorValue(current) {
+		if current == nil || nilErrorValue(current) {
 			return false
 		}
 		if joined, ok := current.(interface{ Unwrap() []error }); ok {
@@ -161,6 +183,16 @@ func allErrorLeavesMatch(err error, match func(error) bool) bool {
 	return leaves > 0
 }
 
+func nilErrorValue(err error) bool {
+	value := reflect.ValueOf(err)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
 type TaskPlan struct {
 	Source                 Source                          // ingress origin; selects the default phase bound
 	Deadline               time.Time                       // absolute child deadline; zero = none
@@ -170,7 +202,7 @@ type TaskPlan struct {
 	Cleanup                TaskCleanup                     // post-disposal cleanup
 	permitOwner            ResourceIdentity                // owning resource identity for the permit
 	permitPlan             LongLivedPlan                   // long-lived plan terms
-	transactionWork        PreparedResourceTransactionWork // permit-bound transaction work (one variant)
+	transactionWork        PreparedResourceTransactionWork // prepared-resource transaction work
 	transactionScope       ResourceTransactionScope        // current/successor identities a transaction may touch
 	transactionScopeSet    bool                            // distinguishes a zero scope from unset
 	initialReady           ReadyResource                   // pre-existing ready resource threaded in as the work source
@@ -334,18 +366,18 @@ func (tp TaskPlan) Validate() error {
 	} else if tp.preserveDisposeContext {
 		return errors.New("jobmgr lifecycle: unexpected preserved disposal context")
 	}
-	if tp.transactionWork != nil && tp.transactionScope.Successor.Valid() {
-		if !tp.permitOwner.Valid() {
+	if tp.permitOwner.Valid() || tp.permitPlan.class != 0 {
+		if tp.transactionWork == nil ||
+			!tp.transactionScope.Successor.Valid() ||
+			!tp.permitOwner.Valid() {
 			return errors.New("jobmgr lifecycle: incomplete prepared-resource permit work")
 		}
 		if err := tp.permitPlan.Validate(); err != nil {
 			return err
 		}
-		if tp.transactionWork != nil && tp.permitOwner != tp.transactionScope.Successor {
+		if tp.permitOwner != tp.transactionScope.Successor {
 			return errors.New("jobmgr lifecycle: transaction permit owner differs from successor")
 		}
-	} else if tp.permitOwner.Valid() || tp.permitPlan.class != 0 {
-		return errors.New("jobmgr lifecycle: unexpected prepared-resource permit terms")
 	}
 	limit := tp.phaseLimit()
 	if limit < 3 || limit > TransactionTaskPhases {

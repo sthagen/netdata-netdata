@@ -53,9 +53,10 @@ func TestCompileScenarios(t *testing.T) {
 						Metrics: []string{"svc_requests_total"},
 						Charts: []charttpl.Chart{
 							{
-								Title:   "Requests",
-								Context: "requests",
-								Units:   "requests/s",
+								Title:       "Requests",
+								Context:     "requests",
+								Units:       "requests/s",
+								Aggregation: charttpl.AggregationMin,
 								Dimensions: []charttpl.Dimension{
 									{
 										Selector: "svc_requests_total",
@@ -67,6 +68,10 @@ func TestCompileScenarios(t *testing.T) {
 											Divisor:    1000,
 										},
 									},
+									{
+										Selector: "svc_requests_total",
+										Name:     "inherited",
+									},
 								},
 							},
 						},
@@ -77,11 +82,13 @@ func TestCompileScenarios(t *testing.T) {
 				t.Helper()
 				charts := p.Charts()
 				require.Len(t, charts, 1)
-				require.Len(t, charts[0].Dimensions, 1)
+				require.Len(t, charts[0].Dimensions, 2)
 				assert.True(t, charts[0].Dimensions[0].Hidden)
 				assert.True(t, charts[0].Dimensions[0].Float)
 				assert.Equal(t, -8, charts[0].Dimensions[0].Multiplier)
 				assert.Equal(t, 1000, charts[0].Dimensions[0].Divisor)
+				assert.Equal(t, program.AggregationMin, charts[0].Dimensions[0].Aggregation)
+				assert.Equal(t, program.AggregationMin, charts[0].Dimensions[1].Aggregation)
 			},
 		},
 		"applies default lifecycle when omitted": {
@@ -112,6 +119,7 @@ func TestCompileScenarios(t *testing.T) {
 				assert.Equal(t, 5, charts[0].Lifecycle.ExpireAfterCycles)
 				assert.Equal(t, 0, charts[0].Lifecycle.Dimensions.MaxDims)
 				assert.Equal(t, 0, charts[0].Lifecycle.Dimensions.ExpireAfterCycles)
+				assert.Equal(t, program.AggregationSum, charts[0].Dimensions[0].Aggregation)
 			},
 		},
 		"defaults chart priority when omitted": {
@@ -269,7 +277,7 @@ func TestCompileScenarios(t *testing.T) {
 				assert.Equal(t, 9, charts[0].Lifecycle.ExpireAfterCycles)
 			},
 		},
-		"compiles nested groups with inherited metric visibility and inferred algorithm": {
+		"compiles nested groups with inherited metric visibility and deferred algorithm": {
 			rev: 42,
 			spec: charttpl.Spec{
 				Version:          charttpl.VersionV1,
@@ -310,7 +318,7 @@ func TestCompileScenarios(t *testing.T) {
 				require.Len(t, charts, 1)
 				assert.Equal(t, "Database/Throughput", charts[0].Meta.Family)
 				assert.Equal(t, "mysql.database.queries_total", charts[0].Meta.Context)
-				assert.Equal(t, program.AlgorithmIncremental, charts[0].Meta.Algorithm)
+				assert.Equal(t, program.AlgorithmAuto, charts[0].Meta.Algorithm)
 				assert.Equal(t, program.ChartTypeLine, charts[0].Meta.Type)
 				assert.True(t, charts[0].Identity.Static)
 
@@ -359,7 +367,7 @@ func TestCompileScenarios(t *testing.T) {
 				assert.Equal(t, "", charts[0].Dimensions[0].NameFromLabel)
 				assert.True(t, charts[0].Dimensions[0].InferNameFromSeriesMeta)
 				assert.True(t, charts[0].Dimensions[0].Dynamic)
-				assert.Equal(t, program.AlgorithmIncremental, charts[0].Meta.Algorithm)
+				assert.Equal(t, program.AlgorithmAuto, charts[0].Meta.Algorithm)
 			},
 		},
 		"infer stateset dimension naming from runtime series metadata": {
@@ -392,7 +400,7 @@ func TestCompileScenarios(t *testing.T) {
 				require.Len(t, charts[0].Dimensions, 1)
 				assert.Equal(t, "", charts[0].Dimensions[0].NameFromLabel)
 				assert.True(t, charts[0].Dimensions[0].InferNameFromSeriesMeta)
-				assert.Equal(t, program.AlgorithmAbsolute, charts[0].Meta.Algorithm)
+				assert.Equal(t, program.AlgorithmAuto, charts[0].Meta.Algorithm)
 			},
 		},
 		"fails runtime inference for omitted naming on non-inferable selector": {
@@ -463,7 +471,7 @@ func TestCompileScenarios(t *testing.T) {
 				assert.Equal(t, []string{"state"}, charts[0].Labels.Exclusions.DimensionKeyLabels)
 			},
 		},
-		"fails on mixed inferred metric kinds without explicit algorithm": {
+		"defers algorithm for selectors with different metric name conventions": {
 			spec: charttpl.Spec{
 				Version: charttpl.VersionV1,
 				Groups: []charttpl.Group{
@@ -487,8 +495,12 @@ func TestCompileScenarios(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true,
-			errLike: "algorithm inference is ambiguous",
+			assert: func(t *testing.T, p *program.Program) {
+				t.Helper()
+				charts := p.Charts()
+				require.Len(t, charts, 1)
+				assert.Equal(t, program.AlgorithmAuto, charts[0].Meta.Algorithm)
+			},
 		},
 		"treats braces as literal characters in chart id": {
 			spec: charttpl.Spec{

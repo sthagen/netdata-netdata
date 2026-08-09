@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netdata/netdata/go/plugins/logger"
 	"github.com/netdata/netdata/go/plugins/pkg/netdataapi"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/chartemit"
 	"github.com/netdata/netdata/go/plugins/plugin/framework/chartengine"
@@ -479,6 +480,97 @@ func TestJobV2RunnerPanicRecovered(t *testing.T) {
 	case <-stopped:
 	case <-time.After(time.Second):
 		t.Fatal("job did not stop")
+	}
+}
+
+func TestJobV2SteadyStateCollectorFailuresAreSanitizedBeforeLogging(t *testing.T) {
+	tests := []struct {
+		name    string
+		collect func(context.Context) error
+	}{
+		{
+			name: "error",
+			collect: func(context.Context) error {
+				return errors.New("resolved-v2-collect-error-marker")
+			},
+		},
+		{
+			name: "panic",
+			collect: func(context.Context) error {
+				panic("resolved-v2-collect-panic-marker")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			const safeMarker = "sanitized v2 collect failure"
+			mod := &mockModuleV2{
+				store:       metrix.NewCollectorStore(),
+				template:    chartTemplateV2(),
+				collectFunc: test.collect,
+			}
+			job := NewJobV2(JobV2Config{
+				PluginName: pluginName, Name: jobName, ModuleName: modName,
+				FullName: modName + "_" + jobName, Module: mod, Out: &bytes.Buffer{},
+				LifecycleErrorSanitizer: func(error) error { return errors.New(safeMarker) },
+			})
+			require.NoError(t, job.AutoDetectionManaged(context.Background()))
+			var logs bytes.Buffer
+			captured := logger.NewWithWriter(&logs)
+			job.Logger = captured
+			mod.GetBase().Logger = captured
+
+			_, _ = job.collectAndEmit(0)
+
+			require.NotContains(t, logs.String(), "resolved-v2-collect-error-marker")
+			require.NotContains(t, logs.String(), "resolved-v2-collect-panic-marker")
+			require.Contains(t, logs.String(), safeMarker)
+		})
+	}
+}
+
+func TestJobV2RunnerFailuresAreSanitizedBeforeLogging(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(context.Context) error
+	}{
+		{
+			name: "error",
+			run: func(context.Context) error {
+				return errors.New("resolved-v2-runner-error-marker")
+			},
+		},
+		{
+			name: "panic",
+			run: func(context.Context) error {
+				panic("resolved-v2-runner-panic-marker")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			const safeMarker = "sanitized v2 runner failure"
+			mod := &mockRunnerModuleV2{
+				mockModuleV2: &mockModuleV2{},
+				runFunc:      test.run,
+			}
+			job := NewJobV2(JobV2Config{
+				PluginName: pluginName, Name: jobName, ModuleName: modName,
+				FullName: modName + "_" + jobName, Module: mod, Out: &bytes.Buffer{},
+				LifecycleErrorSanitizer: func(error) error { return errors.New(safeMarker) },
+			})
+			var logs bytes.Buffer
+			captured := logger.NewWithWriter(&logs)
+			job.Logger = captured
+			mod.GetBase().Logger = captured
+
+			err := job.runCollectorRunner(context.Background(), mod)
+			job.handleCollectorRunnerExit(context.Background(), err)
+
+			require.NotContains(t, logs.String(), "resolved-v2-runner-error-marker")
+			require.NotContains(t, logs.String(), "resolved-v2-runner-panic-marker")
+			require.Contains(t, logs.String(), safeMarker)
+		})
 	}
 }
 
@@ -1131,6 +1223,38 @@ func TestJobV2_CleanupCanBeCalledRepeatedly(t *testing.T) {
 	})
 	assert.Equal(t, 2, cleanupCalls)
 	assert.True(t, mod.cleaned)
+}
+
+func TestJobV2CleanupUsesDedicatedOutput(t *testing.T) {
+	store := metrix.NewCollectorStore()
+	module := &mockModuleV2{
+		store:    store,
+		template: chartTemplateV2(),
+		collectFunc: func(context.Context) error {
+			store.Write().SnapshotMeter("apache").Gauge("workers_busy").Observe(1)
+			return nil
+		},
+	}
+	var liveOutput bytes.Buffer
+	var cleanupOutput bytes.Buffer
+	job := NewJobV2(JobV2Config{
+		PluginName: pluginName,
+		Name:       jobName,
+		ModuleName: modName,
+		FullName:   modName + "_" + jobName,
+		Module:     module,
+		Out:        &liveOutput,
+		CleanupOut: &cleanupOutput,
+	})
+	require.NoError(t, job.AutoDetectionManaged(context.Background()))
+
+	job.runOnce()
+	require.Contains(t, liveOutput.String(), "CHART")
+	liveOutput.Reset()
+
+	job.Cleanup()
+	require.Empty(t, liveOutput.Bytes())
+	require.Contains(t, cleanupOutput.String(), "obsolete")
 }
 
 func TestJobV2_CleanupObservesStoppedRuntime(t *testing.T) {
@@ -1804,7 +1928,7 @@ func TestJobV2VnodeRegistryScenarios(t *testing.T) {
 				require.Equal(t, []vnoderegistry.Owner{vnoderegistry.Owner("module_job\xffjob\xffnode-guid")}, registry.Owners("node-guid"))
 
 				ownerPresentDuringWrite := false
-				job.out = writeFunc(func(p []byte) (int, error) {
+				job.cleanupOut = writeFunc(func(p []byte) (int, error) {
 					ownerPresentDuringWrite = assert.Contains(t, registry.Owners("node-guid"), vnoderegistry.Owner("module_job\xffjob\xffnode-guid"))
 					return len(p), nil
 				})

@@ -4,8 +4,10 @@ package chartengine
 
 import (
 	"math"
+	"strconv"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,7 +113,7 @@ groups:
 	cc.BeginCycle()
 	authored.Observe(1)
 	excluded.Observe(2)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadRaw()))
 	require.NoError(t, err)
@@ -361,7 +363,7 @@ groups:
 						{UpperBound: 10, CumulativeCount: 3},
 					},
 				})
-				cc.CommitCycleSuccess()
+				_ = cc.CommitCycleSuccess()
 			},
 			wantNames:      []string{"1", "2", "10", "+Inf"},
 			wantKinds:      []ActionKind{ActionCreateChart, ActionCreateDimension, ActionCreateDimension, ActionCreateDimension, ActionCreateDimension, ActionUpdateChart},
@@ -396,7 +398,7 @@ groups:
 						{Quantile: 0.9, Value: 1.2},
 					},
 				})
-				cc.CommitCycleSuccess()
+				_ = cc.CommitCycleSuccess()
 			},
 			wantNames: []string{"0.5", "0.9"},
 			wantKinds: []ActionKind{ActionCreateChart, ActionCreateDimension, ActionCreateDimension, ActionUpdateChart},
@@ -425,7 +427,7 @@ groups:
 				)
 				cc.BeginCycle()
 				ss.Enable("ok")
-				cc.CommitCycleSuccess()
+				_ = cc.CommitCycleSuccess()
 			},
 			wantNames: []string{"failed", "ok"},
 			wantKinds: []ActionKind{ActionCreateChart, ActionCreateDimension, ActionCreateDimension, ActionUpdateChart},
@@ -483,6 +485,7 @@ func TestBuildPlanLegacySingleScenarioCases(t *testing.T) {
 		"BuildPlanAutogenUsesMetricMetadataForHistogram":               {run: runTestBuildPlanAutogenUsesMetricMetadataForHistogram},
 		"BuildPlanAutogenUsesMetricFloatMetadataForScalar":             {run: runTestBuildPlanAutogenUsesMetricFloatMetadataForScalar},
 		"BuildPlanAutogenUsesMetricMetadataForSummaryWithoutQuantiles": {run: runTestBuildPlanAutogenUsesMetricMetadataForSummaryWithoutQuantiles},
+		"BuildPlanAutogenUsesMetricMetadataForSummaryQuantile":         {run: runTestBuildPlanAutogenUsesMetricMetadataForSummaryQuantile},
 		"BuildPlanTemplatePrecedenceOverAutogen":                       {run: runTestBuildPlanTemplatePrecedenceOverAutogen},
 		"BuildPlanAutogenStrictOverflowDrop":                           {run: runTestBuildPlanAutogenStrictOverflowDrop},
 		"BuildPlanAutogenUsesFlattenMetadataForHistogramBuckets":       {run: runTestBuildPlanAutogenUsesFlattenMetadataForHistogramBuckets},
@@ -495,6 +498,7 @@ func TestBuildPlanLegacySingleScenarioCases(t *testing.T) {
 		"BuildPlanTemplateWinsOnAutogenChartIDCollisionAcrossSeries":   {run: runTestBuildPlanTemplateWinsOnAutogenChartIDCollisionAcrossSeries},
 		"BuildPlanAutogenRemovalLifecycleExpiry":                       {run: runTestBuildPlanAutogenRemovalLifecycleExpiry},
 		"BuildPlanFirstWriterWinsAndAccumulatesRepeatedRoutes":         {run: runTestBuildPlanFirstWriterWinsAndAccumulatesRepeatedRoutes},
+		"BuildPlanAggregatesProjectedSeriesByDimensionPolicy":          {run: runTestBuildPlanAggregatesProjectedSeriesByDimensionPolicy},
 		"BuildPlanEmptyEmissionAndScratchReusePruneAcrossCycles":       {run: runTestBuildPlanEmptyEmissionAndScratchReusePruneAcrossCycles},
 		"BuildPlanAutogenContextNamespacePrefixesContext":              {run: runTestBuildPlanAutogenContextNamespacePrefixesContext},
 		"BuildPlanAutogenContextNamespaceStubGroupOnly":                {run: runTestBuildPlanAutogenContextNamespaceStubGroupOnly},
@@ -545,7 +549,7 @@ groups:
 		},
 	})
 	ss.Enable("3")
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -600,7 +604,7 @@ groups:
 
 	cc.BeginCycle()
 	ss.Enable("ok")
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	_, err = buildPlan(e, store.Read())
 	require.Error(t, err)
@@ -636,7 +640,7 @@ groups:
 
 	cc.BeginCycle()
 	c.ObserveTotal(10)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -649,7 +653,7 @@ groups:
 
 	cc.BeginCycle()
 	c.ObserveTotal(20)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan2, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -697,7 +701,7 @@ groups:
 	cc.BeginCycle()
 	total.Observe(100)
 	modeMetric.Observe(1, modeOK)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -705,7 +709,7 @@ groups:
 
 	cc.BeginCycle()
 	total.Observe(101)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan2, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -743,14 +747,14 @@ groups:
 
 	cc.BeginCycle()
 	c.ObserveTotal(10)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
 	assert.Equal(t, []ActionKind{ActionCreateChart, ActionCreateDimension, ActionUpdateChart}, actionKinds(plan1.Actions))
 
 	cc.BeginCycle()
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan2, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -785,7 +789,7 @@ groups:
 
 	cc.BeginCycle()
 	c.ObserveTotal(10)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -799,7 +803,7 @@ groups:
 	assert.Empty(t, plan2.Actions)
 
 	cc.BeginCycle()
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan3, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -840,7 +844,7 @@ groups:
 	cc.BeginCycle()
 	rx.ObserveTotal(10, eth1)
 	rx.ObserveTotal(20, eth0)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -869,7 +873,7 @@ groups:
 	cc.BeginCycle()
 	rx.ObserveTotal(21, eth0)
 	rx.ObserveTotal(11, eth1)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan2, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -911,7 +915,7 @@ groups:
 
 	cc.BeginCycle()
 	rx.ObserveTotal(10, eth0)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -920,7 +924,7 @@ groups:
 	cc.BeginCycle()
 	rx.ObserveTotal(11, eth0)
 	rx.ObserveTotal(20, eth1)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan2, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -932,7 +936,7 @@ groups:
 
 	cc.BeginCycle()
 	rx.ObserveTotal(21, eth1)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan3, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -948,25 +952,7 @@ func runTestBuildPlanEnforcesMaxDimsDeterministically(t *testing.T) {
 	e, err := New()
 	require.NoError(t, err)
 
-	yaml := `
-version: v1
-groups:
-  - family: Service
-    metrics:
-      - svc_mode
-    charts:
-      - id: service_mode
-        title: Service mode
-        context: service_mode
-        units: state
-        lifecycle:
-          dimensions:
-            max_dims: 2
-        dimensions:
-          - selector: svc_mode
-            name_from_label: mode
-`
-	require.NoError(t, e.LoadYAML([]byte(yaml), 1))
+	require.NoError(t, e.LoadYAML([]byte(maxDimsTemplateYAML(2)), 1))
 
 	store := metrix.NewCollectorStore()
 	cc := mustCycleController(t, store)
@@ -980,7 +966,7 @@ groups:
 	cc.BeginCycle()
 	g.Observe(1, modeA)
 	g.Observe(1, modeB)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -990,7 +976,7 @@ groups:
 	g.Observe(1, modeA)
 	g.Observe(1, modeB)
 	g.Observe(1, modeC)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan2, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1003,7 +989,7 @@ groups:
 	cc.BeginCycle()
 	g.Observe(1, modeB)
 	g.Observe(1, modeC)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan3, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1057,7 +1043,7 @@ groups:
 	cc.BeginCycle()
 	m.ObserveTotal(10, in)
 	m.ObserveTotal(20, out)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1102,7 +1088,7 @@ groups:
 
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1145,7 +1131,7 @@ groups:
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10, methodGET)
 	unmatched.ObserveTotal(20, methodPOST)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1189,7 +1175,7 @@ groups:
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10, methodGET)
 	unmatched.ObserveTotal(20, methodPOST)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1233,7 +1219,7 @@ groups:
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10, methodGET)
 	unmatched.ObserveTotal(20, methodPOST)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1271,7 +1257,7 @@ groups:
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10, methodGET)
 	unmatched.ObserveTotal(20, methodPOST)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1310,7 +1296,7 @@ groups:
 
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10, methodGET)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1361,7 +1347,7 @@ groups:
 
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10, methodGET)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1394,7 +1380,7 @@ groups:
 
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10, methodGET)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1435,7 +1421,7 @@ groups:
 
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1480,7 +1466,7 @@ groups:
 
 	cc.BeginCycle()
 	unmatched.ObserveTotal(10)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1529,7 +1515,7 @@ groups:
 			{UpperBound: 2, CumulativeCount: 3},
 		},
 	})
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1577,7 +1563,7 @@ groups:
 
 	cc.BeginCycle()
 	unmatched.Observe(10.5)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1634,7 +1620,7 @@ groups:
 		Count: 4,
 		Sum:   8,
 	})
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1644,6 +1630,50 @@ groups:
 	assert.Equal(t, "Query duration", sum.Meta.Title)
 	assert.Equal(t, "Latency", sum.Meta.Family)
 	assert.Equal(t, "ms/s", sum.Meta.Units)
+}
+
+func runTestBuildPlanAutogenUsesMetricMetadataForSummaryQuantile(t *testing.T) {
+	e, err := New(WithEnginePolicy(EnginePolicy{Autogen: &AutogenPolicy{Enabled: true}}))
+	require.NoError(t, err)
+
+	require.NoError(t, e.LoadYAML([]byte(`
+version: v1
+groups:
+  - family: Service
+`), 1))
+
+	store := metrix.NewCollectorStore()
+	cc := mustCycleController(t, store)
+	s := store.Write().SnapshotMeter("svc").Summary(
+		"query_duration_ms",
+		metrix.WithSummaryQuantiles(0.5),
+		metrix.WithUnit("ms"),
+	)
+
+	cc.BeginCycle()
+	s.ObservePoint(metrix.SummaryPoint{
+		Count:     4,
+		Sum:       8,
+		Quantiles: []metrix.QuantilePoint{{Quantile: 0.5, Value: 1.5}},
+	})
+	require.NoError(t, cc.CommitCycleSuccess())
+
+	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
+	require.NoError(t, err)
+
+	quantiles := findCreateChartActionByID(plan, "svc.query_duration_ms")
+	require.NotNil(t, quantiles)
+	assert.Equal(t, "ms", quantiles.Meta.Units)
+	assert.Equal(t, program.AlgorithmAuto, quantiles.Meta.Algorithm)
+
+	for _, action := range plan.Actions {
+		dim, ok := action.(CreateDimensionAction)
+		if ok && dim.ChartID == "svc.query_duration_ms" {
+			assert.Equal(t, program.AlgorithmAbsolute, dim.Algorithm)
+			return
+		}
+	}
+	t.Fatal("summary quantile dimension was not created")
 }
 
 func runTestBuildPlanTemplatePrecedenceOverAutogen(t *testing.T) {
@@ -1675,7 +1705,7 @@ groups:
 
 	cc.BeginCycle()
 	m.ObserveTotal(10, methodGET)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1742,7 +1772,7 @@ groups:
 	cc.BeginCycle()
 	floaty.ObserveTotal(3, ls)
 	inty.ObserveTotal(7, ls)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1793,7 +1823,7 @@ groups:
 
 	cc.BeginCycle()
 	metric.ObserveTotal(10, ls)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1836,7 +1866,7 @@ groups:
 			{UpperBound: 10, CumulativeCount: 3},
 		},
 	}, method)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1908,7 +1938,7 @@ groups:
 
 	cc.BeginCycle()
 	g.Observe(7, queueMain)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -1919,7 +1949,7 @@ groups:
 	assert.Equal(t, "svc.queue_depth-queue=main", create.ChartID)
 	assert.Equal(t, "svc.queue_depth", create.Meta.Context)
 	assert.Equal(t, "depth", create.Meta.Units)
-	assert.Equal(t, program.AlgorithmAbsolute, create.Meta.Algorithm)
+	assert.Equal(t, program.AlgorithmAuto, create.Meta.Algorithm)
 
 	update := findUpdateAction(plan)
 	require.NotNil(t, update)
@@ -1958,7 +1988,7 @@ groups:
 
 	cc.BeginCycle()
 	ss.Enable("operational")
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -2021,7 +2051,7 @@ groups:
 
 	cc.BeginCycle()
 	ss.Enable("operational")
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -2069,7 +2099,7 @@ groups:
 
 	cc.BeginCycle()
 	ms.ObservePoint(metrix.MeasureSetPoint{Values: []metrix.SampleValue{1.5, 0.5}})
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -2151,7 +2181,7 @@ groups:
 
 	cc.BeginCycle()
 	ms.ObserveTotalPoint(metrix.MeasureSetPoint{Values: []metrix.SampleValue{10, 2}})
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -2229,7 +2259,7 @@ groups:
 	cc.BeginCycle()
 	errorsTotal.ObserveTotal(10, methodGET)
 	fooTotal.ObserveTotal(7, methodGET)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -2276,14 +2306,14 @@ groups:
 
 	cc.BeginCycle()
 	c.ObserveTotal(10)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
 	assert.Equal(t, []ActionKind{ActionCreateChart, ActionCreateDimension, ActionUpdateChart}, actionKinds(plan1.Actions))
 
 	cc.BeginCycle()
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan2, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -2330,7 +2360,7 @@ groups:
 	cc.BeginCycle()
 	a.Observe(5, total)
 	b.Observe(3, total)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read())
 	require.NoError(t, err)
@@ -2361,6 +2391,189 @@ groups:
 	assert.True(t, update.Values[0].IsFloat)
 	assert.Equal(t, "total", update.Values[0].Name)
 	assert.Equal(t, float64(8), update.Values[0].Float64)
+}
+
+func runTestBuildPlanAggregatesProjectedSeriesByDimensionPolicy(t *testing.T) {
+	const tmpl = `
+version: v1
+groups:
+  - family: LiteLLM
+    metrics:
+      - api_key_last_used_timestamp
+    charts:
+      - id: api_key_last_used
+        title: API key last used
+        context: api_key_last_used
+        units: seconds
+        CHART_AGGREGATION
+        instances:
+          by_labels: [team]
+        dimensions:
+          - selector: api_key_last_used_timestamp
+            name: last_used
+`
+
+	tests := map[string]struct {
+		chartAggregation  string
+		want              float64
+		wantFloat         bool
+		checkScratchReset bool
+		highFanIn         bool
+	}{
+		"default sum": {want: 300},
+		"chart sum":   {chartAggregation: "aggregation: sum", want: 300},
+		"chart min":   {chartAggregation: "aggregation: min", want: 100},
+		"chart max":   {chartAggregation: "aggregation: max", want: 200},
+		"chart avg":   {chartAggregation: "aggregation: avg", want: 4999.5, wantFloat: true, checkScratchReset: true, highFanIn: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			e, err := New()
+			require.NoError(t, err)
+
+			yaml := strings.ReplaceAll(tmpl, "CHART_AGGREGATION", tc.chartAggregation)
+			require.NoError(t, e.LoadYAML([]byte(yaml), 1))
+
+			store := metrix.NewCollectorStore()
+			cc := mustCycleController(t, store)
+			m := store.Write().SnapshotMeter("")
+			lastUsed := m.Gauge("api_key_last_used_timestamp")
+
+			cc.BeginCycle()
+			if tc.highFanIn {
+				for i := range 10_000 {
+					lastUsed.Observe(metrix.SampleValue(i), m.LabelSet(
+						metrix.Label{Key: "team", Value: "team-a"},
+						metrix.Label{Key: "api_key", Value: "key-" + strconv.Itoa(i)},
+					))
+				}
+			} else {
+				lastUsed.Observe(100, m.LabelSet(
+					metrix.Label{Key: "team", Value: "team-a"},
+					metrix.Label{Key: "api_key", Value: "key-1"},
+				))
+				lastUsed.Observe(200, m.LabelSet(
+					metrix.Label{Key: "team", Value: "team-a"},
+					metrix.Label{Key: "api_key", Value: "key-2"},
+				))
+			}
+			_ = cc.CommitCycleSuccess()
+
+			plan, err := buildPlan(e, store.Read())
+			require.NoError(t, err)
+
+			update := findUpdateAction(plan)
+			require.NotNil(t, update)
+			require.Len(t, update.Values, 1)
+			assert.Equal(t, "last_used", update.Values[0].Name)
+			if tc.highFanIn {
+				assert.InDelta(t, tc.want, update.Values[0].Float64, 1e-9)
+			} else {
+				assert.Equal(t, tc.want, update.Values[0].Float64)
+			}
+			assert.Equal(t, tc.wantFloat, update.Values[0].IsFloat)
+
+			if tc.checkScratchReset {
+				cc.BeginCycle()
+				lastUsed.Observe(10, m.LabelSet(
+					metrix.Label{Key: "team", Value: "team-a"},
+					metrix.Label{Key: "api_key", Value: "key-1"},
+				))
+				lastUsed.Observe(20, m.LabelSet(
+					metrix.Label{Key: "team", Value: "team-a"},
+					metrix.Label{Key: "api_key", Value: "key-2"},
+				))
+				_ = cc.CommitCycleSuccess()
+
+				nextPlan, err := buildPlan(e, store.Read())
+				require.NoError(t, err)
+				nextUpdate := findUpdateAction(nextPlan)
+				require.NotNil(t, nextUpdate)
+				require.Len(t, nextUpdate.Values, 1)
+				assert.Equal(t, float64(15), nextUpdate.Values[0].Float64,
+					"scratch aggregation state must reset between successful snapshots")
+			}
+		})
+	}
+}
+
+func TestDimBuildEntryAggregation(t *testing.T) {
+	tests := map[string]struct {
+		aggregation program.Aggregation
+		values      []metrix.SampleValue
+		want        float64
+		wantNaN     bool
+		wantPosInf  bool
+	}{
+		"sum":                         {aggregation: program.AggregationSum, values: []metrix.SampleValue{5, 3, -1}, want: 7},
+		"sum propagates NaN":          {aggregation: program.AggregationSum, values: []metrix.SampleValue{5, metrix.SampleValue(math.NaN())}, wantNaN: true},
+		"min":                         {aggregation: program.AggregationMin, values: []metrix.SampleValue{5, -1, 3}, want: -1},
+		"min ignores trailing NaN":    {aggregation: program.AggregationMin, values: []metrix.SampleValue{5, metrix.SampleValue(math.NaN())}, want: 5},
+		"min replaces leading NaN":    {aggregation: program.AggregationMin, values: []metrix.SampleValue{metrix.SampleValue(math.NaN()), 5}, want: 5},
+		"max":                         {aggregation: program.AggregationMax, values: []metrix.SampleValue{5, 9, 3}, want: 9},
+		"max ignores trailing NaN":    {aggregation: program.AggregationMax, values: []metrix.SampleValue{5, metrix.SampleValue(math.NaN())}, want: 5},
+		"max replaces leading NaN":    {aggregation: program.AggregationMax, values: []metrix.SampleValue{metrix.SampleValue(math.NaN()), 5}, want: 5},
+		"avg preserves fraction":      {aggregation: program.AggregationAvg, values: []metrix.SampleValue{1, 2}, want: 1.5},
+		"avg preserves subnormal":     {aggregation: program.AggregationAvg, values: []metrix.SampleValue{math.SmallestNonzeroFloat64, math.SmallestNonzeroFloat64}, want: math.SmallestNonzeroFloat64},
+		"avg avoids finite overflow":  {aggregation: program.AggregationAvg, values: []metrix.SampleValue{math.MaxFloat64, math.MaxFloat64}, want: math.MaxFloat64},
+		"avg keeps positive infinity": {aggregation: program.AggregationAvg, values: []metrix.SampleValue{metrix.SampleValue(math.Inf(1)), 5}, wantPosInf: true},
+		"avg opposite infinities":     {aggregation: program.AggregationAvg, values: []metrix.SampleValue{metrix.SampleValue(math.Inf(1)), metrix.SampleValue(math.Inf(-1))}, wantNaN: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.NotEmpty(t, tc.values)
+			entry := dimBuildEntry{
+				observations: 1,
+				value:        tc.values[0],
+				dimensionState: dimensionState{
+					aggregation: tc.aggregation,
+				},
+			}
+			for _, value := range tc.values[1:] {
+				entry.aggregate(value)
+			}
+
+			switch {
+			case tc.wantNaN:
+				assert.True(t, math.IsNaN(entry.value))
+			case tc.wantPosInf:
+				assert.True(t, math.IsInf(entry.value, 1))
+			default:
+				assert.Equal(t, tc.want, entry.value)
+			}
+		})
+	}
+}
+
+func TestDimBuildEntry64BitSizeBudget(t *testing.T) {
+	if unsafe.Sizeof(uintptr(0)) != 8 {
+		t.Skip("64-bit hot-path size budget")
+	}
+	assert.LessOrEqual(t, unsafe.Sizeof(dimBuildEntry{}), uintptr(80))
+}
+
+func TestDimBuildEntryAggregationDoesNotAllocate(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		aggregation program.Aggregation
+	}{
+		{name: "sum", aggregation: program.AggregationSum},
+		{name: "min", aggregation: program.AggregationMin},
+		{name: "max", aggregation: program.AggregationMax},
+		{name: "avg", aggregation: program.AggregationAvg},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := dimBuildEntry{dimensionState: dimensionState{aggregation: tc.aggregation}}
+			allocs := testing.AllocsPerRun(100, func() {
+				entry.observations = 1
+				entry.value = 1
+				entry.aggregate(2)
+			})
+			assert.Zero(t, allocs)
+		})
+	}
 }
 
 func runTestBuildPlanEmptyEmissionAndScratchReusePruneAcrossCycles(t *testing.T) {
@@ -2397,7 +2610,7 @@ groups:
 	cc.BeginCycle()
 	mode.Observe(1, okSet)
 	mode.Observe(2, warnSet)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan1, err := buildPlan(e, store.Read())
 	require.NoError(t, err)
@@ -2411,7 +2624,7 @@ groups:
 
 	cc.BeginCycle()
 	mode.Observe(3, okSet)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan2, err := buildPlan(e, store.Read())
 	require.NoError(t, err)
@@ -2436,7 +2649,7 @@ groups:
 
 	cc.BeginCycle()
 	mode.Observe(4, okSet)
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan3, err := buildPlan(e, store.Read())
 	require.NoError(t, err)
@@ -2481,7 +2694,7 @@ groups:
 
 				cc.BeginCycle()
 				g.Observe(5)
-				cc.CommitCycleSuccess()
+				_ = cc.CommitCycleSuccess()
 
 				plan1, err := buildPlan(e, store.Read())
 				require.NoError(t, err)
@@ -2586,7 +2799,7 @@ groups:
 			cc.BeginCycle()
 			mode.Observe(1, a)
 			mode.Observe(2, b)
-			cc.CommitCycleSuccess()
+			_ = cc.CommitCycleSuccess()
 
 			out := Plan{
 				Actions:            make([]EngineAction, 0),
@@ -2637,7 +2850,7 @@ groups:
 
 			cc.BeginCycle()
 			mode.Observe(1, okLabel)
-			cc.CommitCycleSuccess()
+			_ = cc.CommitCycleSuccess()
 
 			out := Plan{
 				Actions:            make([]EngineAction, 0),
@@ -2742,7 +2955,7 @@ groups:
 			liveDim, dimCreated := liveChart.ensureDimension("stale_mode", dimensionState{
 				static:     false,
 				order:      1,
-				algorithm:  program.AlgorithmAbsolute,
+				algorithm:  dimensionAlgorithmAbsolute,
 				multiplier: 1,
 				divisor:    1,
 			})
@@ -2807,7 +3020,7 @@ groups:
 			{Quantile: 0.9, Value: metrix.SampleValue(math.NaN())},
 		},
 	})
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
@@ -2854,7 +3067,7 @@ groups:
 			{Quantile: 0.9, Value: metrix.SampleValue(math.NaN())},
 		},
 	})
-	cc.CommitCycleSuccess()
+	_ = cc.CommitCycleSuccess()
 
 	plan, err := buildPlan(e, store.Read(metrix.ReadFlatten()))
 	require.NoError(t, err)
