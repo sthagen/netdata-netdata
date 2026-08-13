@@ -485,7 +485,7 @@ if(ENABLE_PLUGIN_GO OR ENABLE_PLUGIN_EBPF OR ENABLE_PLUGIN_IBM OR ENABLE_PLUGIN_
     endif()
 endif()
 
-if(ENABLE_PLUGIN_GO OR ENABLE_PLUGIN_SCRIPTS)
+if(OS_MACOS OR ENABLE_PLUGIN_GO OR ENABLE_PLUGIN_SCRIPTS)
     set(NEED_NDSUDO TRUE)
 else()
     set(NEED_NDSUDO FALSE)
@@ -651,7 +651,6 @@ check_symbol_exists(strerror_r "string.h" HAVE_STRERROR_R)
 check_symbol_exists(finite "math.h" HAVE_FINITE)
 check_symbol_exists(isfinite "math.h" HAVE_ISFINITE)
 check_symbol_exists(dlsym "dlfcn.h" HAVE_DLSYM)
-check_symbol_exists(clearenv "stdlib.h" HAVE_CLEARENV)
 
 check_function_exists(setresuid HAVE_SETRESUID)
 check_function_exists(setresgid HAVE_SETRESGID)
@@ -2375,6 +2374,7 @@ set(ACLK_PROTO_DEFS
         src/aclk/aclk-schemas/proto/nodeinstance/connection/v1/connection.proto
         src/aclk/aclk-schemas/proto/nodeinstance/create/v1/creation.proto
         src/aclk/aclk-schemas/proto/nodeinstance/info/v1/info.proto
+        src/aclk/aclk-schemas/proto/nodeinstance/manifest/v1/manifest.proto
         src/aclk/aclk-schemas/proto/context/v1/context.proto
         src/aclk/aclk-schemas/proto/context/v1/stream.proto
         src/aclk/aclk-schemas/proto/agent/v1/cmds.proto
@@ -2407,6 +2407,8 @@ set(ACLK_FILES
         src/aclk/schema-wrappers/alarm_config.h
         src/aclk/schema-wrappers/node_info.cc
         src/aclk/schema-wrappers/node_info.h
+        src/aclk/schema-wrappers/node_manifest.cc
+        src/aclk/schema-wrappers/node_manifest.h
         src/aclk/schema-wrappers/capability.cc
         src/aclk/schema-wrappers/capability.h
         src/aclk/schema-wrappers/proto_2_json.cc

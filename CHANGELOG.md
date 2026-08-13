@@ -2,6 +2,12 @@
 
 ### Merged Pull Requests:
 
+- Rework Ceph collector as a Prometheus complement ([#23357](https://github.com/netdata/netdata/issues/23357))
+
+## [2.11.0] - 2026-08-12
+
+### Merged Pull Requests:
+
 - Stabilize runtime metrics shutdown test ([#22169](https://github.com/netdata/netdata/issues/22169))
 - Chore(go): go fix ([#22173](https://github.com/netdata/netdata/issues/22173))
 - Chore(go/ibm.d): remove buildtag comment ([#22174](https://github.com/netdata/netdata/issues/22174))
@@ -921,6 +927,33 @@
 - Integration between eBPF and network viewer plugins ([#22715](https://github.com/netdata/netdata/issues/22715))
 - Build(deps): bump actions/setup-go from 6 to 7 ([#23285](https://github.com/netdata/netdata/issues/23285))
 - Build(deps): bump cryptography from 48.0.1 to 50.0.0 in /packaging/tools/automation/mcp ([#23394](https://github.com/netdata/netdata/issues/23394))
+- Fix(ci): repair go-tests for ebpfgo.plugin ([#23422](https://github.com/netdata/netdata/issues/23422))
+- Fix(go.d/chartengine): intersect unlabeled contributors ([#23424](https://github.com/netdata/netdata/issues/23424))
+- Build(deps): bump github.com/aws/aws-sdk-go-v2/config from 1.32.33 to 1.32.35 in /src/go ([#23427](https://github.com/netdata/netdata/issues/23427))
+- Build(deps): bump github.com/redis/go-redis/v9 from 9.21.0 to 9.22.0 in /src/go ([#23428](https://github.com/netdata/netdata/issues/23428))
+- Build(deps): bump github.com/santhosh-tekuri/jsonschema/v6 from 6.0.2 to 6.0.3 in /src/go ([#23430](https://github.com/netdata/netdata/issues/23430))
+- Feat(go.d/chartengine): support optional instance labels ([#23425](https://github.com/netdata/netdata/issues/23425))
+- Build(deps): bump github.com/gohugoio/hashstructure from 0.6.0 to 1.0.0 in /src/go ([#23435](https://github.com/netdata/netdata/issues/23435))
+- Build(deps): bump github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi from 1.35.2 to 1.35.4 in /src/go ([#23431](https://github.com/netdata/netdata/issues/23431))
+- Build(deps): bump github.com/klauspost/compress from 1.19.1 to 1.19.2 in /src/go ([#23433](https://github.com/netdata/netdata/issues/23433))
+- Build(deps): bump github.com/aws/aws-sdk-go-v2/service/cloudwatch from 1.66.1 to 1.66.3 in /src/go ([#23434](https://github.com/netdata/netdata/issues/23434))
+- Implement function manifest generation and ACLK node manifest handling ([#23303](https://github.com/netdata/netdata/issues/23303))
+- Build(deps): bump GoTestTools/gotestfmt-action from 2.2.0 to 2.3.0 ([#23437](https://github.com/netdata/netdata/issues/23437))
+- Packaging: remove obsolete otel-signal-viewer artifacts on static upgrade ([#23440](https://github.com/netdata/netdata/issues/23440))
+- New OTel documentation. ([#23321](https://github.com/netdata/netdata/issues/23321))
+- Fix(go.d/prometheus): preserve typed counters ending in info ([#23441](https://github.com/netdata/netdata/issues/23441))
+- Fix(nd-run): stop clearing our own environment (fixes macOS SIGSEGV in setenv) ([#23423](https://github.com/netdata/netdata/issues/23423))
+- Improve node manifest delivery reliability and pacing ([#23438](https://github.com/netdata/netdata/issues/23438))
+- Add holistic Prometheus profiles for vLLM, LiteLLM, and Ceph ([#23330](https://github.com/netdata/netdata/issues/23330))
+- Docs(integrations): add Group Email cloud notification integration ([#23439](https://github.com/netdata/netdata/issues/23439))
+- Fix macOS NVMe SMART IOKit lifecycle ([#23445](https://github.com/netdata/netdata/issues/23445))
+- Fix macOS smartctl IOKit paths in ndsudo ([#23447](https://github.com/netdata/netdata/issues/23447))
+- Regenerate integrations docs ([#23420](https://github.com/netdata/netdata/issues/23420))
+- Fix NPM catalog setup instructions and document application dependency mapping ([#23455](https://github.com/netdata/netdata/issues/23455))
+- Regenerate integrations docs ([#23457](https://github.com/netdata/netdata/issues/23457))
+- Logs: stop advertising a range filter on the timestamp column ([#23456](https://github.com/netdata/netdata/issues/23456))
+- Docs(mcp): explain GitHub app installation and token scope ([#23449](https://github.com/netdata/netdata/issues/23449))
+- Logs: align timestamp filters with systemd Journal SDK 0.8.1 ([#23458](https://github.com/netdata/netdata/issues/23458))
 
 ## [2.10.0] - 2026-04-09
 
