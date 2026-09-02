@@ -216,6 +216,9 @@ int log_stack_unittest(void);
 int clocks_unittest(void);
 int ws_client_unittest(void);
 int mqtt_ng_unittest(void);
+int aclk_timeout_unittest(void);
+int https_client_timeout_unittest(void);
+int mqtt_wss_client_timeout_unittest(void);
 int pgc_unittest(void);
 int mrg_unittest(void);
 int pluginsd_parser_unittest(void);
@@ -223,12 +226,17 @@ int websocket_compression_unittest(void);
 void replication_initialize(void);
 void bearer_tokens_init(void);
 int unittest_stream_compressions(void);
+int stream_conf_unittest(void);
 int uuid_unittest(void);
 int progress_unittest(void);
 int dyncfg_unittest(void);
-int rrdfunctions_verify_access_unittest(void);
-int rrdfunctions_manifest_unittest(void);
-int rrdfunctions_manifest_pacer_unittest(void);
+int nrpc_access_unittest(void);
+int nrpc_manifest_unittest(void);
+int nrpc_manifest_pacer_unittest(void);
+int nrpc_del_unittest(void);
+int nrpc_registry_unittest(void);
+int pluginsd_functions_unittest(void);
+int nrpc_catalog_unittest(void);
 int mcp_execute_function_access_unittest(void);
 int eval_unittest(void);
 int duration_unittest(void);
@@ -238,6 +246,9 @@ int utf8_sanitizer_unittest(void);
 int yaml_unittest(void);
 int json_c_parser_unittest(void);
 int stream_path_json_unittest(void);
+#ifdef OS_WINDOWS
+int perflib_storage_unittest(void);
+#endif
 int query_plan_unittest(void);
 int api_v1_allmetrics_json_unittest(void);
 int exporting_json_connector_unittest(void);
@@ -470,6 +481,7 @@ int netdata_main(int argc, char **argv) {
 
                             if (pluginsd_parser_unittest()) return 1;
                             if (websocket_compression_unittest()) return 1;
+                            if (stream_conf_unittest()) return 1;
                             if (unit_test_static_threads()) return 1;
                             if (unit_test_buffer()) return 1;
                             if (unit_test_str2ld()) return 1;
@@ -484,10 +496,16 @@ int netdata_main(int argc, char **argv) {
                             if (clocks_unittest()) return 1;
                             if (ws_client_unittest()) return 1;
                             if (mqtt_ng_unittest()) return 1;
+                            // summed, not short-circuited: this is the path CI runs, so one
+                            // failing suite must not hide the other two
+                            if (aclk_timeout_unittest() + https_client_timeout_unittest() +
+                                mqtt_wss_client_timeout_unittest()) return 1;
 #ifdef OS_WINDOWS
+                            if (unit_test_windows_os_version()) return 1;
                             if (unit_test_windows_virt_normalize()) return 1;
                             if (unit_test_windows_virt_resolution()) return 1;
                             if (unit_test_windows_container()) return 1;
+                            if (perflib_storage_unittest()) return 1;
 #endif
 
                             // No call to load the config file on this code-path
@@ -508,9 +526,13 @@ int netdata_main(int argc, char **argv) {
                             if (uuid_unittest()) return 1;
                             if (os_socket_egress_interface_unittest()) return 1;
                             if (dyncfg_unittest()) return 1;
-                            if (rrdfunctions_verify_access_unittest()) return 1;
-                            if (rrdfunctions_manifest_unittest()) return 1;
-                            if (rrdfunctions_manifest_pacer_unittest()) return 1;
+                            if (nrpc_access_unittest()) return 1;
+                            if (nrpc_manifest_unittest()) return 1;
+                            if (nrpc_manifest_pacer_unittest()) return 1;
+                            if (nrpc_del_unittest()) return 1;
+                            if (nrpc_registry_unittest()) return 1;
+                            if (pluginsd_functions_unittest()) return 1;
+                            if (nrpc_catalog_unittest()) return 1;
                             if (mcp_execute_function_access_unittest()) return 1;
                             if (eval_unittest()) return 1;
                             if (duration_unittest()) return 1;
@@ -524,6 +546,9 @@ int netdata_main(int argc, char **argv) {
                             if (unittest_waiting_queue()) return 1;
                             if (rw_spinlock_unittest()) return 1;
                             if (uuidmap_unittest()) return 1;
+#ifdef ENABLE_DBENGINE
+                            if (mrg_unittest()) return 1;
+#endif
                             if (paths_unittest()) return 1;
 #ifdef HAVE_LIBBACKTRACE
                             if (stacktrace_unittest()) return 1;
@@ -619,6 +644,15 @@ int netdata_main(int argc, char **argv) {
                         else if(strcmp(optarg, "mqttngtest") == 0) {
                             unittest_running = true;
                             return mqtt_ng_unittest();
+                        }
+                        else if(strcmp(optarg, "aclktimeouttest") == 0) {
+                            unittest_running = true;
+                            // run all three and report the total, so one failure does not
+                            // hide the others
+                            int errors = aclk_timeout_unittest();
+                            errors += https_client_timeout_unittest();
+                            errors += mqtt_wss_client_timeout_unittest();
+                            return errors ? 1 : 0;
                         }
                         else if(strcmp(optarg, "test_cmd_pool_fifo") == 0) {
                             unittest_running = true;
@@ -722,11 +756,19 @@ int netdata_main(int argc, char **argv) {
                         else if(strcmp(optarg, "dyncfgtest") == 0)
                             return unittest_run_with_rrd(dyncfg_unittest);
                         else if(strcmp(optarg, "functionsaccesstest") == 0)
-                            return unittest_run_with_rrd(rrdfunctions_verify_access_unittest);
+                            return unittest_run_with_rrd(nrpc_access_unittest);
                         else if(strcmp(optarg, "functionsmanifesttest") == 0)
-                            return unittest_run_with_rrd(rrdfunctions_manifest_unittest);
+                            return unittest_run_with_rrd(nrpc_manifest_unittest);
                         else if(strcmp(optarg, "functionsmanifestpacertest") == 0)
-                            return unittest_run_with_rrd(rrdfunctions_manifest_pacer_unittest);
+                            return unittest_run_with_rrd(nrpc_manifest_pacer_unittest);
+                        else if(strcmp(optarg, "functionsdeltest") == 0)
+                            return unittest_run_with_rrd(nrpc_del_unittest);
+                        else if(strcmp(optarg, "functionsregistrytest") == 0)
+                            return unittest_run_with_rrd(nrpc_registry_unittest);
+                        else if(strcmp(optarg, "functionstransporttest") == 0)
+                            return unittest_run_with_rrd(pluginsd_functions_unittest);
+                        else if(strcmp(optarg, "functionsemitterstest") == 0)
+                            return unittest_run_with_rrd(nrpc_catalog_unittest);
                         else if(strcmp(optarg, "mcpfunctionaccesstest") == 0)
                             return unittest_run_with_rrd(mcp_execute_function_access_unittest);
                         else if(strncmp(optarg, createdataset_string, strlen(createdataset_string)) == 0) {
@@ -1105,7 +1147,7 @@ int netdata_main(int argc, char **argv) {
     // ----------------------------------------------------------------------------------------------------------------
     delta_startup_time("inflight functions");
 
-    rrd_functions_inflight_init();
+    nrpc_inflight_calls_create();
 
     // ----------------------------------------------------------------------------------------------------------------
     delta_startup_time("silencers");

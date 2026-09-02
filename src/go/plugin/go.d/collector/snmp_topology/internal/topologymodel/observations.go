@@ -28,7 +28,6 @@ type ObservationAggregate struct {
 	L3Interfaces    []L3Interface
 	OSPFNeighbors   []OSPFNeighbor
 	BGPPeers        []BGPPeer
-	LocalDeviceID   string
 	AgentID         string
 	ProducerScopeID string
 	CollectedAt     time.Time
@@ -55,7 +54,6 @@ type OSPFNeighbor struct {
 	Netmask          string
 	Subnet           string
 	Prefix           int
-	RemoteActorID    string
 }
 
 type BGPPeer struct {
@@ -77,19 +75,19 @@ type BGPPeer struct {
 }
 
 type OSPFNeighborDetailRow struct {
-	RemoteActorID    string
-	LocalRouterID    string
-	NeighborRouterID string
-	NeighborIP       string
-	State            string
-	LocalIP          string
-	Subnet           string
-	AddresslessIndex string
-	Source           string
+	RemoteActorHandle ActorHandle
+	LocalRouterID     string
+	NeighborRouterID  string
+	NeighborIP        string
+	State             string
+	LocalIP           string
+	Subnet            string
+	AddresslessIndex  string
+	Source            string
 }
 
 type BGPPeerDetailRow struct {
-	RemoteActorID         string
+	RemoteActorHandle     ActorHandle
 	RoutingInstance       string
 	NeighborIP            string
 	RemoteAS              string
@@ -114,12 +112,12 @@ type L3Subnet struct {
 }
 
 func L3SubnetForInterface(row L3Interface) (L3Subnet, bool) {
-	ip, err := netip.ParseAddr(topologyutil.NormalizeIPAddress(row.IP))
-	if err != nil || !ip.Is4() {
+	ip, ok := topologyutil.ParseIPAddress(row.IP)
+	if !ok || !ip.Is4() {
 		return L3Subnet{}, false
 	}
-	netmask, err := netip.ParseAddr(topologyutil.NormalizeIPAddress(row.Netmask))
-	if err != nil || !netmask.Is4() {
+	netmask, ok := topologyutil.ParseIPAddress(row.Netmask)
+	if !ok || !netmask.Is4() {
 		return L3Subnet{}, false
 	}
 	network, ok := netaddr.NetworkAddress(ip, netmask)

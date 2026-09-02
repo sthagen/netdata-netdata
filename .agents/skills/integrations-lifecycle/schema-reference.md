@@ -30,6 +30,19 @@ unknown keys pass through silently. See `gotchas.md`.
 
 Referenced by every other schema for common structures.
 
+### `$defs.page_description`
+
+The reusable optional explicit-page-description contract: an already-trimmed 50–160 character string with a parser-safe
+plain-text pattern. It rejects leading or trailing whitespace, all C0/C1 controls, surrogate code points, Unicode line and paragraph
+separators, Markdown-special characters (`*`, `_`, `[`, `]`, `<`, `>`, `#`, backtick, and `~`), URLs, double quotes, and
+backslashes. It also rejects a leading CommonMark unordered-list or one-to-nine-digit ordered-list marker and a value consisting only
+of a hyphen thematic break, plus terminal colons, terminal ellipses (Unicode `…` or ASCII `...`), and unbalanced round parentheses;
+ordinary internal hyphens, plus signs, digits, and nested balanced parentheses remain valid. The repository's `make_validator()`
+registers and enforces the
+`netdata-balanced-parentheses` format on this definition, so every generator-backed source-schema path applies the same balance check
+as the final Python description validator. `shared.instance.description`,
+`secretstore.meta.description`, and `service_discovery.meta.description` all reference this definition.
+
 ### `$defs.id`
 
 Single string field used in many schemas as an identifier.
@@ -48,6 +61,7 @@ The "what is this thing" descriptor used by every per-integration entry.
 | `instance.link`          | string        | yes | URL                                    | learn / www          | Official upstream site.                                                                                                                                            |
 | `instance.categories`    | array<string> | yes | each must match a `categories.yaml` id | learn / www / in-app | Validated; bogus removed (`gen_integrations.py:899-912`). If none survive, falls back to `categories.yaml` entries flagged `collector_default: true` (`:906-908`). |
 | `instance.icon_filename` | string        | yes | --                                     | learn / www / in-app | Path under `${NETDATA_REPOS_DIR}/website/themes/tailwind/static/img/` (icon repo).                                                                                 |
+| `instance.description`   | string        | no  | 50–160 trimmed plain-text characters   | learn frontmatter    | Explicit generated-page meta description. Must be unique under NFC-normalized case-folded identity and contain no leading/trailing whitespace, C0/C1 controls, surrogate code points, Unicode line/paragraph separators, Markdown-special character (`*`, `_`, `[`, `]`, `<`, `>`, `#`, backtick, or `~`), CommonMark list/thematic-break block start, URL, double quote, backslash, terminal colon, or terminal ellipsis (Unicode `…` or ASCII `...`). Accepted text is emitted without Unicode normalization. Use only when the mechanical overview result is unsuitable. |
 | `instance.variables`     | object        | no  | values: string / int / bool / number   | all rendered text    | Triggers two-pass Jinja templating; see `pipeline.md`.                                                                                                             |
 
 Do not use `instance.variables` or option/default text to build the
@@ -56,7 +70,9 @@ Monitor Anything table description is extracted from the first
 sentence of the generated overview, usually
 `overview.data_collection.metrics_description`. See
 `description-authoring.md` before writing or reviewing description
-fields.
+fields. For schemas that use this shared instance directly as `meta`,
+the same optional `description` field is the explicit generated-page
+meta override.
 
 ### `$defs.keywords`
 
@@ -128,12 +144,14 @@ optional.
 
 ## collector.json
 
-Top-level structure: a `plugin_name` plus a `modules:` array
+Top-level structure: a `plugin_name`, an optional Prometheus profile-coverage
+mapping, and a `modules:` array
 where each module is one collector integration.
 
 | Field                                                                          | Type                          | Req                            | Values                                                                                          | Surface                                              | Notes                                                                                                                                                                                                                                                                                                   |
 |--------------------------------------------------------------------------------|-------------------------------|--------------------------------|-------------------------------------------------------------------------------------------------|------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `plugin_name`                                                                  | string                        | yes                            | --                                                                                              | (cascaded into modules)                              | Auto-copied to each `module.meta.plugin_name` at `gen_integrations.py:381`.                                                                                                                                                                                                                             |
+| `profile_coverage.modules.<authored-module-id>[]`                               | array<string>                 | no                             | non-empty; unique profile IDs                                                                    | learn / www generated metrics catalogue              | Allowed only for `go.d.plugin/prometheus` modules. Every stock profile must be mapped as a primary profile. Supporting profiles are derived from `PROFILE-DESIGN.yaml`; generation fails on unknown modules, unknown profiles, or incomplete stock-profile reachability. |
 | `modules`                                                                      | array<obj>                    | yes                            | --                                                                                              | --                                                   | One entry per integration.                                                                                                                                                                                                                                                                              |
 | `modules[].meta.plugin_name`                                                   | string                        | yes                            | --                                                                                              | id / edit_link                                       | Redundant with top-level; both must agree (no enforcement).                                                                                                                                                                                                                                             |
 | `modules[].meta.module_name`                                                   | string                        | yes                            | --                                                                                              | id / stock conf basename                             | Matches stock conf section / filename.                                                                                                                                                                                                                                                                  |
@@ -167,6 +185,7 @@ where each module is one collector integration.
 | `modules[].metrics.dynamic_context_prefixes[].reason`                          | string                        | no                             | `minLength: 1`                                                                                  | taxonomy                                             | Required explanation for each dynamic context prefix.                                                                                                                                                                                                                                                   |
 | `modules[].metrics.dynamic_collect_plugins[].plugin`                           | string                        | no                             | `minLength: 1`                                                                                  | taxonomy                                             | Opt-in guardrail for `taxonomy.yaml` `collect_plugin:` selectors.                                                                                                                                                                                                                                       |
 | `modules[].metrics.dynamic_collect_plugins[].reason`                           | string                        | no                             | `minLength: 1`                                                                                  | taxonomy                                             | Required explanation for each dynamic collect-plugin selector.                                                                                                                                                                                                                                          |
+| projected `modules[].metrics.profile_coverage`                                 | object                        | generated only                 | exact semantic-view/runtime-chart parity                                                         | learn / www generated metrics tables                 | `integrations/prometheus_profile_docs.py` adds this detached in-memory projection after schema validation. Rows are grouped by the profile's top-level family and contain the Prometheus metric, full Netdata family and chart title, dimension, unit, and entity scope; profile-design questions remain internal. Do not author it inside a module; YAML merge anchors otherwise share nested mappings between inherited modules. |
 | `modules[].metrics.scopes[].name`                                              | string                        | yes                            | --                                                                                              | learn metrics table                                  | Special: `global` is rewritten to `<instance> instance` at `gen_integrations.py:914-916`.                                                                                                                                                                                                               |
 | `modules[].metrics.scopes[].description`                                       | string                        | yes                            | markdown                                                                                        | learn metrics table                                  |                                                                                                                                                                                                                                                                                                         |
 | `modules[].metrics.scopes[].labels[].name`                                     | string                        | yes                            | --                                                                                              | learn                                                | Label name.                                                                                                                                                                                                                                                                                             |
@@ -391,6 +410,7 @@ Per-backend entries.
 | `meta.name`                                         | string                        | yes                 | --          | learn / in-app                    | Display name.                                                                                      |
 | `meta.link`                                         | string                        | yes                 | URL         | learn / www                       |                                                                                                    |
 | `meta.icon_filename`                                | string                        | yes                 | --          | learn / www / in-app              |                                                                                                    |
+| `meta.description`                                  | $ref `shared.page_description` | no                  | 50–160 plain text | learn frontmatter             | Explicit override used only when mechanical overview extraction is unsuitable.                    |
 | `keywords`                                          | array<string>                 | yes                 | --          | learn frontmatter                 |                                                                                                    |
 | `overview.description`                              | string                        | yes                 | markdown    | learn (`overview/secretstore.md`) |                                                                                                    |
 | `overview.limitations`                              | string                        | no                  | markdown    | learn                             |                                                                                                    |
@@ -418,6 +438,7 @@ Per-backend entries.
 | `meta.tagline`                                   | string                        | yes                                       | --       | SD hub table                            | One-liner shown in the SERVICE-DISCOVERY.md table.                         |
 | `meta.link`                                      | string                        | yes                                       | URL      | learn / www                             |                                                                            |
 | `meta.icon_filename`                             | string                        | yes                                       | --       | learn / www / in-app                    |                                                                            |
+| `meta.description`                               | $ref `shared.page_description` | no                                       | 50–160 plain text | learn frontmatter                 | Explicit override used only when mechanical overview extraction is unsuitable.                   |
 | `keywords`                                       | array<string>                 | yes                                       | --       | learn frontmatter                       |                                                                            |
 | `overview.description`                           | string                        | yes                                       | markdown | learn (`overview/service_discovery.md`) |                                                                            |
 | `overview.how_it_works`                          | string                        | no                                        | markdown | learn                                   | h3 under Overview.                                                         |
@@ -544,9 +565,9 @@ Required: `distro`, `version`, `support_type`, `notes`,
   `shared.json` propagate to all consumers immediately.
 
 - `additionalProperties: false` is NOT set on most schemas.
-  Unknown keys (`alternative_monitored_instances`,
-  `most_popular`) pass through silently into `integrations.js`
-  but no template renders them. See `gotchas.md`.
+  Unknown keys such as `alternative_monitored_instances` pass
+  through silently into `integrations.js` but no template
+  renders them. See `gotchas.md`.
 
 - Validation warnings are FATAL: `fail_on_warnings()`
   (`gen_integrations.py:150-160`) returns 1 on any warning,

@@ -58,6 +58,15 @@ func TestLoadRejectsStrictShapeAndVersionErrors(t *testing.T) {
 			},
 			wantErr: "required field entities is missing",
 		},
+		"design missing required documentation": {
+			filename: ProfileDesignFilename,
+			content:  strings.Replace(validProfileDesignV1, "documentation:\n  title: Example application\n  summary: Curated request metrics for the example application.\n", "", 1),
+			load: func(path string) error {
+				_, err := LoadProfileDesign(path)
+				return err
+			},
+			wantErr: "required field documentation is missing",
+		},
 		"design wrong version": {
 			filename: ProfileDesignFilename,
 			content:  strings.Replace(validProfileDesignV1, "version: v1", "version: 1", 1),
@@ -90,6 +99,44 @@ func TestLoadRejectsStrictShapeAndVersionErrors(t *testing.T) {
 			},
 			wantErr: "duplicate mapping key",
 		},
+		"source retired delegation evidence": {
+			filename: SourceFilename,
+			content:  strings.Replace(validSourceSemanticsV1, "kind: registration", "kind: delegation", 1),
+			load: func(path string) error {
+				_, err := LoadSourceSemantics(path)
+				return err
+			},
+			wantErr: `evidence.request_registration.kind "delegation" must be one of`,
+		},
+		"design retired scope delegation exclusion": {
+			filename: ProfileDesignFilename,
+			content: strings.Replace(validProfileDesignV1, "exclusions: {}", `exclusions:
+  delegated_requests:
+    source: {signal: requests, components: [total]}
+    reason: scope_delegation
+    evidence: [request_population]
+    outcome: drop_before_writer`, 1),
+			load: func(path string) error {
+				_, err := LoadProfileDesign(path)
+				return err
+			},
+			wantErr: `exclusions.delegated_requests.reason "scope_delegation" must be one of`,
+		},
+		"design retired delegated domain field": {
+			filename: ProfileDesignFilename,
+			content: strings.Replace(validProfileDesignV1, "exclusions: {}", `exclusions:
+  delegated_requests:
+    source: {signal: requests, components: [total]}
+    reason: metadata_only
+    delegated_domain: node_hardware
+    evidence: [request_population]
+    outcome: retain_writable_unrendered`, 1),
+			load: func(path string) error {
+				_, err := LoadProfileDesign(path)
+				return err
+			},
+			wantErr: "field delegated_domain not found",
+		},
 	}
 
 	for name, tc := range tests {
@@ -109,8 +156,18 @@ func TestLoadRejectsStrictShapeAndVersionErrors(t *testing.T) {
 
 func TestSourceSemanticsV1AcceptsReviewedSourceContracts(t *testing.T) {
 	content := strings.Replace(validSourceSemanticsV1, "kind: cumulative", "kind: constant", 1)
-	content = strings.Replace(content, "labels: {}", "labels:\n      position:\n        meaning: Speculative token position.\n        presence: required\n        domain: {kind: open}\n        endpoint_cardinality: {kind: bounded_configuration}\n        stability: stable\n        evidence: [position_label]", 1)
-	content = strings.Replace(content, "  request_unit:\n", "  position_label:\n    kind: label\n    upstream: exporter\n    locations: [metrics.go:14]\n    claim: One finite label value is registered per configured speculative token.\n  request_unit:\n", 1)
+	content = strings.Replace(
+		content,
+		"labels: {}",
+		"labels:\n      position:\n        meaning: Speculative token position.\n        presence: required\n        domain: {kind: open}\n        endpoint_cardinality: {kind: bounded_configuration}\n        stability: stable\n        evidence: [position_label]",
+		1,
+	)
+	content = strings.Replace(
+		content,
+		"  request_unit:\n",
+		"  position_label:\n    kind: label\n    upstream: exporter\n    locations: [metrics.go:14]\n    claim: One finite label value is registered per configured speculative token.\n  request_unit:\n",
+		1,
+	)
 
 	path := filepath.Join(t.TempDir(), SourceFilename)
 	writeTextFile(t, path, content)
@@ -140,6 +197,7 @@ func TestProfileDesignAcceptsDottedRelativeContext(t *testing.T) {
 func TestProfileDesignRejectsUnknownInlineConditionField(t *testing.T) {
 	content := strings.Replace(validProfileDesignV1, "supports: {}", `supports:
     runtime:
+      activation: Included when runtime instrumentation is enabled.
       when:
         any:
           - all:
@@ -151,6 +209,17 @@ func TestProfileDesignRejectsUnknownInlineConditionField(t *testing.T) {
 	writeTextFile(t, path, content)
 	if _, err := LoadProfileDesign(path); err == nil || !strings.Contains(err.Error(), "field unexpected not found") {
 		t.Fatalf("LoadProfileDesign() error = %v, want strict nested-field failure", err)
+	}
+}
+
+func TestProfileDesignRequiresSupportActivationDescription(t *testing.T) {
+	content := strings.Replace(validProfileDesignV1, "supports: {}", `supports:
+    runtime:
+      when: all_modes`, 1)
+	path := filepath.Join(t.TempDir(), ProfileDesignFilename)
+	writeTextFile(t, path, content)
+	if _, err := LoadProfileDesign(path); err == nil || !strings.Contains(err.Error(), "composition.supports.runtime.activation") {
+		t.Fatalf("LoadProfileDesign() error = %v, want required activation description failure", err)
 	}
 }
 
@@ -421,7 +490,12 @@ func TestSourceSemanticsV1RejectsContradictoryAndMalformedConditions(t *testing.
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			content := strings.Replace(validSourceSemanticsV1, "environment:\n  axes: {}\n  policies: {}", tc.environment, 1)
+			content := strings.Replace(
+				validSourceSemanticsV1,
+				"environment:\n  axes: {}\n  policies: {}",
+				tc.environment,
+				1,
+			)
 			content = strings.Replace(content, "evidence:\n", `evidence:
   mode_availability:
     kind: availability
@@ -571,7 +645,12 @@ func TestSourceSemanticsV1StateEncodingRequiresCurrentStateComponent(t *testing.
 		t.Fatalf("LoadSourceSemantics() error = %v, want state-component failure", err)
 	}
 
-	content = strings.Replace(content, "prometheus: {type: counter, shape: scalar}", "prometheus: {type: gauge, shape: scalar}", 1)
+	content = strings.Replace(
+		content,
+		"prometheus: {type: counter, shape: scalar}",
+		"prometheus: {type: gauge, shape: scalar}",
+		1,
+	)
 	content = strings.Replace(content, "kind: cumulative", "kind: current", 1)
 	writeTextFile(t, path, content)
 	if _, err := LoadSourceSemantics(path); err != nil {
@@ -591,6 +670,9 @@ version: v1
 profile: example
 match: example_*
 namespace: example
+documentation:
+  title: Example application
+  summary: Curated request metrics for the example application.
 composition:
   supports: {}
 entities:

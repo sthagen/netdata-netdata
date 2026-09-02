@@ -418,11 +418,33 @@ topology:
 
 - `kind` is required and must be one of the closed topology kinds below.
 - Topology row symbol names must not start with `_`.
+- For table rows, each configured row symbol is a structural presence anchor.
+  When its PDU exists, the collector emits the tagged topology observation with
+  an internal neutral value of `0`; it does not convert the PDU value to a
+  number. Choose a readable column that is present for every usable row. This
+  allows OctetString columns such as an ARP physical address to anchor a row.
+  Scalar topology symbols retain their ordinary value semantics.
 - Topology rows do not use chart/export-only fields such as `chart_meta`,
   `metric_type`, `mapping`, `transform`, `scale_factor`, `format`, or
   `constant_value_one` on the row value symbol.
+- Table topology row symbols also reject `extract_value`, `match_pattern`, and
+  `match_value` because structural presence mode intentionally ignores the
+  anchor PDU value. These transformations remain valid for scalar topology
+  symbols and for `metric_tags`.
 - `metric_tags` inside a topology row work like table metric tags and identify
   or enrich the topology row.
+- A cross-table tag whose target table has no row producer creates an internal
+  dependency-only collection route. For topology rows, that route is walked
+  only after its owning row produces at least one anchor PDU. A target table
+  with its own symbol-bearing row remains an independent eager producer.
+- When a topology row has exactly one readable anchor symbol and its `table.OID`
+  is the symbol column plus a fixed structural index prefix, simple same-index
+  cross-table dependencies inherit that prefix. For example, an anchor root
+  `<column>.1` constrains dependency column walks to `<dependency-column>.1`.
+  Dependencies using `lookup_symbol`, `index_transform`, multiple anchors, or
+  conflicting scopes use their ordinary common-prefix route instead. This
+  structural prefix propagation is topology-only; ordinary metric-table
+  dependencies retain their existing common-prefix collection roots.
 - `systemUptime` stays under `metrics:` for regular SNMP collection. It is not a
   topology kind and should not be declared under `topology:`.
 
@@ -433,7 +455,6 @@ lldp_loc_port
 lldp_loc_man_addr
 lldp_rem
 lldp_rem_man_addr
-lldp_rem_man_addr_compat
 cdp_cache
 if_name
 if_status
@@ -447,15 +468,52 @@ stp_port
 vtp_vlan
 arp_entry
 arp_legacy_entry
+ospf_neighbor
 ```
 
 Topology mixins can be inherited through `extends` just like metric mixins. When
 two inherited topology rows collide, the identity is `kind + table identity +
 symbol name`, matching regular table metric merge behavior.
 
+#### Stock topology composition
+
+Stock profiles compose topology capabilities independently:
+
+- `_std-topology-ip-mib.yaml` provides IPv4 address, interface-index, and
+  netmask facts used for L3 subnet topology. `generic-device.yaml` and
+  `generic-ups.yaml` extend it as their baseline. The legacy `ipAddrTable`
+  address is derived from the row index. RFC 4293 `ipAddressTable` IPv4 rows
+  anchor on the readable `ipAddressIfIndex` column with the exact IPv4
+  type-and-four-octet-length index prefix, then derive the raw address suffix
+  from the index. The topology consumer accepts only exactly four decimal
+  octets in `0..255`. Their type, prefix pointer, address status, and row status
+  dependency columns share that scope and remain dormant when the anchor is
+  empty; a malformed descendant can activate them but cannot emit topology.
+  Both sources resolve into one legacy-preferred per-IP fact; a valid modern
+  prefix fills only a missing legacy mask on the same ifIndex.
+- `_std-topology-interface-mib.yaml` provides interface identity and status.
+- `_std-topology-bridge-base-mib.yaml`, `_std-topology-fdb-mib.yaml`,
+  `_std-topology-q-bridge-mib.yaml`, `_std-topology-stp-mib.yaml`, and
+  `_std-topology-arp-mib.yaml` are attached only to profiles or topology role
+  selectors whose device role and available MIB rows justify those walks.
+
+Profile matching is additive: every matching selector contributes its inherited
+capabilities. A job with no usable `sysObjectID` resolves only the profiles
+listed in `manual_profiles`. To retain the standard IPv4 topology baseline in
+that case, include `generic-device` explicitly alongside the device profile:
+
+```yaml
+manual_profiles:
+  - vendor-profile
+  - generic-device
+```
+
 #### Scalar symbol fallbacks
 
-You can express “try this OID, otherwise try that OID” by declaring **multiple scalar metrics with the same** `symbol.name`, each pointing to a different OID. At runtime the collector **GETs** all declared scalar OIDs, marks missing ones, and **emits** the metric from whichever OID returns data. Missing OIDs are skipped cleanly.
+You can express “try this OID, otherwise try that OID” by declaring **multiple scalar metrics with the same**
+`symbol.name`, each pointing to a different OID. At runtime the collector **GETs** all declared scalar OIDs, processes them
+in declaration order, and **emits only the first successfully processed metric**. Missing or unusable earlier OIDs fall
+through to the next declaration.
 
 ```yaml
 metrics:
@@ -1326,9 +1384,15 @@ Rules:
 
 - `read-only`, `read-write`, and `read-create` objects can be read as
   `symbol.OID` values.
-- `not-accessible` objects must not be read as `symbol.OID` values.
+- `not-accessible` objects must not be read as `symbol.OID` values in generic standards profiles.
 - A `not-accessible` object that is part of a table `INDEX` can be derived from
   the row OID index using `index` or `index_transform`.
+- A selector-scoped device or topology-role profile may override a generic row to read a
+  `not-accessible` object only when a checked fixture or repeatable device
+  capture proves that the device returns the object as a column and omits the
+  standards-readable row anchor. Keep the exception in the narrowest matching
+  profile, document it, and pin both profile resolution and fixture-backed
+  collection.
 - Keep SNMP index slicing in the profile YAML; keep format conversion in
   `symbol.format`.
 
@@ -1373,21 +1437,36 @@ Examples:
   `IP-MIB::ipNetToPhysicalNetAddress` are `not-accessible` index components.
   Derive them from the row index. The physical MAC value,
   `ipNetToPhysicalPhysAddress`, is readable and can stay as a column symbol.
+- `IP-MIB::ipAddressAddr` is a `not-accessible` `ipAddressTable` index
+  component. For IPv4, constrain the readable `ipAddressIfIndex` anchor to the
+  type-and-length prefix `1.4` and keep the transformed suffix raw. The
+  consumer MUST require exactly four decimal octets in `0..255`; the walk root
+  alone cannot reject extra suffix components.
+  `ipAddressType`, `ipAddressPrefix`, `ipAddressStatus`, and
+  `ipAddressRowStatus` are readable tag sources.
 - `LLDP-MIB::lldpLocManAddrSubtype` and `LLDP-MIB::lldpLocManAddr` are
   `not-accessible` index components. Anchor the row on a readable column such as
   `lldpLocManAddrLen`, then derive subtype and address from the row index. Use
   `format: hex` for the address bytes so non-IP management-address subtypes are
   preserved; topology normalization converts IP-compatible bytes later.
+- `LLDP-MIB::lldpRemManAddrSubtype` and `LLDP-MIB::lldpRemManAddr` are also
+  `not-accessible` index components. Anchor the generic row on readable
+  `lldpRemManAddrIfSubtype`; derive subtype with `index: 4`, retain the declared
+  address length with `index: 5`, and derive address bytes with
+  `index_transform: [{start: 5}]` plus `format: hex`. The topology consumer
+  rejects a row when the declared length is outside the MIB's `1..31` range or
+  does not match the encoded byte count.
 
 Audit recipe:
 
 ```bash
 rg -n -C 4 'OBJECT-TYPE|MAX-ACCESS[[:space:]]+not-accessible|ACCESS[[:space:]]+not-accessible' path/to/MIB
-rg -n 'name:[[:space:]]*(dot1qTpFdbAddress|ipNetToPhysicalIfIndex|ipNetToPhysicalNetAddressType|ipNetToPhysicalNetAddress|lldpLocManAddrSubtype|lldpLocManAddr)\b' src/go/plugin/go.d/config/go.d/snmp.profiles
+rg -n 'name:[[:space:]]*(dot1qTpFdbAddress|ipAddressAddr|ipNetToPhysicalIfIndex|ipNetToPhysicalNetAddressType|ipNetToPhysicalNetAddress|lldpLocManAddrSubtype|lldpLocManAddr|lldpRemManAddrSubtype|lldpRemManAddr)\b' src/go/plugin/go.d/config/go.d/snmp.profiles
 ```
 
 Any profile hit for a `not-accessible` object is valid only when the tag is
-index-derived and does not declare a `symbol.OID` for that object.
+index-derived without a `symbol.OID`, or when it satisfies the proof-gated,
+selector-scoped device exception above.
 
 ## Tag Transformation
 
@@ -1452,7 +1531,7 @@ They work the same in **both** places:
 - `format`
     ```yaml
     symbol:
-      OID: 1.3.6.1.2.1.17.1.1
+      OID: 1.3.6.1.2.1.17.1.1.0
       name: dot1dBaseBridgeAddress
       format: hex
     ```
@@ -1488,7 +1567,7 @@ metadata:
     fields:
       bridge_base_address:
         symbol:
-          OID: 1.3.6.1.2.1.17.1.1
+          OID: 1.3.6.1.2.1.17.1.1.0
           name: dot1dBaseBridgeAddress
           format: hex
 ```

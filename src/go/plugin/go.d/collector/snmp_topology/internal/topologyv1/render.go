@@ -35,6 +35,9 @@ const (
 )
 
 func Render(data topologymodel.Data) (topologyapi.Data, error) {
+	if err := data.ValidateActorHandles(); err != nil {
+		return topologyapi.Data{}, err
+	}
 	stringsDict := topologyapi.NewStringDictionary("")
 	actorRows, actorIndex := buildSNMPTopologyV1Actors(data.Actors, stringsDict)
 
@@ -139,7 +142,7 @@ func Render(data topologymodel.Data) (topologyapi.Data, error) {
 		Actors:       actorRows,
 		Links:        linkRows,
 		Evidence:     evidenceSections,
-		Stats:        topologyStatsToV1(data.Stats),
+		Stats:        RenderStats(data.Stats),
 	}
 	if payload.CollectedAt.IsZero() {
 		payload.CollectedAt = time.Now().UTC()

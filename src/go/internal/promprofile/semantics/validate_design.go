@@ -23,6 +23,12 @@ func (d ProfileDesignDocument) validate() error {
 			return err
 		}
 	}
+	if err := requireText("documentation.title", d.Documentation.Title); err != nil {
+		return err
+	}
+	if err := requireText("documentation.summary", d.Documentation.Summary); err != nil {
+		return err
+	}
 	if d.Composition.Supports == nil {
 		return fmt.Errorf("composition.supports must be present")
 	}
@@ -50,6 +56,9 @@ func (d ProfileDesignDocument) validate() error {
 		}
 		if support.When.IsZero() {
 			return fmt.Errorf("composition.supports.%s.when must be present", id)
+		}
+		if err := requireText("composition.supports."+id+".activation", support.Activation); err != nil {
+			return err
 		}
 	}
 	for _, id := range sortedMapKeys(d.Entities) {
@@ -175,7 +184,13 @@ func validateView(field string, view ViewDefinition, design ProfileDesignDocumen
 		}
 		for index, component := range input.Components {
 			if !validID(component) {
-				return fmt.Errorf("%s.inputs.%s.components[%d] %q is not a valid component ID", field, id, index, component)
+				return fmt.Errorf(
+					"%s.inputs.%s.components[%d] %q is not a valid component ID",
+					field,
+					id,
+					index,
+					component,
+				)
 			}
 		}
 		if err := validateLabelCondition(field+".inputs."+id+".where", input.Where); err != nil {
@@ -646,7 +661,7 @@ func validateDesignExclusion(field string, exclusion DesignExclusion) error {
 		return err
 	}
 	if err := requireEnum(field+".reason", exclusion.Reason,
-		"equivalent_duplicate", "source_superseded", "not_chartable", "metadata_only", "collection_hazard", "scope_delegation"); err != nil {
+		"equivalent_duplicate", "source_superseded", "not_chartable", "metadata_only", "collection_hazard"); err != nil {
 		return err
 	}
 	if err := requireEnum(field+".outcome",
@@ -662,14 +677,12 @@ func validateDesignExclusion(field string, exclusion DesignExclusion) error {
 		"not_chartable":        {"lost_question", "required_operation"},
 		"metadata_only":        {},
 		"collection_hazard":    {},
-		"scope_delegation":     {"delegated_domain"},
 	}[exclusion.Reason]
 	for name, present := range map[string]bool{
 		"covering_view":      exclusion.CoveringView != "",
 		"replacement":        exclusion.Replacement != "",
 		"lost_question":      exclusion.LostQuestion != "",
 		"required_operation": exclusion.RequiredOperation != "",
-		"delegated_domain":   exclusion.DelegatedDomain != "",
 	} {
 		if present && !slices.Contains(allowed, name) {
 			return fmt.Errorf("%s.%s is not allowed for reason %s", field, name, exclusion.Reason)
@@ -691,8 +704,6 @@ func validateDesignExclusion(field string, exclusion DesignExclusion) error {
 		if exclusion.Outcome != "retain_writable_unrendered" {
 			return fmt.Errorf("%s.outcome must be retain_writable_unrendered", field)
 		}
-	case "scope_delegation":
-		return requireText(field+".delegated_domain", exclusion.DelegatedDomain)
 	}
 	return nil
 }

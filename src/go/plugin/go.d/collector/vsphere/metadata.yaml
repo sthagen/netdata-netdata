@@ -6,6 +6,7 @@ modules:
       module_name: vsphere
       monitored_instance:
         name: VMware vCenter Server
+        description: "Monitor VMware vSphere hosts, VMs, datastores, clusters, resource pools, and inventory through vCenter."
         link: https://www.vmware.com/products/vcenter-server.html
         icon_filename: vmware.svg
         categories:
@@ -270,7 +271,7 @@ modules:
                 Metrics of hosts matching the selector will be collected.
 
                 - Include pattern syntax: "/Datacenter pattern/Cluster pattern/Host pattern".
-                - Match pattern syntax: [simple patterns](/src/libnetdata/simple_pattern/README.md#simple-patterns).
+                - Match pattern syntax: [simple patterns](/src/libnetdata/simple_pattern/README.md).
                 - Syntax:
 
                   ```yaml
@@ -288,7 +289,7 @@ modules:
                 Metrics of VMs matching the selector will be collected.
 
                 - Include pattern syntax: "/Datacenter pattern/Cluster pattern/Host pattern/VM pattern".
-                - Match pattern syntax: [simple patterns](/src/libnetdata/simple_pattern/README.md#simple-patterns).
+                - Match pattern syntax: [simple patterns](/src/libnetdata/simple_pattern/README.md).
                 - Syntax:
 
                   ```yaml
@@ -306,7 +307,7 @@ modules:
                 Metrics of datastores matching the selector will be collected.
 
                 - Include pattern syntax: "/Datacenter pattern/Datastore pattern".
-                - Match pattern syntax: [simple patterns](/src/libnetdata/simple_pattern/README.md#simple-patterns).
+                - Match pattern syntax: [simple patterns](/src/libnetdata/simple_pattern/README.md).
                 - Syntax:
 
                   ```yaml
@@ -323,7 +324,7 @@ modules:
                 Metrics of clusters and their resource pools matching the selector will be collected.
 
                 - Include pattern syntax: "/Datacenter pattern/Cluster pattern".
-                - Match pattern syntax: [simple patterns](/src/libnetdata/simple_pattern/README.md#simple-patterns).
+                - Match pattern syntax: [simple patterns](/src/libnetdata/simple_pattern/README.md).
                 - Syntax:
 
                   ```yaml

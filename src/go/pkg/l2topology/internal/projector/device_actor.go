@@ -3,6 +3,7 @@
 package projector
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/netdata/netdata/go/plugins/pkg/l2topology/internal/model"
@@ -22,6 +23,26 @@ func topologyDeviceInferred(dev model.Device) bool {
 }
 
 func buildDeviceActorMatch(dev model.Device, reporterAliases []string) graph.Match {
+	return buildDeviceActorMatchWithAddresses(dev, reporterAliases, deviceAddressStrings(dev))
+}
+
+func buildDeviceActorMatchWithAddresses(dev model.Device, reporterAliases, addresses []string) graph.Match {
+	match := buildDeviceBaseMatch(dev, reporterAliases)
+	match.IPAddresses = slices.Clone(addresses)
+	return match
+}
+
+func buildDeviceEndpointMatch(dev model.Device) graph.Match {
+	return buildDeviceEndpointMatchWithAddresses(dev, deviceAddressStrings(dev))
+}
+
+func buildDeviceEndpointMatchWithAddresses(dev model.Device, addresses []string) graph.Match {
+	match := buildDeviceBaseMatch(dev, nil)
+	match.IPAddresses = addresses
+	return graph.LinkEndpointMatch(match, selectedDeviceManagementIP(dev))
+}
+
+func buildDeviceBaseMatch(dev model.Device, reporterAliases []string) graph.Match {
 	match := graph.Match{
 		SysObjectID: strings.TrimSpace(dev.SysObject),
 		SysName:     strings.TrimSpace(dev.Hostname),
@@ -54,17 +75,6 @@ func buildDeviceActorMatch(dev model.Device, reporterAliases []string) graph.Mat
 		match.MacAddresses = sortedTopologySet(macSet)
 	}
 
-	if len(dev.Addresses) > 0 {
-		ips := make([]string, 0, len(dev.Addresses))
-		for _, addr := range dev.Addresses {
-			if !addr.IsValid() {
-				continue
-			}
-			ips = append(ips, addr.String())
-		}
-		match.IPAddresses = uniqueTopologyStrings(ips)
-	}
-
 	return match
 }
 
@@ -73,15 +83,17 @@ func buildDeviceActorDetail(
 	localDeviceID string,
 	ifaceSummary topologyDeviceInterfaceSummary,
 	match graph.Match,
+	addresses []string,
 ) model.ProjectionDeviceActorDetail {
-	discovered := strings.TrimSpace(localDeviceID) == "" || dev.ID != localDeviceID
+	deviceID := strings.TrimSpace(dev.ID)
+	discovered := deviceID != "" && deviceID != strings.TrimSpace(localDeviceID)
 
 	detail := model.ProjectionDeviceActorDetail{
-		DeviceID:              strings.TrimSpace(dev.ID),
+		DeviceID:              deviceID,
 		Discovered:            discovered,
 		Inferred:              topologyDeviceInferred(dev),
-		ManagementIP:          firstAddress(dev.Addresses),
-		ManagementAddresses:   addressStrings(dev.Addresses),
+		ManagementIP:          selectedDeviceManagementIP(dev),
+		ManagementAddresses:   slices.Clone(addresses),
 		Protocols:             labelsCSVToSlice(dev.Labels, "protocols_observed"),
 		ProtocolsCollected:    labelsCSVToSlice(dev.Labels, "protocols_observed"),
 		Capabilities:          labelsCSVToSlice(dev.Labels, "capabilities"),

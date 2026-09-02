@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+var snmpHexSeparatorReplacer = strings.NewReplacer(":", "", "-", "", ".", "", " ", "")
+
 func CanonicalSNMPEnumValue(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" {
@@ -24,7 +26,7 @@ func CanonicalSNMPEnumValue(value string) string {
 
 func DecodeHexString(value string) ([]byte, error) {
 	clean := strings.TrimPrefix(strings.ToLower(NormalizeSNMPHexText(value)), "0x")
-	clean = strings.NewReplacer(":", "", "-", "", ".", "", " ", "").Replace(clean)
+	clean = snmpHexSeparatorReplacer.Replace(clean)
 	if clean == "" {
 		return nil, fmt.Errorf("empty hex string")
 	}
@@ -60,37 +62,36 @@ func NormalizeSNMPHexText(value string) string {
 }
 
 func NormalizeIPAddress(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	addr, ok := ParseIPAddress(value)
+	if !ok {
 		return ""
 	}
-	if ip := net.ParseIP(value); ip != nil {
-		return canonicalIPAddress(ip)
+	return addr.String()
+}
+
+func ParseIPAddress(value string) (netip.Addr, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return netip.Addr{}, false
+	}
+	if addr, err := netip.ParseAddr(value); err == nil && addr.IsValid() && addr.Zone() == "" {
+		return addr.Unmap(), true
 	}
 
 	if bs, err := DecodeHexString(value); err == nil {
 		if ip := ParseIPFromDecodedBytes(bs); ip != nil {
-			return canonicalIPAddress(ip)
+			if addr, ok := netip.AddrFromSlice(ip); ok {
+				return addr.Unmap(), true
+			}
 		}
 	}
 
-	return ""
-}
-
-func canonicalIPAddress(ip net.IP) string {
-	if ip4 := ip.To4(); ip4 != nil {
-		return net.IP(ip4).String()
-	}
-	return ip.String()
+	return netip.Addr{}, false
 }
 
 func NormalizeNonUnspecifiedIPAddress(value string) string {
-	ip := NormalizeIPAddress(value)
-	if ip == "" {
-		return ""
-	}
-	addr, err := netip.ParseAddr(ip)
-	if err != nil || addr.IsUnspecified() {
+	addr, ok := ParseIPAddress(value)
+	if !ok || addr.IsUnspecified() {
 		return ""
 	}
 	return addr.Unmap().String()
@@ -147,7 +148,7 @@ func NormalizeMAC(value string) string {
 		return strings.ToLower(hw.String())
 	}
 
-	clean := strings.NewReplacer(":", "", "-", "", ".", "", " ", "").Replace(strings.ToLower(value))
+	clean := snmpHexSeparatorReplacer.Replace(strings.ToLower(value))
 	if clean == "" {
 		return ""
 	}
@@ -186,7 +187,7 @@ func NormalizeHexIdentifier(value string) string {
 		return strings.ToLower(hex.EncodeToString(bs))
 	}
 
-	clean := strings.NewReplacer(":", "", "-", "", ".", "", " ", "").Replace(strings.ToLower(value))
+	clean := snmpHexSeparatorReplacer.Replace(strings.ToLower(value))
 	if clean == "" {
 		return ""
 	}

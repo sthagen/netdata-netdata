@@ -21,21 +21,21 @@ Learn more about [how collectors work](/src/collectors/README.md), and then lear
 **Select your primary infrastructure to jump directly to relevant integrations:**
 
 **Cloud & Infrastructure:**
-[AWS](#cloud-provider-managed) • [Azure](#cloud-provider-managed) • [GCP](#cloud-provider-managed) • [Kubernetes](#kubernetes) • [Docker](#containers-and-vms) • [VMware](#containers-and-vms)
+[AWS](#cloud-and-devops) • [Azure](#cloud-and-devops) • [GCP](#cloud-and-devops) • [Kubernetes](#containers-and-vms) • [Docker](#containers-and-vms) • [VMware](#containers-and-vms)
 
 **Databases & Caching:**
-[MySQL](#databases) • [PostgreSQL](#databases) • [MongoDB](#databases) • [Redis](#databases) • [Elasticsearch](#search-engines) • [Oracle](#databases)
+[MySQL](#databases) • [PostgreSQL](#databases) • [MongoDB](#databases) • [Redis](#databases) • [Elasticsearch](#databases) • [Oracle](#databases)
 
 **Web & Application:**
-[NGINX](#web-servers-and-web-proxies) • [Apache](#web-servers-and-web-proxies) • [HAProxy](#web-servers-and-web-proxies) • [Tomcat](#web-servers-and-web-proxies) • [PHP-FPM](#web-servers-and-web-proxies)
+[NGINX](#web-servers-and-proxies) • [Apache](#web-servers-and-proxies) • [HAProxy](#web-servers-and-proxies) • [Tomcat](#web-servers-and-proxies) • [PHP-FPM](#web-servers-and-proxies)
 
 **Message Queues:**
-[Kafka](#message-brokers) • [RabbitMQ](#message-brokers) • [ActiveMQ](#message-brokers) • [NATS](#message-brokers) • [Pulsar](#message-brokers)
+[Kafka](#databases) • [RabbitMQ](#databases) • [ActiveMQ](#databases) • [NATS](#databases) • [Pulsar](#databases)
 
 **Operating Systems:**
-[Linux](#linux-systems) • [Windows](#windows-systems) • [macOS](#macos-systems) • [FreeBSD](#freebsd)
+[Linux](#operating-systems) • [Windows](#operating-systems) • [macOS](#operating-systems) • [FreeBSD](#operating-systems)
 
-**Don't see what you need?** We support [Prometheus endpoints](#generic-data-collection), [SNMP devices](#generic-data-collection), [StatsD](#beyond-the-850-integrations), and [custom data sources](#generic-data-collection).
+**Don't see what you need?** We support [Prometheus endpoints](#beyond-the-850-integrations), [SNMP devices](#networking), [StatsD](#beyond-the-850-integrations), and [custom data sources](#beyond-the-850-integrations).
 
 
 ## Beyond the 850+ integrations
@@ -117,7 +117,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [ASP.NET](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/asp.net.md) | This collector monitors ASP.NET applications. |
 | [Envoy](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/envoy/integrations/envoy.md) | This collector monitors Envoy proxies. |
 | [Gobetween](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/gobetween.md) | Track Gobetween load balancer metrics for optimized network traffic management and performance. |
-| [HAProxy](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/haproxy/integrations/haproxy.md) | This collector monitors HAProxy servers. |
+| [HAProxy Prometheus](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/haproxy_prometheus.md) | Monitor HAProxy process, frontend, listener, backend, server, and stick-table behavior through its Prometheus endpoint. |
 | [HTTPD](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/apache/integrations/httpd.md) | This collector monitors the activity and performance of Apache servers, and collects metrics such as the number of connections, workers, requests and more. |
 | [IIS](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/iis.md) | This collector monitors website requests and logins. |
 | [Lighttpd](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/lighttpd/integrations/lighttpd.md) | This collector monitors the activity and performance of Lighttpd servers, and collects metrics such as the number of connections, workers, requests and more. |
@@ -155,7 +155,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [Kubeproxy](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/k8s_kubeproxy/integrations/kubeproxy.md) | This collector monitors Kubeproxy instances. |
 | [Kubernetes API Server](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/k8s_apiserver/integrations/kubernetes_api_server.md) | This collector monitors Kubernetes API Server health, performance, and request metrics. |
 | [Kubernetes Cluster State](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/k8s_state/integrations/kubernetes_cluster_state.md) | This collector monitors Kubernetes Nodes, Pods and Containers. |
-| [Kubernetes Containers](https://github.com/netdata/netdata/blob/master/src/collectors/cgroups.plugin/integrations/kubernetes_containers.md) | Monitor containers and virtual machines resource utilization — CPU, memory, disk I/O, network, and page cache activity — via Linux cgroups. |
+| [Kubernetes Containers](https://github.com/netdata/netdata/blob/master/src/collectors/cgroups.plugin/integrations/kubernetes_containers.md) | Monitor Kubernetes pod and container resource utilization — CPU, memory, disk I/O, and network — via Linux cgroups. |
 | [Libvirt VMs and Containers](https://github.com/netdata/netdata/blob/master/src/collectors/cgroups.plugin/integrations/libvirt_vms_and_containers.md) | Monitor libvirt-managed VM and container resource utilization — CPU, memory, disk I/O, and network — via Linux cgroups. |
 | [LXC Containers](https://github.com/netdata/netdata/blob/master/src/collectors/cgroups.plugin/integrations/lxc_containers.md) | Monitor LXC/LXD/Incus container resource utilization — CPU, memory, disk I/O, and network — via Linux cgroups. |
 | [Mesos](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/mesos.md) | Monitor Apache Mesos cluster manager metrics for efficient resource management and performance. |
@@ -182,17 +182,17 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [CPU performance](https://github.com/netdata/netdata/blob/master/src/collectors/perf.plugin/integrations/cpu_performance.md) | This collector monitors CPU performance metrics about cycles, instructions, migrations, cache operations and more. |
 | [dev.cpu.0.freq](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/dev.cpu.0.freq.md) | Read current CPU Scaling frequency. |
 | [eBPF Cachestat](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/ebpfgo.plugin/integrations/ebpf_cachestat.md) | Monitor Linux page cache events giving users a general vision about how the kernel is manipulating files. |
-| [eBPF DCstat](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_dcstat.md) | Monitor directory cache events per application given an overall vision about files on memory or storage device. |
+| [eBPF DCstat](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/ebpfgo.plugin/integrations/ebpf_dcstat.md) | Monitor directory cache events given an overall vision about files on memory or storage device. |
 | [eBPF DNS](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/ebpfgo.plugin/integrations/ebpf_dns.md) | Monitor DNS query and response traffic at the kernel level, broken down by transport protocol (UDP/TCP) and IP family (IPv4/IPv6). |
 | [eBPF Filedescriptor](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_filedescriptor.md) | Monitor calls for functions responsible to open or close a file descriptor and possible errors. |
 | [eBPF Hardirq](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_hardirq.md) | Monitor latency for each HardIRQ available. |
 | [eBPF OOMkill](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_oomkill.md) | Monitor applications that reach out of memory. |
 | [eBPF Process](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_process.md) | Monitor internal memory usage. |
-| [eBPF Processes](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_processes.md) | Monitor calls for function creating tasks (threads and processes) inside Linux kernel. |
+| [eBPF Processes](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_processes.md) | Monitor Linux process and thread creation by tracing kernel task-creation functions with eBPF. |
 | [eBPF SHM](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_shm.md) | Monitor syscall responsible to manipulate shared memory. |
 | [eBPF Socket](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/ebpfgo.plugin/integrations/ebpf_socket.md) | Monitor TCP and UDP function calls, bandwidth, errors, and connection counts. |
 | [eBPF SoftIRQ](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_softirq.md) | Monitor latency for each SoftIRQ available. |
-| [eBPF SWAP](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_swap.md) | Monitors when swap has I/O events and applications executing events. |
+| [eBPF SWAP](https://github.com/netdata/netdata/blob/master/src/collectors/ebpf.plugin/integrations/ebpf_swap.md) | Monitor Linux swap reads and writes by tracing kernel swap I/O functions with eBPF. |
 | [Entropy](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/entropy.md) | Entropy, a measure of the randomness or unpredictability of data. |
 | [FreeBSD RCTL-RACCT](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/freebsd_rctl-racct.md) | Keep an eye on FreeBSD Resource Container metrics for optimized resource management and performance. |
 | [hw.intrcnt](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/hw.intrcnt.md) | Get total number of interrupts |
@@ -216,7 +216,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [OpenRC](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/openrc.md) | Keep tabs on OpenRC init system metrics for efficient system startup and service management. |
 | [Page types](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/page_types.md) | This integration provides metrics about the system's memory page types |
 | [Pressure Stall Information](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/pressure_stall_information.md) | Introduced in Linux kernel 4.20, `/proc/pressure` provides information about system pressure stall information (PSI). |
-| [Processor](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/processor.md) | This collector monitors processors statistics on host. |
+| [Processor](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/processor.md) | Monitor processor performance statistics on Windows hosts through Perflib. |
 | [Semaphore statistics](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/semaphore_statistics.md) | Inter-Process Communication (IPC) enables different processes to communicate and coordinate with each other. |
 | [SoftIRQ statistics](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/softirq_statistics.md) | In the Linux kernel, handling of hardware interrupts is split into two halves: the top half and the bottom half. |
 | [Supervisor](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/supervisord/integrations/supervisor.md) | This collector monitors Supervisor instances. |
@@ -226,7 +226,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [System statistics](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/system_statistics.md) | This collector monitors the current number of processes, threads, and context switches on Windows systems. |
 | [System Uptime](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/system_uptime.md) | The amount of time the system has been up (running). |
 | [system.ram](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/system.ram.md) | Show information about system memory usage. |
-| [Systemd Services](https://github.com/netdata/netdata/blob/master/src/collectors/cgroups.plugin/integrations/systemd_services.md) | Monitor containers and virtual machines resource utilization — CPU, memory, disk I/O, network, and page cache activity — via Linux cgroups. |
+| [Systemd Services](https://github.com/netdata/netdata/blob/master/src/collectors/cgroups.plugin/integrations/systemd_services.md) | Monitor systemd service resource utilization — CPU, memory, and disk I/O — via Linux cgroups. |
 | [Systemd Units](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/systemdunits/integrations/systemd_units.md) | This collector monitors the state of Systemd units and unit files. |
 | [systemd-logind users](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/logind/integrations/systemd-logind_users.md) | This collector monitors number of sessions and users as reported by the `org.freedesktop.login1` DBus API. |
 | [uptime](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/uptime.md) | Show period of time server is up. |
@@ -242,7 +242,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [vm.vmtotal](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/vm.vmtotal.md) | Collect Virtual Memory information from host. |
 | [Windows Services](https://github.com/netdata/netdata/blob/master/src/collectors/apps.plugin/integrations/windows_services.md) | This integration monitors resource utilization grouped by Windows Service. |
 | [Windows Services](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/windows_services.md) | This collector monitors Windows Services Status and States. |
-| [ZRAM](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/zram.md) | zRAM, or compressed RAM, is a block device that uses a portion of your system's RAM as a block device. |
+| [ZRAM](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/zram.md) | Monitor zRAM device capacity, compression, memory use, and I/O activity on Linux systems. |
 
 ### Networking
 
@@ -258,13 +258,13 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [DNSBL](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/dnsbl.md) | Monitor DNSBL metrics for efficient domain reputation and security management. |
 | [DNSdist](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/dnsdist/integrations/dnsdist.md) | This collector monitors DNSDist servers. |
 | [Dnsmasq](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/dnsmasq/integrations/dnsmasq.md) | This collector monitors Dnsmasq servers. |
-| [Dnsmasq DHCP](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/dnsmasq_dhcp/integrations/dnsmasq_dhcp.md) | This collector monitors Dnsmasq DHCP leases databases, depending on your configuration. |
+| [Dnsmasq DHCP](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/dnsmasq_dhcp/integrations/dnsmasq_dhcp.md) | Monitor Dnsmasq DHCP leases and utilization across configured address ranges. |
 | [Fastd](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/fastd.md) | Monitor Fastd VPN metrics for efficient virtual private network management and performance. |
 | [Freifunk network](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/freifunk_network.md) | Keep tabs on Freifunk community network metrics for optimized network performance and management. |
 | [FRRouting](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/frrouting.md) | Monitor Free Range Routing (FRR) metrics for optimized network routing and management. |
 | [getifaddrs](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/getifaddrs.md) | Collect traffic per network interface. |
 | [Hitron CODA Cable Modem](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/hitron_coda_cable_modem.md) | Track Hitron CODA cable modem metrics for optimized internet connectivity and performance. |
-| [InfiniBand](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/infiniband.md) | This integration monitors InfiniBand network inteface statistics. |
+| [InfiniBand](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/infiniband.md) | Monitor InfiniBand network interface traffic and errors. |
 | [IP Virtual Server](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/ip_virtual_server.md) | This integration monitors IP Virtual Server statistics |
 | [ipfw](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/ipfw.md) | Collect information about FreeBSD firewall. |
 | [IPv6 Socket Statistics](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/ipv6_socket_statistics.md) | This integration provides IPv6 socket statistics. |
@@ -391,7 +391,6 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [dev.cpu.temperature](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/dev.cpu.temperature.md) | Get current CPU temperature |
 | [Dutch Electricity Smart Meter](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/dutch_electricity_smart_meter.md) | Keep tabs on Dutch smart meter P1 port metrics for efficient energy management and monitoring. |
 | [Elgato Key Light devices.](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/elgato_key_light_devices..md) | Keep tabs on Elgato Key Light metrics for optimized lighting control and management. |
-| [Energomera smart power meters](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/energomera_smart_power_meters.md) | Track Energomera electricity meter metrics for efficient energy management and monitoring. |
 | [Hardware information collected from kernel ring.](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/hardware_information_collected_from_kernel_ring..md) | This collector monitors cpu temperature on Windows systems. |
 | [IBM CryptoExpress (CEX) cards](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/ibm_cryptoexpress_cex_cards.md) | Track IBM Z Crypto Express device metrics for optimized cryptographic performance and management. |
 | [IBM Z Hardware Management Console](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/ibm_z_hardware_management_console.md) | Monitor IBM Z Hardware Management Console metrics for efficient mainframe management and performance. |
@@ -488,7 +487,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [Minecraft](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/minecraft.md) | Track Minecraft server metrics for efficient game server management and performance. |
 | [MS Exchange](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/ms_exchange.md) | This collector monitors Microsoft Exchange. |
 | [mtail](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/mtail.md) | Monitor log data metrics using mtail log data extractor and parser. |
-| [NET Framework](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/net_framework.md) | This collector monitors application built with .NET |
+| [NET Framework](https://github.com/netdata/netdata/blob/master/src/collectors/windows.plugin/integrations/net_framework.md) | Monitor runtime and performance statistics for applications built with .NET Framework through Perflib. |
 | [Nextcloud servers](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/nextcloud_servers.md) | Keep an eye on Nextcloud cloud storage metrics for efficient file hosting and management. |
 | [NRPE daemon](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/nrpe_daemon.md) | Monitor Nagios Remote Plugin Executor (NRPE) metrics for efficient system and network monitoring. |
 | [OBS Studio](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/obs_studio.md) | Track OBS Studio live streaming and recording software metrics for efficient video production and performance. |
@@ -567,7 +566,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [Storidge](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/storidge.md) | Keep an eye on Storidge storage metrics for efficient storage management and performance. |
 | [Synology ActiveBackup](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/synology_activebackup.md) | Track Synology Active Backup metrics for efficient backup and data protection management. |
 | [zfs](https://github.com/netdata/netdata/blob/master/src/collectors/freebsd.plugin/integrations/zfs.md) | Collect metrics for ZFS filesystem |
-| [ZFS Adaptive Replacement Cache](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/zfs_adaptive_replacement_cache.md) | This integration monitors ZFS Adadptive Replacement Cache (ARC) statistics. |
+| [ZFS Adaptive Replacement Cache](https://github.com/netdata/netdata/blob/master/src/collectors/proc.plugin/integrations/zfs_adaptive_replacement_cache.md) | Monitor ZFS Adaptive Replacement Cache (ARC) performance and memory statistics. |
 | [ZFS Pools](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/zfspool/integrations/zfs_pools.md) | This collector monitors the health and space usage of ZFS pools using the command line tool [zpool](https://openzfs.github.io/openzfs-docs/man/master/8/zpool-list.8.html). |
 
 ### Synthetic Testing
@@ -585,6 +584,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [MQTT Blackbox](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/mqtt_blackbox.md) | Track MQTT message transport performance using blackbox testing methods. |
 | [Nagios Plugins and Custom Scripts](https://github.com/netdata/netdata/blob/master/src/go/plugin/scripts.d/collector/nagios/integrations/nagios_plugins_and_custom_scripts.md) | This collector runs [Nagios-compatible plugins](https://www.nagios-plugins.org/) and custom scripts in any language (Bash, PowerShell, Python, Go, etc.). |
 | [Ping](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/ping/integrations/ping.md) | This module measures round-trip time and packet loss by sending ping messages to network hosts. |
+| [S3 Compatible Object Storage](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/s3check/integrations/s3_compatible_object_storage.md) | Monitor S3-compatible object storage with active checks that write, read, list, and delete small probe objects and time their replication between sites. |
 | [Site 24x7](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/site_24x7.md) | Monitor Site24x7 website and infrastructure monitoring metrics for efficient performance tracking and management. |
 | [TCP/UDP Endpoints](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/portcheck/integrations/tcp-udp_endpoints.md) | Collector for monitoring service availability and response time. |
 | [Uptimerobot](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/prometheus/integrations/uptimerobot.md) | Monitor UptimeRobot website uptime monitoring metrics for efficient website availability tracking and management. |
@@ -722,7 +722,8 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [Linksys](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/linksys.md) | Monitor Linksys (network device) with Netdata over SNMP. |
 | [Mcafee WEB Gateway](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/mcafee_web_gateway.md) | Monitor Mcafee WEB Gateway (network device) with Netdata over SNMP. |
 | [Meraki](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/meraki.md) | Monitor Meraki (network device) with Netdata over SNMP. |
-| [Mikrotik Router](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/mikrotik_router.md) | Monitor Mikrotik Router (network device) with Netdata over SNMP. |
+| [MikroTik Router](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/mikrotik_router.md) | Monitor MikroTik Router (network device) with Netdata over SNMP. |
+| [MikroTik Switch](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/mikrotik_switch.md) | Monitor MikroTik Switch (switch) with Netdata over SNMP. |
 | [Nasuni Filer](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/nasuni_filer.md) | Monitor Nasuni Filer (storage) with Netdata over SNMP. |
 | [NEC Univerge](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/nec_univerge.md) | Monitor NEC Univerge (network device) with Netdata over SNMP. |
 | [Net-SNMP Host](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/net-snmp_host.md) | Monitor Net-SNMP Host (network device) with Netdata over SNMP. |
@@ -763,6 +764,7 @@ Need a dedicated integration? [Submit a feature request](https://github.com/netd
 | [Tripplite](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/tripplite.md) | Monitor Tripplite (network device) with Netdata over SNMP. |
 | [Tripplite PDU](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/tripplite_pdu.md) | Monitor Tripplite PDU (pdu) with Netdata over SNMP. |
 | [Tripplite UPS](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/tripplite_ups.md) | Monitor Tripplite UPS (ups) with Netdata over SNMP. |
+| [Ubiquiti Net-SNMP Devices](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/ubiquiti_net-snmp_devices.md) | Monitor Ubiquiti Net-SNMP Devices (network device) with Netdata over SNMP. |
 | [Ubiquiti Unifi](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/ubiquiti_unifi.md) | Monitor Ubiquiti Unifi (network device) with Netdata over SNMP. |
 | [Ubiquiti Unifi Security Gateway](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/ubiquiti_unifi_security_gateway.md) | Monitor Ubiquiti Unifi Security Gateway (network device) with Netdata over SNMP. |
 | [Velocloud Edge](https://github.com/netdata/netdata/blob/master/src/go/plugin/go.d/collector/snmp/npm-catalog/integrations/velocloud_edge.md) | Monitor Velocloud Edge (sd-wan) with Netdata over SNMP. |

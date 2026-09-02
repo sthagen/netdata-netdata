@@ -13,7 +13,7 @@ import (
 
 func buildSNMPTopologyV1ActorDetails(
 	actors []topologymodel.Actor,
-	actorIndex map[string]int,
+	actorIndex topologyV1ActorIndex,
 	stringsDict *topologyapi.StringDictionary,
 	portNeighborSummaries map[snmpTopologyV1PortNeighborKey]snmpTopologyV1PortNeighborSummary,
 ) (map[string]topologyapi.DetailTable, map[string]topologyapi.TableType, error) {
@@ -171,8 +171,8 @@ func buildSNMPTopologyV1ActorLabelsTable(
 		addSlice(actorIndex, "hostname", actor.Match.Hostnames, snmpTopologyV1ProducerSource, "match")
 		addSlice(actorIndex, "dns_name", actor.Match.DNSNames, snmpTopologyV1ProducerSource, "match")
 
-		for key, value := range actor.Labels {
-			add(actorIndex, key, value, "producer_label", "label", nil)
+		for _, key := range topologyutil.SortedMapKeys(actor.Labels) {
+			add(actorIndex, key, actor.Labels[key], "producer_label", "label", nil)
 		}
 		scalarValues := topologymodel.ActorDetailScalarLabelValues(actor)
 		for _, key := range topologyutil.SortedMapKeys(scalarValues) {

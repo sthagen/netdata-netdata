@@ -3,9 +3,11 @@
 package snmptopology
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -37,6 +39,7 @@ type topologyScenario struct {
 	ospf   []topologyScenarioPortPair
 	bgp    []topologyScenarioBGPAdjacency
 	fdbARP []topologyScenarioFDBARP
+	ptr    map[string]string
 }
 
 type topologyScenarioDevice struct {
@@ -44,11 +47,13 @@ type topologyScenarioDevice struct {
 	name         string
 	actorType    string
 	mgmtIP       string
+	target       string
 	chassisMAC   string
 	sysObjectID  string
 	routerID     string
 	localAS      string
 	capabilities string
+	mgmtAliases  []string
 	ports        []*topologyScenarioPort
 }
 
@@ -60,6 +65,9 @@ type topologyScenarioPort struct {
 	mac        string
 	ip         string
 	netmask    string
+	modernIPv4 bool
+	prefixIP   string
+	prefixLen  int
 }
 
 type topologyScenarioPortPair struct {
@@ -93,6 +101,14 @@ func (s *topologyScenario) WithOptions(fn func(*topologyoptions.QueryOptions)) *
 	return s
 }
 
+func (s *topologyScenario) PTR(ip, name string) *topologyScenario {
+	if s.ptr == nil {
+		s.ptr = make(map[string]string)
+	}
+	s.ptr[strings.TrimSpace(ip)] = strings.TrimSpace(name)
+	return s
+}
+
 func (s *topologyScenario) Router(name, mgmtIP, chassisMAC, routerID, localAS string) *topologyScenarioDevice {
 	return s.device("router", name, mgmtIP, chassisMAC, routerID, localAS)
 }
@@ -111,6 +127,7 @@ func (s *topologyScenario) device(actorType, name, mgmtIP, chassisMAC, routerID,
 		name:         name,
 		actorType:    actorType,
 		mgmtIP:       mgmtIP,
+		target:       mgmtIP,
 		chassisMAC:   topologyutil.NormalizeMAC(chassisMAC),
 		sysObjectID:  fmt.Sprintf("1.3.6.1.4.1.8072.3.2.%d", len(s.devs)+1),
 		routerID:     routerID,
@@ -119,6 +136,16 @@ func (s *topologyScenario) device(actorType, name, mgmtIP, chassisMAC, routerID,
 	}
 	s.devs = append(s.devs, dev)
 	return dev
+}
+
+func (d *topologyScenarioDevice) Target(value string) *topologyScenarioDevice {
+	d.target = strings.TrimSpace(value)
+	return d
+}
+
+func (d *topologyScenarioDevice) ManagementAlias(ip string) *topologyScenarioDevice {
+	d.mgmtAliases = append(d.mgmtAliases, strings.TrimSpace(ip))
+	return d
 }
 
 func (d *topologyScenarioDevice) Port(name string, ifIndex int) *topologyScenarioPort {
@@ -137,6 +164,18 @@ func (p *topologyScenarioPort) IPv4(cidr string) *topologyScenarioPort {
 	ip, netmask := topologyScenarioIPv4CIDR(cidr)
 	p.ip = ip
 	p.netmask = netmask
+	return p
+}
+
+func (p *topologyScenarioPort) ModernIPv4(cidr string) *topologyScenarioPort {
+	p.IPv4(cidr)
+	_, prefix, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil || prefix.IP.To4() == nil {
+		return p
+	}
+	p.modernIPv4 = true
+	p.prefixIP = prefix.IP.String()
+	p.prefixLen, _ = prefix.Mask.Size()
 	return p
 }
 
@@ -182,13 +221,35 @@ func (s *topologyScenario) FDBARP(port *topologyScenarioPort, mac, ip string) *t
 	return s
 }
 
+func (s *topologyScenario) FDB(port *topologyScenarioPort, mac string) *topologyScenario {
+	return s.FDBARP(port, mac, "")
+}
+
 func (s *topologyScenario) render(t testing.TB) topologyapi.Data {
 	t.Helper()
 
 	registry := newTopologyRegistry()
 	registry.producerScopeID = topologyScenarioProducerScopeID
+	if len(s.ptr) > 0 {
+		dns := newTestTopologyReverseDNSWarmer(testTopologyReverseDNSConfig{
+			now: newReverseDNSTestClock().Now,
+			lookup: func(_ context.Context, ip string) ([]string, error) {
+				if name := s.ptr[ip]; name != "" {
+					return []string{name}, nil
+				}
+				return nil, nil
+			},
+		})
+		ips := make([]string, 0, len(s.ptr))
+		for ip := range s.ptr {
+			ips = append(ips, ip)
+		}
+		sort.Strings(ips)
+		dns.warm(context.Background(), ips)
+		registry.reverseDNS = dns.resolver
+	}
 	for _, dev := range s.devs {
-		registry.register(s.cacheForDevice(t, dev))
+		publishTestTopologyBuilder(registry, s.cacheForDevice(t, dev))
 	}
 
 	payload, ok, err := (funcDepsAdapter{registry: registry}).Snapshot(s.opts)
@@ -198,11 +259,11 @@ func (s *topologyScenario) render(t testing.TB) topologyapi.Data {
 	return payload
 }
 
-func (s *topologyScenario) cacheForDevice(t testing.TB, dev *topologyScenarioDevice) *topologyCache {
+func (s *topologyScenario) cacheForDevice(t testing.TB, dev *topologyScenarioDevice) *topologyBuilder {
 	t.Helper()
 
 	cache := newTestTopologyCache(ddsnmp.DeviceConnectionInfo{
-		Hostname:    dev.mgmtIP,
+		Hostname:    dev.target,
 		SysObjectID: dev.sysObjectID,
 		SysName:     dev.name,
 		SysDescr:    topologyScenarioSysDescr,
@@ -218,7 +279,7 @@ func (s *topologyScenario) cacheForDevice(t testing.TB, dev *topologyScenarioDev
 	cache.updateTopologyProfileTags([]*ddsnmp.ProfileMetrics{pm})
 	cache.ingestTopologyProfileMetrics([]*ddsnmp.ProfileMetrics{pm})
 	cache.ingestTopologyBGPPeers([]*ddsnmp.ProfileMetrics{pm})
-	cache.finalizeTopologyCache()
+	cache.finalize()
 	return cache
 }
 
@@ -244,13 +305,18 @@ func (s *topologyScenario) deviceMetadata(dev *topologyScenarioDevice) map[strin
 
 func (s *topologyScenario) topologyMetricsForDevice(dev *topologyScenarioDevice) []ddsnmp.Metric {
 	var metrics []ddsnmp.Metric
+	for _, ip := range dev.mgmtAliases {
+		metrics = append(metrics, topologyScenarioMetric(ddsnmp.KindLldpLocManAddr, map[string]string{
+			tagLldpLocMgmtAddrSubtype: "1",
+			tagLldpLocMgmtAddr:        topologyScenarioIPv4Hex(ip),
+		}))
+	}
 	for _, port := range dev.ports {
 		metrics = append(metrics,
 			topologyScenarioMetric(ddsnmp.KindIfName, topologyScenarioIfTags(port)),
 			topologyScenarioMetric(ddsnmp.KindBridgePortIfIndex, map[string]string{
-				tagBridgeBaseAddress: dev.chassisMAC,
-				tagBridgeBasePort:    port.bridgePort,
-				tagBridgeIfIndex:     strconv.Itoa(port.ifIndex),
+				tagBridgeBasePort: port.bridgePort,
+				tagBridgeIfIndex:  strconv.Itoa(port.ifIndex),
 			}),
 			topologyScenarioMetric(ddsnmp.KindLldpLocPort, map[string]string{
 				tagLldpLocPortNum:       topologyScenarioPortNum(port),
@@ -260,11 +326,25 @@ func (s *topologyScenario) topologyMetricsForDevice(dev *topologyScenarioDevice)
 			}),
 		)
 		if port.ip != "" && port.netmask != "" {
-			metrics = append(metrics, topologyScenarioMetric(ddsnmp.KindIpIfIndex, map[string]string{
-				tagTopoIfIndex: strconv.Itoa(port.ifIndex),
-				tagTopoIPAddr:  port.ip,
-				tagTopoIPMask:  port.netmask,
-			}))
+			if port.modernIPv4 {
+				ifIndex := strconv.Itoa(port.ifIndex)
+				metrics = append(metrics, topologyScenarioMetric(ddsnmp.KindIpIfIndex, map[string]string{
+					tagTopoIPSource: topoIPSourceModern,
+					tagTopoIfIndex:  ifIndex,
+					tagTopoIPAddr:   port.ip,
+					tagTopoIPType:   "unicast",
+					tagTopoIPPrefix: fmt.Sprintf("%s.%s.1.4.%s.%d", ipAddressPrefixOriginOID, ifIndex, port.prefixIP, port.prefixLen),
+					tagTopoIPStatus: "preferred",
+					tagTopoIPRow:    "active",
+				}))
+			} else {
+				metrics = append(metrics, topologyScenarioMetric(ddsnmp.KindIpIfIndex, map[string]string{
+					tagTopoIPSource: topoIPSourceLegacy,
+					tagTopoIfIndex:  strconv.Itoa(port.ifIndex),
+					tagTopoIPAddr:   port.ip,
+					tagTopoIPMask:   port.netmask,
+				}))
+			}
 		}
 	}
 	for _, pair := range s.lldp {
@@ -289,21 +369,20 @@ func (s *topologyScenario) topologyMetricsForDevice(dev *topologyScenarioDevice)
 	}
 	for _, attachment := range s.fdbARP {
 		if attachment.port.device == dev {
-			metrics = append(metrics,
-				topologyScenarioMetric(ddsnmp.KindFdbEntry, map[string]string{
-					tagBridgeBaseAddress: dev.chassisMAC,
-					tagFdbMac:            attachment.mac,
-					tagFdbBridgePort:     attachment.port.bridgePort,
-					tagFdbStatus:         "learned",
-				}),
-				topologyScenarioMetric(ddsnmp.KindArpEntry, map[string]string{
+			metrics = append(metrics, topologyScenarioMetric(ddsnmp.KindFdbEntry, map[string]string{
+				tagFdbMac:        attachment.mac,
+				tagFdbBridgePort: attachment.port.bridgePort,
+				tagFdbStatus:     "learned",
+			}))
+			if attachment.ip != "" {
+				metrics = append(metrics, topologyScenarioMetric(ddsnmp.KindArpEntry, map[string]string{
 					tagArpIfIndex: strconv.Itoa(attachment.port.ifIndex),
 					tagArpIfName:  attachment.port.name,
 					tagArpIP:      attachment.ip,
 					tagArpMac:     attachment.mac,
 					tagArpState:   "reachable",
-				}),
-			)
+				}))
+			}
 		}
 	}
 	return metrics
@@ -379,15 +458,22 @@ func topologyScenarioCDPRemoteTags(local, remote *topologyScenarioPort) map[stri
 
 func topologyScenarioSTPTags(local, designated *topologyScenarioPort) map[string]string {
 	return map[string]string{
-		tagBridgeBaseAddress:       local.device.chassisMAC,
 		tagStpPort:                 local.bridgePort,
 		tagStpPortState:            "forwarding",
 		tagStpPortEnable:           "enabled",
 		tagStpPortPathCost:         "4",
 		tagStpPortDesignatedRoot:   designated.device.chassisMAC,
 		tagStpPortDesignatedBridge: designated.device.chassisMAC,
-		tagStpPortDesignatedPort:   designated.bridgePort,
+		tagStpPortDesignatedPort:   topologyScenarioSTPPortID(designated.bridgePort),
 	}
+}
+
+func topologyScenarioSTPPortID(basePort string) string {
+	port, err := strconv.ParseUint(strings.TrimSpace(basePort), 10, 12)
+	if err != nil || port == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%04x", 0x8000|port)
 }
 
 func topologyScenarioOSPFTags(local, remote *topologyScenarioPort) map[string]string {

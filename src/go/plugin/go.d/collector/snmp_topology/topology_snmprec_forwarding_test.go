@@ -88,13 +88,13 @@ func TestTopologyCache_RealSnmprecForwardingFixtures(t *testing.T) {
 			}
 			if tt.wantVTPVLANMap {
 				require.NotEmpty(t, data.vtpVLANs, "fixture %q should expose VTP VLAN data", tt.fixture)
-				require.True(t, cacheContainsAnyVLANName(cache.vlanIDToName, data.vtpVLANNames), "expected VTP VLAN names from fixture %q", tt.fixture)
+				require.True(t, cacheContainsAnyVLANName(cache.vlanNameByID, data.vtpVLANNames), "expected VTP VLAN names from fixture %q", tt.fixture)
 			}
 		})
 	}
 }
 
-func replaySnmprecForwardingFixture(t *testing.T, fixture string, data snmprecForwardingFixture) *topologyCache {
+func replaySnmprecForwardingFixture(t *testing.T, fixture string, data snmprecForwardingFixture) *topologyBuilder {
 	t.Helper()
 
 	cache := newTestTopologyCache(ddsnmp.DeviceConnectionInfo{
@@ -136,6 +136,7 @@ func replaySnmprecForwardingFixture(t *testing.T, fixture string, data snmprecFo
 	for _, tags := range data.arpEntries {
 		cache.updateTopologyCacheEntry(ddsnmp.Metric{TopologyKind: ddsnmp.KindArpEntry, Tags: tags})
 	}
+	cache.finalize()
 
 	return cache
 }
@@ -254,6 +255,7 @@ func parseSnmprecForwardingFixture(t *testing.T, path string) snmprecForwardingF
 
 		if suffix, ok := parseOIDSuffix(oid, "1.3.6.1.2.1.4.20.1.1"); ok {
 			entry := ensureTagMap(data.ipIfEntries, suffix)
+			entry[tagTopoIPSource] = topoIPSourceLegacy
 			entry[tagTopoIPAddr] = val
 			continue
 		}
@@ -515,9 +517,9 @@ func observedSTPHasInterface(obs topologyengine.L2Observation) bool {
 	return false
 }
 
-func cacheContainsAnyVLANName(names map[string]string, expected map[string]struct{}) bool {
-	for _, name := range names {
-		if _, ok := expected[strings.TrimSpace(name)]; ok {
+func cacheContainsAnyVLANName(names map[string]vlanNameMapping, expected map[string]struct{}) bool {
+	for _, mapping := range names {
+		if _, ok := expected[resolvedVLANName(mapping)]; ok {
 			return true
 		}
 	}

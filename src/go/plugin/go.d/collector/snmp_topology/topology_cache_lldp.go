@@ -3,6 +3,7 @@
 package snmptopology
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/collector/snmp_topology/internal/topologymodel"
@@ -10,15 +11,16 @@ import (
 	"github.com/netdata/netdata/go/plugins/plugin/go.d/collector/snmp/ddsnmp"
 )
 
+const lldpManagementAddressMaxLength = 31
+
 func init() {
-	registerTopologyMetricHandler(ddsnmp.KindLldpLocPort, (*topologyCache).updateLldpLocPort)
-	registerTopologyMetricHandler(ddsnmp.KindLldpLocManAddr, (*topologyCache).updateLldpLocManAddr)
-	registerTopologyMetricHandler(ddsnmp.KindLldpRem, (*topologyCache).updateLldpRemote)
-	registerTopologyMetricHandler(ddsnmp.KindLldpRemManAddr, (*topologyCache).updateLldpRemManAddr)
-	registerTopologyMetricHandler(ddsnmp.KindLldpRemManAddrCompat, (*topologyCache).updateLldpRemManAddr)
+	registerTopologyMetricHandler(ddsnmp.KindLldpLocPort, (*topologyBuilder).updateLldpLocPort)
+	registerTopologyMetricHandler(ddsnmp.KindLldpLocManAddr, (*topologyBuilder).updateLldpLocManAddr)
+	registerTopologyMetricHandler(ddsnmp.KindLldpRem, (*topologyBuilder).updateLldpRemote)
+	registerTopologyMetricHandler(ddsnmp.KindLldpRemManAddr, (*topologyBuilder).updateLldpRemManAddr)
 }
 
-func (c *topologyCache) updateLldpLocPort(tags map[string]string) {
+func (c *topologyBuilder) updateLldpLocPort(tags map[string]string) {
 	portNum := tags[tagLldpLocPortNum]
 	if portNum == "" {
 		return
@@ -41,13 +43,13 @@ func (c *topologyCache) updateLldpLocPort(tags map[string]string) {
 	}
 }
 
-func (c *topologyCache) updateLldpLocManAddr(tags map[string]string) {
+func (c *topologyBuilder) updateLldpLocManAddr(tags map[string]string) {
 	addrHex := tags[tagLldpLocMgmtAddr]
 	if addrHex == "" {
 		return
 	}
 
-	addr, addrType := normalizeManagementAddress(addrHex, tags[tagLldpLocMgmtAddrSubtype])
+	addr, addrType := normalizeLLDPManagementAddress(addrHex, tags[tagLldpLocMgmtAddrSubtype])
 	if addr == "" {
 		return
 	}
@@ -61,10 +63,10 @@ func (c *topologyCache) updateLldpLocManAddr(tags map[string]string) {
 		Source:      "lldp_local",
 	}
 
-	c.localDevice.ManagementAddresses = appendManagementAddress(c.localDevice.ManagementAddresses, mgmt)
+	c.appendLocalManagementAddress(mgmt)
 }
 
-func (c *topologyCache) updateLldpRemote(tags map[string]string) {
+func (c *topologyBuilder) updateLldpRemote(tags map[string]string) {
 	localPort := tags[tagLldpLocPortNum]
 	if localPort == "" {
 		return
@@ -113,8 +115,7 @@ func (c *topologyCache) updateLldpRemote(tags map[string]string) {
 		entry.sysCapEnabled = v
 	}
 	if v := tags[tagLldpRemMgmtAddr]; v != "" {
-		entry.managementAddr = v
-		addr, addrType := normalizeManagementAddress(v, tags[tagLldpRemMgmtAddrSubtype])
+		addr, addrType := normalizeLLDPManagementAddress(v, tags[tagLldpRemMgmtAddrSubtype])
 		if addr != "" {
 			entry.managementAddrs = appendManagementAddress(entry.managementAddrs, topologymodel.ManagementAddress{
 				Address:     addr,
@@ -125,7 +126,7 @@ func (c *topologyCache) updateLldpRemote(tags map[string]string) {
 	}
 }
 
-func (c *topologyCache) updateLldpRemManAddr(tags map[string]string) {
+func (c *topologyBuilder) updateLldpRemManAddr(tags map[string]string) {
 	localPort := tags[tagLldpLocPortNum]
 	if localPort == "" {
 		return
@@ -147,10 +148,10 @@ func (c *topologyCache) updateLldpRemManAddr(tags map[string]string) {
 	}
 
 	addrHex := tags[tagLldpRemMgmtAddr]
-	if strings.TrimSpace(addrHex) == "" {
-		addrHex = reconstructLldpRemMgmtAddrHex(tags)
+	if !validLLDPManagementAddressLength(addrHex, tags[tagLldpRemMgmtAddrLen]) {
+		return
 	}
-	addr, addrType := normalizeManagementAddress(addrHex, tags[tagLldpRemMgmtAddrSubtype])
+	addr, addrType := normalizeLLDPManagementAddress(addrHex, tags[tagLldpRemMgmtAddrSubtype])
 	if addr == "" {
 		return
 	}
@@ -164,4 +165,19 @@ func (c *topologyCache) updateLldpRemManAddr(tags map[string]string) {
 		Source:      "lldp_remote",
 	}
 	entry.managementAddrs = appendManagementAddress(entry.managementAddrs, mgmt)
+}
+
+func validLLDPManagementAddressLength(addrHex, declaredLength string) bool {
+	declaredLength = strings.TrimSpace(declaredLength)
+	if declaredLength == "" {
+		return true
+	}
+
+	length, err := strconv.Atoi(declaredLength)
+	if err != nil || length <= 0 || length > lldpManagementAddressMaxLength {
+		return false
+	}
+
+	addrHex = strings.TrimSpace(addrHex)
+	return len(addrHex)%2 == 0 && len(addrHex)/2 == length
 }
