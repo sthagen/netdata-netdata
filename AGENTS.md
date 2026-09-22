@@ -294,7 +294,7 @@ Before non-trivial work:
     implementation can start.
   - `in-progress`: implementation underway. Set it with the first implementation-file change.
   - `paused`: intentionally stopped; may resume on the branch.
-  - `completed`: validated and durable memory transferred. The successful terminal status.
+  - `completed`: required review and validation complete, durable memory transferred. The successful terminal status.
 - Content hygiene: an active SOW is a current-state handoff, not an append-only transcript.
   - When a plan, assumption, or decision is superseded, replace it with the current truth. Keep prior history only
     when it explains a current constraint, approval, or rejected alternative.
@@ -312,7 +312,8 @@ Before non-trivial work:
   superseded by newer user instructions.
 - Completion of a standalone or step SOW, when the authorized deliverable is complete and any changes are ready to
   merge (umbrellas: see "Umbrella And Step SOWs"):
-  1. Finish authorized implementation, documentation capture under Knowledge Capture, validation, and follow-up mapping.
+  1. Finish authorized implementation, documentation capture under Knowledge Capture, required review and validation,
+     and follow-up mapping. Record the evidence required by "Review" under the SOW's Validation section.
   2. Transfer durable knowledge needed for the approved deliverable into project skills, docs, code, and tests (and
      specs once re-introduced). Document reusable discoveries from implementation under Knowledge Capture. Discoveries
      from tracked answer-only work MAY remain sanitized local notes without authorizing guide edits. The SOW MUST NOT
@@ -371,9 +372,10 @@ approves it, then run `.agents/sow/worktree-link.sh` (see Storage Model).
   NOT be committed.
 - Never `git checkout <file>`, `git reset`, delete files, or rewrite history without explicit user approval. Undo a
   change by editing it out, not by checking the file out.
-- Commit and push only when the user asks or explicitly approves those operations in the plan. Approval to implement
-  a fixed goal is not implicit approval of Git operations subsequently added to the plan. Checkpoint commits and
-  squashing under "Review" remain subject to these authorization rules.
+- Local commits: authorization to implement includes local commits unless the user asks to leave changes uncommitted.
+  Commit coherent, validated implementation before any independent review, and completed, validated review fixes as
+  follow-up commits. Keep unfinished or unvalidated work uncommitted.
+- Pushes, squashing and other history rewrites still require explicit user authorization.
 - Commit messages and PR bodies describe the change. A PR body links the follow-up issues tracked from its SOW.
 
 ### Local SOW Parking
@@ -389,7 +391,25 @@ approves it, then run `.agents/sow/worktree-link.sh` (see Storage Model).
 
 ### Review
 
-Review findings are leads until verified against the shipped code and its contracts.
+The main agent owns delegation, review timing, scope, lenses, depth and reviewer count within the user's directions
+and the readiness assessment below. During development, assess the actual change, unresolved uncertainty and available
+validation; phase boundaries, commits and SOW steps do not require subagents by themselves. Direct work and self-review
+are appropriate when the affected behavior is well understood. Independent challenge is useful for consequential
+design assumptions, complex interactions or material blind spots. Exploration MAY be delegated to keep bulky source
+investigation out of the main context; return concise evidence and owner pointers, and verify consequential findings
+without routinely repeating the entire exploration.
+
+- Initial readiness: before first declaring work ready, the main agent MUST assess whether direct verification is
+  sufficient or independent review would materially improve confidence. Consider plausible mistakes, consequences,
+  interacting behavior, unfamiliar assumptions and validation gaps. Small documentation edits and straightforward,
+  locally understandable changes MAY use self-review and appropriate validation. Independent review is REQUIRED when
+  material uncertainty or consequential interactions remain. Diff size alone does not determine review depth.
+- Earlier independent review by a human, another model or a GitHub bot MAY satisfy the review need where its actual
+  coverage and assumptions remain valid and findings have been verified and addressed. An approval label alone does
+  not establish adequate coverage. When independent review is required and needed coverage is missing, the main agent
+  MUST assign a reviewer who did not implement the reviewed changes.
+
+Review findings are leads until verified against the relevant design or shipped code and its contracts.
 
 - A review request alone is read-only, as defined under "When A SOW Is Required". The fix requirements below apply
   only when implementation is authorized.
@@ -407,22 +427,35 @@ Review findings are leads until verified against the shipped code and its contra
   reproducer and confirm the failure no longer occurs. Record the passing result or non-reproduction evidence;
   if verification is unavailable or incomplete, record the gap instead of claiming success. Speculation alone is
   not reproduction.
-- Multi-round review: when Git operations are authorized under "Git And PR Workflow", checkpoint-commit each
-  validated change (specific files only) before its review and squash at PR time only if history rewriting is
-  explicitly approved. Otherwise review the working-tree diff, preserve a record of the reviewed state, and report
-  that no checkpoint commit or squash was performed. A review requirement never grants Git authorization.
-- Recurrence: if findings keep clustering in one subsystem for ~2-3 rounds, stop patching individual cases, name the
-  missing invariant, and propose one class-level fix as a user decision.
-- Obtaining a review: the coordinating assistant spawns independent, full-scope reviewers with clean context, or runs
-  the external assistants the user names. Delegated reviewers MUST NOT launch other agents; include this restriction
-  in each review assignment. For performance-sensitive code at least one reviewer MUST carry an explicit hot-path
-  performance lens. Record each reviewer and its findings under Validation in the SOW when one exists; otherwise
-  report the findings and review scope directly to the user.
-- One complete review round is the default. Repeat the same full scope only when a verified shipping blocker
-  required a material change to shipped implementation or behavior, or when the prior review could not assess the
-  complete change.
-- Stop when no verified shipping blocker remains. Reviewer unanimity, exact readiness phrases, and zero optional
-  suggestions are NOT required. Nits alone MUST NOT keep a review cycle open.
+- Review coverage: choose a decision, coherent change or specific fix and include the context needed to trace its
+  consequences. The main agent remains responsible for the whole affected deliverable; individual reviewers MAY
+  assess narrower questions. Select correctness, compatibility, performance, security or other lenses when relevant,
+  rather than assigning a fixed roster. Follow explicit user requests for reviewers and scope.
+- Performance sensitivity depends on workload frequency, volume, cardinality, resource budgets and shared state,
+  not merely the language or component name. Consider per-item costs, allocations, contention and unbounded growth
+  where relevant, including infrequent paths with large inputs or shared locks. The main agent decides whether
+  independent performance review or additional measurements would resolve a material uncertainty.
+- Delegated reviewers MUST NOT edit files, perform operational actions or launch other agents; state these boundaries
+  in the assignment. Supply the selected scope, relevant acceptance criteria, owner sources, validation and the SOW
+  filename when present.
+- Review evidence: the SOW's Validation section MUST record the chosen assessment approach and why it is sufficient,
+  assessed commit or identified working-tree state, covered scope and interactions, findings and dispositions (or
+  none), and remaining limitations. When independent review is used, also identify the reviewer; when reusing earlier
+  review, explain why its coverage remains valid. Preserve relevant validation evidence alongside the assessment;
+  for work without a SOW, include a brief assessment summary in the final report.
+- Review checkpoints follow "Git And PR Workflow". Focused review MAY compare commits; it does not require uncommitted
+  changes. Choose review scope from the changed behavior and remaining uncertainty, not the working tree's status.
+- Follow-up review: assess each subsequent change against earlier review and validation, retaining evidence that
+  still holds. A bounded correction MAY be verified directly; obtain focused independent review when the change
+  introduces material risk or invalidates earlier assumptions. Repeat broader review only when changed assumptions,
+  shared behavior, contracts or missing coverage invalidate the earlier assessment beyond the change. A new commit,
+  bot finding, blocker label, review round or readiness declaration does not itself require another reviewer.
+- Recurrence: when findings repeatedly cluster in one subsystem, investigate the shared cause or missing invariant
+  rather than accumulating case fixes. Broaden investigation when the evidence warrants it; obtain user approval
+  for remedies that change architecture, scope, public behavior or an approved design.
+- Stop when no verified shipping blocker remains, material risks have been assessed, validation is complete and any
+  review required by the risk assessment and applicable instructions is complete. Reviewer unanimity, exact readiness
+  phrases and zero optional suggestions are NOT required. Nits alone MUST NOT keep a review cycle open.
 
 ### Followup Discipline
 
@@ -597,8 +630,8 @@ docs, code, and tests, not in specs.
 - Documentation work arising from answer-only questions requires separate authorization. Documentation capture
   records observed behavior; it does not authorize additional implementation or new product contracts.
 - Local notes are private evidence, not shared project contracts or automatic follow-up commitments. Accepted
-  deferred work follows Followup Discipline. Commit, push, and publication requirements never grant authorization
-  to perform those actions.
+  deferred work follows Followup Discipline. Git authorization follows "Git And PR Workflow"; these capture
+  requirements do not authorize implementation or publication.
 - Developer skills that give capture instructions MUST point to this section for timing and authorization.
 - Public/operator skills MUST carry a self-contained operator-facing version because they can be used outside this
   checkout.
@@ -626,9 +659,9 @@ Apply skill selection to implementation, investigation and read-only review, inc
   do not create implementation artifacts merely because the authoring workflow requests them. Existing user
   authorization for the actual task still applies.
 
-Review assignment scope, complete-change coverage and stop conditions remain in "Review". Provide the assigned
-operation, complete review scope, approved contracts, applicable skill paths/sections and available evidence so a
-specialist can select depth without guessing the task. One reviewer still assesses the complete unit and interactions.
+Review strategy and stop conditions remain in "Review". Provide the assigned operation and scope, approved contracts,
+applicable skill paths/sections and available evidence so a specialist can select depth without guessing the task.
+The main agent remains responsible for coverage of the affected deliverable; a specialist need not repeat it all.
 
 ### Project Skills
 
@@ -697,10 +730,11 @@ and the rule for adding one; each skill's frontmatter description is the authori
 - Collectors. START HERE: `collectors-authoring`.
   - `collectors-authoring`: authoring, modifying or reviewing collectors across plugin families; shared identity,
     missing-data, lifecycle, cost and cardinality contracts, then selective framework/domain routes
-  - `collectors-go-design`: go.d contract design/review and `config_schema.json` forms; selective operator-surface,
-    identity, state/mutation and design-evidence guidance
+  - `collectors-go-design`: go.d collector/discoverer contract design and review, plus `config_schema.json` forms;
+    selective product, operator-surface, identity, state/mutation and design-evidence guidance
   - `collectors-go-framework-v2`: implementing, migrating or reviewing a go.d V2 collector; `CollectorV2`,
-    `metrix.CollectorStore`, `ChartTemplateYAML`/`charts.yaml`, `charttpl`, `chartengine`, V2 host scopes, V2 tests
+    `metrix.CollectorStore`, `ChartTemplateYAML`/`charts.yaml` authoring (defaults, families, ordering, statesets,
+    labels), `charttpl`, `chartengine`, V2 host scopes, V2 tests
   - `collectors-metadata-yaml`: what every collector `metadata.yaml` field says and how it reads: overview,
     permissions, auto-detection (including service discovery), limits and cost, prerequisites, option rows, examples,
     the known-errors troubleshooting catalog, metrics scopes, alerts, identity and keywords; a page that reads as a
@@ -745,6 +779,11 @@ and the rule for adding one; each skill's frontmatter description is the authori
     locally from a PR or docs branch; loads `docs-learn-site-structure` first
   - Also relevant: `integrations-lifecycle` (generated integration pages are published on Learn).
 - Triage.
+  - `triage-support-bundle`: offline investigation of a `netdata-support-bundle` archive - one host, one moment;
+    alerts, missing data and collector failures, crashes, resource use, retention, streaming, cloud claiming,
+    dashboard reachability, permissions, install and update, containers, Windows; the artifact map and what each
+    absence means, the evidence limits, and `scripts/bundle-summary.sh`. Not SNMP evidence, not fleet-wide crash
+    clustering, not live queries
   - `triage-snmp-diagnostics`: offline SNMP evidence investigations and diagnostics-tool/interpretation reviews
     with `src/go/tools/snmp-diagnostics`;
     topology devices/links, metrics, BGP, licensing, slow collection, discovery and lifecycle failures; `list`,
@@ -837,6 +876,7 @@ renames:
 | `triage-codeql` | `graphql/` | Code Scanning fetches and dismissals |
 | `triage-agent-events` | `query-agent-events/` | fetched event batches |
 | `triage-snmp-diagnostics` | `snmp-diagnostics/` | private bundle inspections, replay output, and incident reports |
+| `triage-support-bundle` | `support-bundle/` | per-case bundle inventories, extracted evidence, and incident reports |
 | `docs-learn-pr-preview` | `learn-pr-preview/` | private isolated source snapshots, manifests, Learn builds and server logs |
 | `repo-pr-reviews` | `pr-reviews/` | per-PR comment and review caches |
 | `collectors-prometheus-profiles` | `prometheus-profiles/` | captured exposition dumps |
