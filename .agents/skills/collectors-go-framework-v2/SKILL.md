@@ -96,8 +96,11 @@ shape. Older V2 collectors can supply local patterns, but check for stale style 
   for every shared or instance Function. If a collector needs runtime readiness
   gating per job-backed Function, implement `collectorapi.FunctionAvailability`;
   keep `FunctionAvailable(functionID)` cheap and non-blocking.
-  `funcapi.FunctionConfig.Available` applies to `AgentFunctions`, not
+  `funcapi.FunctionConfig.Available` applies to `AgentFunctions` and process providers, not
   job-backed `SharedFunctions` or `InstanceFunctions`.
+- When Function data belongs to the process independently of collector selection, use
+  `src/go/pkg/funcapi/README.md#process-function-providers` for registration, ownership and availability.
+  Intentionally module-bound `Creator.AgentFunctions` remains valid; it still requires an enabled module.
 - `collectorapi.Creator.InstancePolicy` defaults to
   `InstancePolicyPerJob`. Use `InstancePolicySingle` only for collectors that
   are intentionally one canonical job per agent. Single-instance configs MUST
@@ -276,6 +279,8 @@ applicable coverage and required validation evidence without creating a new PR/S
 
 - config YAML/JSON serialization compatibility;
 - `Init`, `Check`, `Collect`, and `Cleanup` lifecycle coverage;
+- for a `CollectorV2Runner`: readiness only after acquisition, startup rollback, cancellation and terminal failure;
+  `jobruntime.NewJobV2` with `jobruntime.NewManagedRun` drives the real `Run`/tick/emission path from a collector test;
 - explicit metric-store cycle tests with `BeginCycle`, success commit, and abort
   on expected collection errors;
 - chart-template schema/decode/validate/compile coverage and the artifact drift checks in
