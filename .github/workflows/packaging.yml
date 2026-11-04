@@ -118,7 +118,7 @@ jobs:
           echo "Generated matrix: ${matrix}"
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
       - name: Failure Notification
-        uses: rtCamp/action-slack-notify@33ca3be66c6f378fe1610fd1d5258632dbed5e58 # v2.4.0
+        uses: rtCamp/action-slack-notify@06cc13f74fa8d4d2296c09455d91e9453e4025f4 # v2.4.1
         env:
           SLACK_COLOR: 'danger'
           SLACK_ICON_EMOJI: ':github-actions:'
@@ -175,7 +175,7 @@ jobs:
             echo "retention=0" >> "${GITHUB_OUTPUT}"
           fi
       - name: Failure Notification
-        uses: rtCamp/action-slack-notify@33ca3be66c6f378fe1610fd1d5258632dbed5e58 # v2.4.0
+        uses: rtCamp/action-slack-notify@06cc13f74fa8d4d2296c09455d91e9453e4025f4 # v2.4.1
         env:
           SLACK_COLOR: 'danger'
           SLACK_ICON_EMOJI: ':github-actions:'
@@ -218,13 +218,13 @@ jobs:
       - name: Upload IBM MQ libs artifact
         id: upload-ibm-mq
         if: needs.file-check.outputs.run == 'true'
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ibm-mq-libs
           path: ${{ github.workspace }}/tmp/ibm_mq
           include-hidden-files: true
       - name: Failure Notification
-        uses: rtCamp/action-slack-notify@33ca3be66c6f378fe1610fd1d5258632dbed5e58 # v2.4.0
+        uses: rtCamp/action-slack-notify@06cc13f74fa8d4d2296c09455d91e9453e4025f4 # v2.4.1
         env:
           SLACK_COLOR: 'danger'
           SLACK_ICON_EMOJI: ':github-actions:'
@@ -290,13 +290,13 @@ jobs:
       - name: Upload topology-ip-intel stock payload
         id: upload-stock
         if: needs.file-check.outputs.run == 'true'
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: topology-ip-intel-stock
           path: ${{ github.workspace }}/.topology-ip-intel-stock/
           include-hidden-files: true
       - name: Failure Notification
-        uses: rtCamp/action-slack-notify@33ca3be66c6f378fe1610fd1d5258632dbed5e58 # v2.4.0
+        uses: rtCamp/action-slack-notify@06cc13f74fa8d4d2296c09455d91e9453e4025f4 # v2.4.1
         env:
           SLACK_COLOR: 'danger'
           SLACK_ICON_EMOJI: ':github-actions:'
@@ -409,7 +409,7 @@ jobs:
         id: artifacts
         if: needs.file-check.outputs.run == 'true'
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.distro }}-${{ matrix.version }}-${{ matrix.arch }}-packages
           path: ${{ github.workspace }}/artifacts/*${{ matrix.format }}
@@ -464,7 +464,7 @@ jobs:
           ${{ matrix.format }} \
           ${{ needs.version-check.outputs.repo }}
       - name: Failure Notification
-        uses: rtCamp/action-slack-notify@33ca3be66c6f378fe1610fd1d5258632dbed5e58 # v2.4.0
+        uses: rtCamp/action-slack-notify@06cc13f74fa8d4d2296c09455d91e9453e4025f4 # v2.4.1
         env:
           SLACK_COLOR: 'danger'
           SLACK_ICON_EMOJI: ':github-actions:'
